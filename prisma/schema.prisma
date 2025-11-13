@@ -1,0 +1,594 @@
+// Datasource Supabase Postgres
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==================== ENUMS ====================
+
+enum ElementType {
+  access
+  hospitality
+  entertainment
+  shop
+  merchshop
+  entrance
+}
+
+enum GoodType {
+  Food
+  Beverage
+  Packaging
+  Other
+}
+
+enum StorageType {
+  Cold
+  Dry
+  Frozen
+}
+
+enum Diet {
+  Vegetarian
+  Vegan
+  GlutenFree
+  Halal
+  Kosher
+}
+
+enum MenuItemCategory {
+  Starter
+  Main
+  Dessert
+  Side
+  Beverage
+  Snack
+}
+
+enum ComponentCategory {
+  Sauce
+  Condiment
+  Topping
+  Base
+  Filling
+  Other
+}
+
+enum IngredientCategory {
+  Vegetable
+  Meat
+  Fish
+  Dairy
+  Bread
+  Spice
+  Condiment
+  Grain
+  Fruit
+  Herb
+  Oil
+  Sweetener
+  Beverage
+  Other
+}
+
+enum AccessType {
+  venueentrance
+  emergency
+  service
+  vip
+}
+
+enum HospitalityType {
+  salon
+  lounge
+  restaurant
+  bar
+  vip_area
+}
+
+enum EntertainmentType {
+  sportground
+  stage
+  screen
+  playground
+}
+
+enum ShopType {
+  food
+  beverages
+  beer
+  merchandise
+  souvenirs
+  retail
+}
+
+enum EntranceType {
+  public
+  vip
+  service
+  emergency
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  STAFF
+  VIEWER
+}
+
+// ==================== MULTI-TENANT ====================
+
+model Tenant {
+  id            String      @id @default(cuid())
+  name          String
+  slug          String      @unique
+  domain        String?     @unique
+  logo          String?
+  plan          TenantPlan  @default(FREE)
+  status        TenantStatus @default(ACTIVE)
+  metadata      Json?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  // Relations
+  users         User[]
+  spaces        Space[]
+  suppliers     Supplier[]
+
+  @@index([slug])
+  @@index([status])
+}
+
+enum TenantPlan {
+  FREE
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  TRIAL
+  CANCELLED
+}
+
+// ==================== USER & AUTH ====================
+
+model User {
+  id            String      @id @default(cuid())
+  email         String
+  name          String?
+  role          UserRole    @default(VIEWER)
+  avatar        String?
+  tenantId      String
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  // Relations
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  pinnedSpaces  UserPinnedSpace[]
+  spaceAccess   UserSpaceAccess[]
+
+  @@unique([email, tenantId])
+  @@index([tenantId])
+  @@index([email])
+}
+
+model UserPinnedSpace {
+  id        String   @id @default(cuid())
+  userId    String
+  spaceId   String
+  pinnedAt  DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  space     Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, spaceId])
+  @@index([userId])
+}
+
+model UserSpaceAccess {
+  id        String   @id @default(cuid())
+  userId    String
+  spaceId   String
+  role      UserRole @default(VIEWER)
+  grantedAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  space     Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, spaceId])
+  @@index([userId])
+  @@index([spaceId])
+}
+
+// ==================== SPACE & CONFIG ====================
+
+model Space {
+  id        String   @id
+  name      String
+  image     String?
+  tenantId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenant          Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  configs         Config[]
+  pinnedByUsers   UserPinnedSpace[]
+  userAccess      UserSpaceAccess[]
+
+  @@index([tenantId])
+  @@index([name])
+}
+
+model Config {
+  id        String   @id
+  name      String
+  spaceId   String
+  capacity  Int?
+  data      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  space     Space      @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  floors    Floor[]
+  forecourt Forecourt?
+  stations  Station[]
+
+  @@index([spaceId])
+}
+
+// ==================== FLOOR & ELEMENTS ====================
+
+model Floor {
+  id           String  @id
+  configId     String
+  name         String
+  level        Int
+  width        Float
+  height       Float
+  length       Float
+  cornerRadius Json?
+
+  config       Config         @relation(fields: [configId], references: [id], onDelete: Cascade)
+  elements     FloorElement[]
+
+  @@index([configId])
+  @@index([level])
+}
+
+model FloorElement {
+  id         String      @id
+  floorId    String
+  name       String
+  type       ElementType
+  x          Float
+  y          Float
+  depth      Float?
+  width      Float?
+  height     Float?
+  attributes Json?       // Stocke accessType[], hospitalityType[], etc.
+  tags       String[]
+
+  floor      Floor       @relation(fields: [floorId], references: [id], onDelete: Cascade)
+
+  @@index([floorId])
+  @@index([type])
+}
+
+model Forecourt {
+  id       String  @id
+  configId String  @unique
+  name     String
+  width    Float
+  length   Float
+
+  config   Config             @relation(fields: [configId], references: [id], onDelete: Cascade)
+  elements ForecourtElement[]
+}
+
+model ForecourtElement {
+  id          String      @id
+  forecourtId String
+  name        String
+  type        ElementType
+  x           Float
+  y           Float
+  depth       Float?
+  width       Float?
+  height      Float?
+  attributes  Json?       // Stocke entranceType[], etc.
+  tags        String[]
+
+  forecourt   Forecourt   @relation(fields: [forecourtId], references: [id], onDelete: Cascade)
+
+  @@index([forecourtId])
+  @@index([type])
+}
+
+// ==================== SUPPLIER & MARKET PRICES ====================
+
+model Supplier {
+  id           String        @id
+  name         String
+  email        String?
+  tel          String?
+  city         String?
+  address      String?
+  postcode     String?
+  picture      String?
+  tenantId     String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  // Relations
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  marketPrices MarketPrice[]
+
+  @@index([tenantId])
+  @@index([name])
+}
+
+model MarketPrice {
+  id               String      @id
+  unit             String
+  image            String?
+  price            Decimal     @db.Decimal(10, 2)
+  goodType         GoodType
+  itemName         String
+  supplierId       String?
+  pricePerUnit     Decimal?    @db.Decimal(10, 4)
+  packedUnits      Int?
+  numberOfUnits    Int?
+  unitsPerPurchase Int?
+  packingWidth     Float?
+  packingHeight    Float?
+  packingLength    Float?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  supplier         Supplier?   @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  ingredients      Ingredient[]
+  packagings       Packaging[]
+
+  @@index([supplierId])
+  @@index([goodType])
+  @@index([itemName])
+}
+
+// ==================== INGREDIENTS & PACKAGING ====================
+
+model Ingredient {
+  id                          String              @id
+  name                        String
+  active                      Boolean             @default(true)
+  supplier                    String?
+  recipeUnit                  String
+  storageType                 StorageType?
+  purchaseUnit                String
+  marketPriceId               String?
+  costPerRecipeUnit           Decimal?            @db.Decimal(10, 4)
+  ingredientCategory          IngredientCategory?
+  costPerPurchaseUnit         Decimal?            @db.Decimal(10, 4)
+  purchaseUnitsPerRecipeUnit  Float?
+  createdAt                   DateTime            @default(now())
+  updatedAt                   DateTime            @updatedAt
+
+  marketPrice                 MarketPrice?        @relation(fields: [marketPriceId], references: [id], onDelete: SetNull)
+  componentIngredients        ComponentIngredient[]
+  menuItemIngredients         MenuItemIngredient[]
+
+  @@index([name])
+  @@index([active])
+  @@index([ingredientCategory])
+}
+
+model Packaging {
+  id                          String              @id
+  name                        String
+  active                      Boolean             @default(true)
+  supplier                    String?
+  recipeUnit                  String
+  storageType                 StorageType?
+  purchaseUnit                String
+  marketPriceId               String?
+  costPerRecipeUnit           Decimal?            @db.Decimal(10, 4)
+  ingredientCategory          String?
+  costPerPurchaseUnit         Decimal?            @db.Decimal(10, 4)
+  purchaseUnitsPerRecipeUnit  Float?
+  createdAt                   DateTime            @default(now())
+  updatedAt                   DateTime            @updatedAt
+
+  marketPrice                 MarketPrice?        @relation(fields: [marketPriceId], references: [id], onDelete: SetNull)
+  menuItemPackagings          MenuItemPackaging[]
+
+  @@index([name])
+  @@index([active])
+}
+
+// ==================== MENU COMPONENTS ====================
+
+model MenuComponent {
+  id          String            @id
+  name        String
+  unit        String
+  category    ComponentCategory
+  unitCost    Decimal?          @db.Decimal(10, 4)
+  allergens   String[]
+  description String?
+  storageType StorageType?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  ingredients ComponentIngredient[]
+  children    ComponentComponent[]  @relation("ParentToChild")
+  parents     ComponentComponent[]  @relation("ChildToParent")
+  usedIn      MenuItemComponent[]
+
+  @@index([name])
+  @@index([category])
+}
+
+model ComponentIngredient {
+  id           String        @id @default(cuid())
+  componentId  String
+  ingredientId String
+  quantity     Float
+  unit         String?
+  unitCost     Decimal?      @db.Decimal(10, 4)
+  cost         Decimal?      @db.Decimal(10, 4)
+
+  component    MenuComponent @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  ingredient   Ingredient    @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@unique([componentId, ingredientId])
+  @@index([componentId])
+  @@index([ingredientId])
+}
+
+model ComponentComponent {
+  id        String        @id @default(cuid())
+  parentId  String
+  childId   String
+  quantity  Float
+  unit      String?
+  cost      Decimal?      @db.Decimal(10, 4)
+
+  parent    MenuComponent @relation("ParentToChild", fields: [parentId], references: [id], onDelete: Cascade)
+  child     MenuComponent @relation("ChildToParent", fields: [childId], references: [id], onDelete: Cascade)
+
+  @@unique([parentId, childId])
+  @@index([parentId])
+  @@index([childId])
+}
+
+// ==================== MENU ITEMS ====================
+
+model MenuItem {
+  id                    String            @id
+  name                  String
+  type                  String
+  category              MenuItemCategory
+  diet                  Diet[]
+  allergens             String[]
+  picture               String?
+  basePrice             Decimal           @db.Decimal(10, 2)
+  totalCost             Decimal?          @db.Decimal(12, 4)
+  margin                Float?
+  description           String?
+  storageType           StorageType[]
+  readyForSale          Boolean?
+  comboItem             Boolean           @default(false)
+  numberOfPiecesRecipe  Int?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  components            MenuItemComponent[]
+  ingredients           MenuItemIngredient[]
+  packagings            MenuItemPackaging[]
+  menuAssignments       MenuAssignment[]
+
+  @@index([name])
+  @@index([category])
+  @@index([readyForSale])
+}
+
+model MenuItemComponent {
+  id            String        @id @default(cuid())
+  menuItemId    String
+  componentId   String
+  numberOfUnits Float
+  unitCost      Decimal?      @db.Decimal(10, 4)
+  totalCost     Decimal?      @db.Decimal(12, 4)
+  storageType   StorageType?
+
+  menuItem      MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  component     MenuComponent @relation(fields: [componentId], references: [id], onDelete: Cascade)
+
+  @@unique([menuItemId, componentId])
+  @@index([menuItemId])
+  @@index([componentId])
+}
+
+model MenuItemIngredient {
+  id            String      @id @default(cuid())
+  menuItemId    String
+  ingredientId  String
+  numberOfUnits Float
+  unitCost      Decimal?    @db.Decimal(10, 4)
+  totalCost     Decimal?    @db.Decimal(12, 4)
+  storageType   StorageType?
+
+  menuItem      MenuItem    @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  ingredient    Ingredient  @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@unique([menuItemId, ingredientId])
+  @@index([menuItemId])
+  @@index([ingredientId])
+}
+
+model MenuItemPackaging {
+  id            String      @id @default(cuid())
+  menuItemId    String
+  packagingId   String
+  numberOfUnits Float
+  unitCost      Decimal?    @db.Decimal(10, 4)
+  totalCost     Decimal?    @db.Decimal(12, 4)
+  storageType   StorageType?
+
+  menuItem      MenuItem    @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  packaging     Packaging   @relation(fields: [packagingId], references: [id], onDelete: Cascade)
+
+  @@unique([menuItemId, packagingId])
+  @@index([menuItemId])
+  @@index([packagingId])
+}
+
+// ==================== STATIONS & MENU ASSIGNMENTS ====================
+
+model Station {
+  id        String   @id // Garder les IDs comme "1761836020929"
+  configId  String
+  name      String?  // Nom optionnel
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  config    Config           @relation(fields: [configId], references: [id], onDelete: Cascade)
+  menus     MenuAssignment[]
+
+  @@index([configId])
+}
+
+model MenuAssignment {
+  id         String   @id @default(cuid())
+  stationId  String
+  menuItemId String
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  station    Station  @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@unique([stationId, menuItemId])
+  @@index([stationId])
+  @@index([menuItemId])
+}
+
+// ==================== CSV MAPPINGS ====================
+
+model CsvMapping {
+  id          String   @id @default(cuid())
+  mappingType String
+  mapping     Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([mappingType])
+}

@@ -9,148 +9,127 @@
 
 **Pas besoin de Node.js, npm, ou PostgreSQL sur votre machine.**
 
-> **Multi-Tenant**: Chaque organisation (tenant) a ses données isolées. Voir [MULTI_TENANT.md](./MULTI_TENANT.md)
+> **Multi-Tenant SaaS**: 3 environnements (Dev/Staging/Prod) avec Supabase  
+> **Documentation:** Voir [docs/](./docs/)
 
 ---
 
 ## 🚀 Démarrage
 
+### 3 Environnements Supabase disponibles
+
+**Pas de PostgreSQL local** - Utilisez vos projets Supabase:
+
 ```bash
-make quickstart
+# DEVELOPMENT
+make dev-up
+
+# STAGING  
+make staging-up
+
+# PRODUCTION
+make prod-up
 ```
+
+**Configuration requise:** Voir [docs/ENVIRONMENTS.md](./docs/ENVIRONMENTS.md)
 
 L'API sera sur: **http://localhost:3000/api/v1**
 
 ---
 
-## Commandes principales
+## Commandes par environnement
 
+### Development
 | Commande | Description |
 |----------|-------------|
-| `make quickstart` | Setup complet + démarrage |
-| `make up` | Démarrer les conteneurs |
-| `make dev` | Mode développement (hot-reload) |
-| `make down` | Arrêter tout |
-| `make logs-api` | Voir les logs |
-| `make shell-api` | Shell dans le conteneur |
-| `make prisma-studio` | Interface DB graphique |
-| `make clean` | Tout nettoyer |
-| `make help` | Toutes les commandes |
+| `make dev-up` | Démarrer DEV |
+| `make dev-down` | Arrêter DEV |
+| `make dev-migrate` | Migrations DEV |
+| `make dev-seed` | Seed DEV |
+| `make dev-studio` | Prisma Studio |
+| `make dev-logs` | Logs DEV |
+
+### Staging
+| Commande | Description |
+|----------|-------------|
+| `make staging-up` | Démarrer STAGING |
+| `make staging-down` | Arrêter STAGING |
+| `make staging-migrate` | Migrations STAGING |
+| `make staging-logs` | Logs STAGING |
+
+### Production
+| Commande | Description |
+|----------|-------------|
+| `make prod-up` | Démarrer PROD |
+| `make prod-down` | Arrêter PROD |
+| `make prod-migrate` | Migrations PROD |
+| `make prod-logs` | Logs PROD |
+
+**Toutes les commandes:** `make help`
 
 ---
 
-## Endpoints
+## Accès
 
+- **API:** http://localhost:3000/api/v1
 - **Health check:** http://localhost:3000/api/v1/health
 - **Prisma Studio:** http://localhost:5555 (via `make prisma-studio`)
 
 ---
 
-## Modèles de données (Prisma)
+## Documentation
 
-27 modèles + Multi-Tenant:
-- **Multi-Tenant:** **Tenant** (organisations) avec plans FREE/STARTER/PRO/ENTERPRISE
-- **Espaces:** Space, Config, Floor, FloorElement, Forecourt, ForecourtElement
-- **Menu:** MenuItem, MenuComponent, Station, MenuAssignment  
-- **Prix:** Supplier, MarketPrice, Ingredient, Packaging
-- **Users:** User, UserPinnedSpace, UserSpaceAccess
-- +10 tables de jonction
+- **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** - Architecture multi-tenant & Stack technique
+- **[docs/ENVIRONMENTS.md](./docs/ENVIRONMENTS.md)** - Guide des 3 environnements Supabase
+- **[prisma/schema.prisma](./prisma/schema.prisma)** - 27 modèles de données
 
-**Architecture SaaS:** Toutes les données sont scopées par `tenantId` pour isolation complète.
-
-Voir `prisma/schema.prisma` et [MULTI_TENANT.md](./MULTI_TENANT.md)
+**27 modèles:** Tenant, Space, Config, Floor, Supplier, MenuItem, MenuComponent, User, etc.
 
 ---
 
 ## Configuration
 
-Fichier `.env` (auto-généré):
+3 fichiers `.env` à remplir avec vos credentials Supabase:
 
-```bash
-API_PORT=3000
-POSTGRES_USER=datafriday
-POSTGRES_PASSWORD=datafriday_password
-POSTGRES_DB=datafriday
-DATABASE_URL="postgresql://datafriday:datafriday_password@postgres:5432/datafriday?schema=public"
-```
+- `.env.development` - Projet Supabase DEV
+- `.env.staging` - Projet Supabase STAGING
+- `.env.production` - Projet Supabase PROD
+
+**Voir:** [docs/ENVIRONMENTS.md](./docs/ENVIRONMENTS.md) pour le setup complet
 
 ---
 
-## Workflow Docker
+## Commandes utiles
 
-### Développement avec hot-reload:
 ```bash
-make dev           # Démarrer en mode dev
-make logs-api      # Suivre les logs
-# Les changements de code sont automatiquement rechargés
+# Migrations
+make dev-migrate        # Créer/appliquer migration (dev)
+make staging-migrate    # Appliquer migrations (staging)
+make prod-migrate       # Appliquer migrations (prod)
+
+# Seed
+make dev-seed          # Peupler avec données test
+
+# Prisma Studio (interface DB)
+make dev-studio        # → http://localhost:5555
+
+# Shell dans conteneur
+make shell-api
+
+# Nettoyage
+make dev-down          # Arrêter
+make rebuild           # Reconstruire
 ```
 
-### Migrations Prisma:
-```bash
-make prisma-migrate     # Créer une nouvelle migration
-make prisma-seed        # Peupler la DB avec données test
-```
-
-### Accéder au conteneur:
-```bash
-make shell-api     # Shell dans le conteneur API
-make shell-db      # psql dans PostgreSQL
-```
-
-### Nettoyage:
-```bash
-make down          # Arrêter
-make clean         # Arrêter + supprimer volumes
-make rebuild       # Reconstruire complètement
-```
+**Toutes les commandes:** `make help`
 
 ---
 
-## Troubleshooting
+## Support
 
-**Port déjà utilisé:**
-```bash
-# Changer API_PORT dans .env
-API_PORT=3001
-make restart
-```
+**Erreurs communes:**
+- Port 3000 occupé → Modifier `API_PORT` dans `.env`
+- Erreur Prisma → `make dev-migrate`
+- Rebuild complet → `make rebuild`
 
-**Erreur Prisma:**
-```bash
-make prisma-generate
-make prisma-migrate
-```
-
-**Conteneurs ne démarrent pas:**
-```bash
-make rebuild
-```
-
-**Reset complet:**
-```bash
-make clean
-make quickstart
-```
-
----
-
-## Architecture
-
-```
-┌─────────────┐
-│   Client    │
-└──────┬──────┘
-       │ HTTP
-┌──────▼──────┐
-│  Fastify    │
-│   NestJS    │
-├─────────────┤
-│   Prisma    │
-└──────┬──────┘
-       │
-┌──────▼──────┐
-│  PostgreSQL │
-└─────────────┘
-```
-
-Tout tourne dans Docker. Aucune installation locale nécessaire.
+**Documentation complète:** Voir [docs/](./docs/)

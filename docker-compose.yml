@@ -1,26 +1,5 @@
 services:
-  # PostgreSQL Database (développement local)
-  postgres:
-    image: postgres:16-alpine
-    container_name: datafriday-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-datafriday}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-datafriday_password}
-      POSTGRES_DB: ${POSTGRES_DB:-datafriday}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - datafriday-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-datafriday}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # NestJS Application
+  # NestJS Application - Supabase
   api:
     build:
       context: .
@@ -30,15 +9,14 @@ services:
     restart: unless-stopped
     ports:
       - "${API_PORT:-3000}:3000"
+      - "5555:5555"
     environment:
-      NODE_ENV: ${NODE_ENV:-production}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-datafriday}:${POSTGRES_PASSWORD:-datafriday_password}@postgres:5432/${POSTGRES_DB:-datafriday}?schema=public
+      NODE_ENV: ${NODE_ENV:-development}
+      DATABASE_URL: ${DATABASE_URL}
       PORT: 3000
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - datafriday-network
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
     volumes:
       - ./prisma:/app/prisma
     command: sh -c "npx prisma migrate deploy && node dist/main"
@@ -53,15 +31,14 @@ services:
     restart: unless-stopped
     ports:
       - "${API_PORT:-3000}:3000"
+      - "5555:5555"
     environment:
       NODE_ENV: development
-      DATABASE_URL: postgresql://${POSTGRES_USER:-datafriday}:${POSTGRES_PASSWORD:-datafriday_password}@postgres:5432/${POSTGRES_DB:-datafriday}?schema=public
+      DATABASE_URL: ${DATABASE_URL}
       PORT: 3000
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - datafriday-network
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
     volumes:
       - ./src:/app/src:ro
       - ./prisma:/app/prisma:ro
@@ -71,11 +48,6 @@ services:
     profiles:
       - dev
 
-networks:
-  datafriday-network:
-    driver: bridge
-
 volumes:
-  postgres_data:
   node_modules:
   dist:

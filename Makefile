@@ -150,6 +150,82 @@ prod: ## Démarre en mode production avec build
 prod-logs: ## Affiche les logs de production
 	docker-compose logs -f --tail=100
 
+# === ENVIRONMENTS - SUPABASE ===
+
+## DEVELOPMENT
+dev-up: ## Démarre en DEVELOPMENT (Supabase)
+	@echo "$(BLUE)🔧 Démarrage DEVELOPMENT avec Supabase...$(NC)"
+	@if [ ! -f .env.development ]; then echo "$(RED)❌ Fichier .env.development manquant$(NC)"; exit 1; fi
+	docker-compose --env-file .env.development up -d --build
+	@echo "$(GREEN)✅ Development démarré$(NC)"
+
+dev-down: ## Arrête DEVELOPMENT
+	docker-compose down
+
+dev-logs: ## Logs DEVELOPMENT
+	docker-compose logs -f --tail=100
+
+dev-migrate: ## Migrations DEVELOPMENT
+	@echo "$(BLUE)🗄️  Migrations sur Supabase DEV...$(NC)"
+	docker-compose --env-file .env.development exec api npx prisma migrate dev
+	@echo "$(GREEN)✅ Migrations appliquées$(NC)"
+
+dev-seed: ## Seed DEVELOPMENT
+	@echo "$(BLUE)🌱 Seed Supabase DEV...$(NC)"
+	docker-compose --env-file .env.development exec api npm run prisma:seed
+	@echo "$(GREEN)✅ Seed terminé$(NC)"
+
+dev-studio: ## Prisma Studio DEVELOPMENT
+	docker-compose --env-file .env.development exec api npx prisma studio
+
+## STAGING
+staging-up: ## Démarre en STAGING (Supabase)
+	@echo "$(BLUE)🚧 Démarrage STAGING avec Supabase...$(NC)"
+	@if [ ! -f .env.staging ]; then echo "$(RED)❌ Fichier .env.staging manquant$(NC)"; exit 1; fi
+	docker-compose -f docker-compose.staging.yml --env-file .env.staging up -d --build
+	@echo "$(GREEN)✅ Staging démarré$(NC)"
+
+staging-down: ## Arrête STAGING
+	docker-compose -f docker-compose.staging.yml down
+
+staging-logs: ## Logs STAGING
+	docker-compose -f docker-compose.staging.yml logs -f --tail=100
+
+staging-migrate: ## Migrations STAGING
+	@echo "$(BLUE)🗄️  Migrations sur Supabase STAGING...$(NC)"
+	docker-compose -f docker-compose.staging.yml --env-file .env.staging run --rm api npx prisma migrate deploy
+	@echo "$(GREEN)✅ Migrations appliquées$(NC)"
+
+staging-seed: ## Seed STAGING
+	@echo "$(BLUE)🌱 Seed Supabase STAGING...$(NC)"
+	docker-compose -f docker-compose.staging.yml --env-file .env.staging run --rm api npm run prisma:seed
+	@echo "$(GREEN)✅ Seed terminé$(NC)"
+
+## PRODUCTION
+prod-up: ## Démarre en PRODUCTION (Supabase)
+	@echo "$(BLUE)🚀 Démarrage PRODUCTION avec Supabase...$(NC)"
+	@if [ ! -f .env.production ]; then echo "$(RED)❌ Fichier .env.production manquant$(NC)"; exit 1; fi
+	docker-compose -f docker-compose.production.yml --env-file .env.production up -d --build
+	@echo "$(GREEN)✅ Production démarrée$(NC)"
+
+prod-down: ## Arrête PRODUCTION
+	docker-compose -f docker-compose.production.yml down
+
+prod-logs: ## Logs PRODUCTION
+	docker-compose -f docker-compose.production.yml logs -f --tail=100
+
+prod-migrate: ## Migrations PRODUCTION
+	@echo "$(BLUE)🗄️  Migrations sur Supabase PROD...$(NC)"
+	docker-compose -f docker-compose.production.yml --env-file .env.production run --rm api npx prisma migrate deploy
+	@echo "$(GREEN)✅ Migrations appliquées$(NC)"
+
+prod-seed: ## Seed PRODUCTION (⚠️  ATTENTION!)
+	@echo "$(RED)⚠️  SEED EN PRODUCTION - Êtes-vous sûr? (Ctrl+C pour annuler)$(NC)"
+	@sleep 3
+	@echo "$(BLUE)🌱 Seed Supabase PROD...$(NC)"
+	docker-compose -f docker-compose.production.yml --env-file .env.production run --rm api npm run prisma:seed
+	@echo "$(GREEN)✅ Seed terminé$(NC)"
+
 # === QUICK START ===
 
 quickstart: setup build up prisma-generate prisma-migrate prisma-seed ## Démarrage rapide complet

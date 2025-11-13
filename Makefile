@@ -31,7 +31,7 @@ up: ## Démarre les conteneurs (production)
 
 dev-up: ## Démarre les conteneurs DEVELOPMENT
 	@echo "$(BLUE)🚀 Démarrage DEVELOPMENT...$(NC)"
-	docker-compose --env-file envFiles/.env.development up -d
+	docker-compose --env-file envFiles/.env.development --profile dev up -d api-dev
 	@echo "$(GREEN)✅ Development démarré$(NC)"
 
 dev: ## Démarre les conteneurs en mode développement
@@ -266,23 +266,38 @@ dev-down: ## Arrête DEVELOPMENT
 dev-logs: ## Logs DEVELOPMENT
 	docker-compose logs -f --tail=100
 
-dev-migrate: ## Migrations DEVELOPMENT (db push - léger en RAM)
-	@echo "$(BLUE)🗄️  Sync schema sur Supabase DEV...$(NC)"
-	docker-compose --env-file envFiles/.env.development exec api npx prisma db push --accept-data-loss
-	@echo "$(GREEN)✅ Schema synchronisé$(NC)"
+dev-migrate: ## Migrer via Prisma (auto-génère SQL depuis schema.prisma)
+	@echo "$(BLUE)🗄️  Migration Prisma...$(NC)"
+	@read -p "Nom de la migration: " migration_name; \
+	timestamp=$$(date +%Y%m%d%H%M%S); \
+	migration_dir="prisma/migrations/$${timestamp}_$${migration_name}"; \
+	mkdir -p "$$migration_dir"; \
+	echo "$(BLUE)→ Génération SQL (diff)...$(NC)"; \
+	docker run --rm -v $(PWD):/app -w /app --network host \
+		-e DATABASE_URL="$$(grep DIRECT_URL envFiles/.env.development | cut -d= -f2)" \
+		node:20-slim sh -c "apt-get update -qq && apt-get install -y -qq openssl >/dev/null 2>&1 && npm install -g prisma@5.22.0 >/dev/null 2>&1 && prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --script" > "$$migration_dir/migration.sql"; \
+	if [ ! -s "$$migration_dir/migration.sql" ]; then \
+		echo "$(YELLOW)⚠️  Aucun changement détecté$(NC)"; \
+		rm -rf "$$migration_dir"; \
+		exit 1; \
+	fi; \
+	echo "$(GREEN)✅ SQL généré$(NC)"; \
+	echo "$(BLUE)→ Application...$(NC)"; \
+	docker-compose --env-file envFiles/.env.development exec -T supabase-cli psql "$(DATABASE_URL)" < "$$migration_dir/migration.sql"; \
+	echo "$(GREEN)✅ Migration appliquée!$(NC)"
 
 dev-migrate-deploy: ## Migrations DEVELOPMENT (migrate deploy - pour production)
 	@echo "$(BLUE)🗄️  Migrations sur Supabase DEV...$(NC)"
-	docker-compose --env-file envFiles/.env.development exec api npx prisma migrate deploy
+	docker-compose --env-file envFiles/.env.development exec api-dev npx prisma migrate deploy
 	@echo "$(GREEN)✅ Migrations appliquées$(NC)"
 
 dev-seed: ## Seed DEVELOPMENT
 	@echo "$(BLUE)🌱 Seed Supabase DEV...$(NC)"
-	docker-compose --env-file envFiles/.env.development exec api npm run prisma:seed
+	docker-compose --env-file envFiles/.env.development exec api-dev npm run prisma:seed
 	@echo "$(GREEN)✅ Seed terminé$(NC)"
 
 dev-studio: ## Prisma Studio DEVELOPMENT
-	docker-compose --env-file envFiles/.env.development exec api npx prisma studio
+	docker-compose --env-file envFiles/.env.development exec api-dev npx prisma studio
 
 ## STAGING
 staging-up: ## Démarre en STAGING (Supabase)
@@ -334,7 +349,7 @@ prod-seed: ## Seed PRODUCTION (⚠️  ATTENTION!)
 
 # === QUICK START ===
 
-quickstart: dev-up dev-migrate dev-seed ## Démarrage rapide complet (Development)
+quickstart: dev-up ## Démarrage rapide complet (Development)
 	@echo ""
 	@echo "$(GREEN)========================================$(NC)"
 	@echo "$(GREEN)  🎉 API DataFriday prête!$(NC)"

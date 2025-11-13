@@ -20,10 +20,8 @@
 - 3 environnements (dev/staging/prod)
 
 📚 **Documentation :**
-- **Setup :** [`START_HERE.md`](./START_HERE.md)
-- **Workflow Migrations :** [`PRISMA_SUPABASE_WORKFLOW.md`](./PRISMA_SUPABASE_WORKFLOW.md)
-- **RLS Policies :** [`MIGRATIONS_RLS.md`](./MIGRATIONS_RLS.md)
-- **État du projet :** [`CURRENT_STATUS.md`](./CURRENT_STATUS.md)
+- **Workflow Migrations :** [`WORKFLOW.md`](./WORKFLOW.md) ⭐
+- [`CURRENT_STATUS.md`](./CURRENT_STATUS.md)
 
 ---
 
@@ -32,9 +30,34 @@
 ```bash
 # 1. Config (éditer envFiles/.env.development)
 # 2. Démarrer
-make dev-up
-make supabase-up
+make quickstart
+```
 
+---
+
+## 🗄️ Migrations (2 Étapes)
+
+### 1️⃣ Modifier `schema.prisma`
+
+```prisma
+model User {
+  avatar String?  // ← Ajouter champ
+}
+```
+
+### 2️⃣ Migrer
+
+```bash
+make dev-migrate
+# Nom: add_user_avatar
+# ✅ Prisma génère et applique automatiquement !
+```
+
+---
+
+## ⚡ Quick Start (suite)
+
+```bash
 # 3. Appliquer RLS
 make supabase-migrate-all
 

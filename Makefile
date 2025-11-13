@@ -84,6 +84,71 @@ prisma-reset: ## Réinitialise la base de données
 	docker-compose exec api npx prisma migrate reset --force
 	@echo "$(GREEN)✅ Base réinitialisée$(NC)"
 
+# === SUPABASE CLI ===
+
+supabase-up: ## Démarre le conteneur Supabase CLI
+	@echo "$(BLUE)🚀 Démarrage Supabase CLI...$(NC)"
+	docker-compose --profile tools up -d supabase-cli
+	@echo "$(GREEN)✅ Supabase CLI prêt$(NC)"
+
+supabase-shell: ## Ouvre un shell dans le conteneur Supabase CLI
+	@echo "$(BLUE)🔧 Shell Supabase CLI...$(NC)"
+	docker-compose exec supabase-cli bash
+
+supabase-migration-new: ## Crée une nouvelle migration Supabase
+	@echo "$(BLUE)📝 Création d'une nouvelle migration...$(NC)"
+	@read -p "Nom de la migration: " migration_name; \
+	docker-compose exec supabase-cli bash -c "cd /app && supabase migration new $$migration_name"
+	@echo "$(GREEN)✅ Migration créée dans supabase/migrations/$(NC)"
+
+supabase-db-push: ## Applique les migrations locales à Supabase distant
+	@echo "$(BLUE)🚀 Application des migrations à Supabase...$(NC)"
+	docker-compose exec supabase-cli bash -c "cd /app && supabase db push"
+	@echo "$(GREEN)✅ Migrations appliquées$(NC)"
+
+supabase-db-pull: ## Récupère le schéma depuis Supabase distant
+	@echo "$(BLUE)📥 Récupération du schéma Supabase...$(NC)"
+	docker-compose exec supabase-cli bash -c "cd /app && supabase db pull"
+	@echo "$(GREEN)✅ Schéma récupéré$(NC)"
+
+supabase-db-diff: ## Génère une migration depuis les changements
+	@echo "$(BLUE)🔍 Détection des changements...$(NC)"
+	@read -p "Nom de la migration: " migration_name; \
+	docker-compose exec supabase-cli bash -c "cd /app && supabase db diff -f $$migration_name"
+	@echo "$(GREEN)✅ Migration de différences créée$(NC)"
+
+supabase-db-reset: ## Réinitialise la DB locale Supabase (si supabase start)
+	@echo "$(RED)⚠️  Réinitialisation Supabase local...$(NC)"
+	docker-compose exec supabase-cli bash -c "cd /app && supabase db reset"
+	@echo "$(GREEN)✅ DB locale réinitialisée$(NC)"
+
+supabase-link: ## Lie le projet local à un projet Supabase distant
+	@echo "$(BLUE)🔗 Liaison au projet Supabase...$(NC)"
+	@read -p "Project Ref (depuis Dashboard): " project_ref; \
+	docker-compose exec supabase-cli bash -c "cd /app && supabase link --project-ref $$project_ref"
+	@echo "$(GREEN)✅ Projet lié$(NC)"
+
+supabase-status: ## Affiche le statut de Supabase CLI
+	@echo "$(BLUE)📊 Statut Supabase...$(NC)"
+	docker-compose exec supabase-cli bash -c "cd /app && supabase status || supabase --version"
+
+supabase-functions-new: ## Crée une nouvelle Edge Function
+	@echo "$(BLUE)⚡ Création Edge Function...$(NC)"
+	@read -p "Nom de la fonction: " function_name; \
+	docker-compose exec supabase-cli bash -c "cd /app && supabase functions new $$function_name"
+	@echo "$(GREEN)✅ Fonction créée dans supabase/functions/$(NC)"
+
+supabase-functions-deploy: ## Déploie une Edge Function
+	@echo "$(BLUE)🚀 Déploiement Edge Function...$(NC)"
+	@read -p "Nom de la fonction: " function_name; \
+	docker-compose exec supabase-cli bash -c "cd /app && supabase functions deploy $$function_name"
+	@echo "$(GREEN)✅ Fonction déployée$(NC)"
+
+supabase-db-dump: ## Export SQL complet de la DB distante
+	@echo "$(BLUE)💾 Export SQL de Supabase...$(NC)"
+	docker-compose exec supabase-cli bash -c "cd /app && supabase db dump -f supabase/backup_$$(date +%Y%m%d_%H%M%S).sql"
+	@echo "$(GREEN)✅ Dump SQL créé$(NC)"
+
 # === INSTALLATION ===
 
 install: ## Installe les dépendances (dans Docker)

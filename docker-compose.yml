@@ -55,6 +55,26 @@ services:
     profiles:
       - dev
 
+  # Supabase CLI pour migrations et gestion
+  supabase-cli:
+    build:
+      context: .
+      dockerfile: Dockerfile.supabase
+    container_name: datafriday-supabase-cli
+    environment:
+      SUPABASE_PROJECT_ID: ${SUPABASE_PROJECT_ID}
+      SUPABASE_DB_PASSWORD: ${SUPABASE_DB_PASSWORD}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+    volumes:
+      - ./supabase:/app/supabase
+      - ./prisma:/app/prisma:ro
+    profiles:
+      - tools
+    entrypoint: ["tail", "-f", "/dev/null"]
+
 volumes:
   node_modules:
   dist:

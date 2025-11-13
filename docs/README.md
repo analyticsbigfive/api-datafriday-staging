@@ -14,6 +14,18 @@ Données sources extraites de Figma. Référence pour comprendre la structure de
 ### [prisma.md](./prisma.md)
 Notes et documentation Prisma. Références techniques sur l'ORM.
 
+### [SUPABASE_CLI.md](./SUPABASE_CLI.md) ⭐ NOUVEAU
+**Guide complet du CLI Supabase pour gérer les migrations**
+
+Comment utiliser le CLI Supabase (100% Docker) pour :
+- Créer et gérer les migrations SQL versionnées
+- Appliquer les RLS policies automatiquement
+- Synchroniser schéma local ↔ distant
+- Créer et déployer Edge Functions
+- Exporter/Importer données
+
+Commandes Makefile disponibles : `make help | grep supabase`
+
 ---
 
 ---

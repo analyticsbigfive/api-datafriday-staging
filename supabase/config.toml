@@ -1,0 +1,37 @@
+# Supabase CLI Configuration
+# Documentation: https://supabase.com/docs/guides/cli/config
+
+project_id = "" # Sera défini par environment (dev/staging/prod)
+
+[api]
+enabled = true
+port = 54321
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["https://localhost:3000"]
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false
+
+# Configuration par environnement
+# Utilisez les fichiers .env.{development,staging,production} pour définir :
+# - SUPABASE_PROJECT_ID
+# - SUPABASE_DB_PASSWORD
+# - SUPABASE_URL
+# - SUPABASE_ANON_KEY
+# - SUPABASE_SERVICE_ROLE_KEY

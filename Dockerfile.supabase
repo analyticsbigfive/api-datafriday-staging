@@ -1,0 +1,26 @@
+# Dockerfile pour Supabase CLI
+FROM alpine:3.19
+
+# Installer les dépendances
+RUN apk add --no-cache \
+    curl \
+    bash \
+    git \
+    postgresql-client \
+    ca-certificates
+
+# Installer Supabase CLI
+RUN curl -fsSL https://github.com/supabase/cli/releases/latest/download/supabase_linux_amd64.tar.gz | \
+    tar -xz -C /usr/local/bin && \
+    chmod +x /usr/local/bin/supabase
+
+WORKDIR /app
+
+# Copier les fichiers de configuration
+COPY supabase ./supabase
+
+# Vérifier l'installation
+RUN supabase --version
+
+# Commande par défaut
+CMD ["bash"]

@@ -4,21 +4,37 @@
 
 ---
 
-## ⚠️ IMPORTANT - Sécurité Multi-Tenant
+## 📌 Status Actuel
 
-**🔴 ACTION REQUISE :** Implémenter l'isolation tenant avant déploiement production.
+**Configuration de base NestJS + Fastify + Prisma + Supabase**
 
-**📖 Guide complet :** [`docs/PHASE1_SECURITY.md`](./docs/PHASE1_SECURITY.md)  
-**📅 Roadmap :** [`docs/IMPLEMENTATION_ROADMAP.md`](./docs/IMPLEMENTATION_ROADMAP.md) 
+✅ **Fonctionnel :**
+- NestJS avec Fastify (haute performance)
+- Prisma ORM avec Supabase PostgreSQL
+- Docker 100% (dev/staging/prod)
+- Supabase CLI intégré pour migrations
+- 3 environnements configurés
 
-**Livrables fournis :**
-- ✅ Policies RLS Supabase (15 tables) → `supabase/rls-policies.sql`
-- ✅ Middleware Prisma tenant isolation → `src/prisma/prisma-tenant.service.ts`
-- ✅ Guards JWT + decorators → `src/common/guards/`, `src/common/decorators/`
-- ✅ Config Cloudflare (WAF, rate limits) → `cloudflare/api-shield-config.json`
+📚 **Documentation avancée disponible :**
+- Sécurité Multi-Tenant → [`docs/future-implementation/`](./docs/future-implementation/)
+- RLS Policies → `supabase/rls-policies.sql`
+- Cloudflare Config → `cloudflare/api-shield-config.json`
 
-**Prochaine étape critique (1h) :** Appliquer RLS dans Supabase Dashboard  
-**Durée Phase 1 complète :** 1-2 semaines
+---
+
+## 🔧 Supabase CLI (Nouveau !)
+
+Le CLI Supabase est maintenant intégré pour gérer les migrations SQL versionnées.
+
+```bash
+# Quick Start (10 min)
+make supabase-up          # Démarrer le CLI
+make supabase-link        # Lier au projet Supabase
+make supabase-db-push     # Appliquer les RLS policies ✅
+```
+
+**Documentation complète :** [`docs/SUPABASE_CLI.md`](./docs/SUPABASE_CLI.md)  
+**Guide rapide :** [`QUICKSTART_SUPABASE.md`](./QUICKSTART_SUPABASE.md)
 
 ---
 

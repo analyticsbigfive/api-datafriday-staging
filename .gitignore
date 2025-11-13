@@ -49,3 +49,8 @@ prisma/migrations/*
 
 # Docker
 docker-compose.override.yml
+
+# Supabase
+docker-compose.override.yml
+supabase/.temp
+supabase/config.toml

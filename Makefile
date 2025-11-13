@@ -1,5 +1,11 @@
 .PHONY: help build up down restart logs clean install dev prod prisma-generate prisma-migrate prisma-studio prisma-seed test
 
+# Charger variables d'environnement depuis envFiles/.env.development
+ifneq (,$(wildcard envFiles/.env.development))
+    include envFiles/.env.development
+    export
+endif
+
 # Couleurs pour l'affichage
 BLUE := \033[0;34m
 GREEN := \033[0;32m
@@ -22,6 +28,11 @@ up: ## Démarre les conteneurs (production)
 	@echo "$(BLUE)🚀 Démarrage des conteneurs...$(NC)"
 	docker-compose up -d
 	@echo "$(GREEN)✅ API démarrée sur http://localhost:3000/api/v1$(NC)"
+
+dev-up: ## Démarre les conteneurs DEVELOPMENT
+	@echo "$(BLUE)🚀 Démarrage DEVELOPMENT...$(NC)"
+	docker-compose --env-file envFiles/.env.development up -d
+	@echo "$(GREEN)✅ Development démarré$(NC)"
 
 dev: ## Démarre les conteneurs en mode développement
 	@echo "$(BLUE)🔧 Démarrage en mode développement...$(NC)"
@@ -86,9 +97,19 @@ prisma-reset: ## Réinitialise la base de données
 
 # === SUPABASE CLI ===
 
-supabase-up: ## Démarre le conteneur Supabase CLI
-	@echo "$(BLUE)🚀 Démarrage Supabase CLI...$(NC)"
-	docker-compose --profile tools up -d supabase-cli
+supabase-up: ## Démarre le conteneur Supabase CLI (development)
+	@echo "$(BLUE)🚀 Démarrage Supabase CLI (development)...$(NC)"
+	docker-compose --env-file envFiles/.env.development --profile tools up -d supabase-cli
+	@echo "$(GREEN)✅ Supabase CLI prêt$(NC)"
+
+supabase-up-staging: ## Démarre le conteneur Supabase CLI (staging)
+	@echo "$(BLUE)🚀 Démarrage Supabase CLI (staging)...$(NC)"
+	docker-compose --env-file envFiles/.env.staging --profile tools up -d supabase-cli
+	@echo "$(GREEN)✅ Supabase CLI prêt$(NC)"
+
+supabase-up-prod: ## Démarre le conteneur Supabase CLI (production)
+	@echo "$(BLUE)🚀 Démarrage Supabase CLI (production)...$(NC)"
+	docker-compose --env-file envFiles/.env.production --profile tools up -d supabase-cli
 	@echo "$(GREEN)✅ Supabase CLI prêt$(NC)"
 
 supabase-shell: ## Ouvre un shell dans le conteneur Supabase CLI
@@ -149,6 +170,29 @@ supabase-db-dump: ## Export SQL complet de la DB distante
 	docker-compose exec supabase-cli bash -c "cd /app && supabase db dump -f supabase/backup_$$(date +%Y%m%d_%H%M%S).sql"
 	@echo "$(GREEN)✅ Dump SQL créé$(NC)"
 
+# === SUPABASE DIRECT (via psql - IPv4) ===
+
+supabase-apply-rls: ## Applique les RLS policies directement via psql
+	@echo "$(BLUE)🔒 Application des RLS policies...$(NC)"
+	docker-compose --env-file envFiles/.env.development exec -T supabase-cli psql "$(DATABASE_URL)" < supabase/rls-policies.sql
+	@echo "$(GREEN)✅ RLS policies appliquées$(NC)"
+
+supabase-run-sql: ## Exécute un fichier SQL personnalisé
+	@echo "$(BLUE)📝 Exécution SQL...$(NC)"
+	@read -p "Fichier SQL (dans supabase/): " sql_file; \
+	docker-compose --env-file envFiles/.env.development exec -T supabase-cli psql "$(DATABASE_URL)" < "supabase/$$sql_file"
+	@echo "$(GREEN)✅ SQL exécuté$(NC)"
+
+supabase-psql: ## Ouvre psql connecté à Supabase
+	@echo "$(BLUE)🗄️  Connexion psql à Supabase...$(NC)"
+	docker-compose --env-file envFiles/.env.development exec supabase-cli psql "$(DATABASE_URL)"
+
+supabase-check-rls: ## Vérifie les RLS policies actives
+	@echo "$(BLUE)🔍 Vérification RLS...$(NC)"
+	@docker-compose --env-file envFiles/.env.development exec -T supabase-cli psql "$(DATABASE_URL)" -c "SELECT count(*) as policies_count FROM pg_policies WHERE schemaname='public';"
+	@docker-compose --env-file envFiles/.env.development exec -T supabase-cli psql "$(DATABASE_URL)" -c "SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname='public' AND rowsecurity=true;"
+	@echo "$(GREEN)✅ Vérification terminée$(NC)"
+
 # === INSTALLATION ===
 
 install: ## Installe les dépendances (dans Docker)
@@ -208,12 +252,6 @@ db-restore: ## Restaure un backup (usage: make db-restore FILE=backup.sql)
 # === ENVIRONMENTS - SUPABASE ===
 
 ## DEVELOPMENT
-dev-up: ## Démarre en DEVELOPMENT (Supabase)
-	@echo "$(BLUE)🔧 Démarrage DEVELOPMENT avec Supabase...$(NC)"
-	@if [ ! -f envFiles/.env.development ]; then echo "$(RED)❌ Fichier .env.development manquant$(NC)"; exit 1; fi
-	docker-compose --env-file envFiles/.env.development up -d --build
-	@echo "$(GREEN)✅ Development démarré$(NC)"
-
 dev-down: ## Arrête DEVELOPMENT
 	docker-compose down
 

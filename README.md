@@ -4,37 +4,45 @@
 
 ---
 
-## 📌 Status Actuel
+## 🚀 Nouveau sur le Projet ?
 
-**Configuration de base NestJS + Fastify + Prisma + Supabase**
-
-✅ **Fonctionnel :**
-- NestJS avec Fastify (haute performance)
-- Prisma ORM avec Supabase PostgreSQL
-- Docker 100% (dev/staging/prod)
-- Supabase CLI intégré pour migrations
-- 3 environnements configurés
-
-📚 **Documentation avancée disponible :**
-- Sécurité Multi-Tenant → [`docs/future-implementation/`](./docs/future-implementation/)
-- RLS Policies → `supabase/rls-policies.sql`
-- Cloudflare Config → `cloudflare/api-shield-config.json`
+👉 **[START_HERE.md](./START_HERE.md)** ← Guide de démarrage rapide (5 min)
 
 ---
 
-## 🔧 Supabase CLI (Nouveau !)
+## 📌 Status Actuel
 
-Le CLI Supabase est maintenant intégré pour gérer les migrations SQL versionnées.
+✅ **Fonctionnel :**
+- NestJS + Fastify + Prisma + Supabase PostgreSQL
+- Docker 100% (dev/staging/prod)
+- 15 tables avec RLS (Row-Level Security)
+- Migrations Prisma + Supabase organisées
+- 3 environnements (dev/staging/prod)
+
+📚 **Documentation :**
+- **Setup :** [`START_HERE.md`](./START_HERE.md)
+- **Workflow Migrations :** [`PRISMA_SUPABASE_WORKFLOW.md`](./PRISMA_SUPABASE_WORKFLOW.md)
+- **RLS Policies :** [`MIGRATIONS_RLS.md`](./MIGRATIONS_RLS.md)
+- **État du projet :** [`CURRENT_STATUS.md`](./CURRENT_STATUS.md)
+
+---
+
+## ⚡ Quick Start
 
 ```bash
-# Quick Start (10 min)
-make supabase-up          # Démarrer le CLI
-make supabase-link        # Lier au projet Supabase
-make supabase-db-push     # Appliquer les RLS policies ✅
-```
+# 1. Config (éditer envFiles/.env.development)
+# 2. Démarrer
+make dev-up
+make supabase-up
 
-**Documentation complète :** [`docs/SUPABASE_CLI.md`](./docs/SUPABASE_CLI.md)  
-**Guide rapide :** [`QUICKSTART_SUPABASE.md`](./QUICKSTART_SUPABASE.md)
+# 3. Appliquer RLS
+make supabase-migrate-all
+
+# 4. Vérifier
+make supabase-check-rls
+
+# ✅ API prête sur http://localhost:3000/api/v1
+```
 
 ---
 

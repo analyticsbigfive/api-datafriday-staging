@@ -177,6 +177,14 @@ supabase-apply-rls: ## Applique les RLS policies directement via psql
 	docker-compose --env-file envFiles/.env.development exec -T supabase-cli psql "$(DATABASE_URL)" < supabase/rls-policies.sql
 	@echo "$(GREEN)✅ RLS policies appliquées$(NC)"
 
+supabase-migrate-all: ## Applique toutes les migrations RLS (fichier par fichier)
+	@echo "$(BLUE)🔒 Application des migrations RLS (15 tables)...$(NC)"
+	@for file in supabase/migrations/202411130000*.sql; do \
+		echo "$(BLUE)  → Applying $$(basename $$file)...$(NC)"; \
+		docker-compose --env-file envFiles/.env.development exec -T supabase-cli psql "$(DATABASE_URL)" < "$$file" || exit 1; \
+	done
+	@echo "$(GREEN)✅ Toutes les migrations RLS appliquées$(NC)"
+
 supabase-run-sql: ## Exécute un fichier SQL personnalisé
 	@echo "$(BLUE)📝 Exécution SQL...$(NC)"
 	@read -p "Fichier SQL (dans supabase/): " sql_file; \

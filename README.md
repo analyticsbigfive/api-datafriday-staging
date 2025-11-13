@@ -2,6 +2,26 @@
 
 **SaaS Multi-Tenant** - API NestJS + Fastify + Prisma + PostgreSQL - **100% Docker**
 
+---
+
+## ⚠️ IMPORTANT - Sécurité Multi-Tenant
+
+**🔴 ACTION REQUISE :** Implémenter l'isolation tenant avant déploiement production.
+
+**📖 Guide complet :** [`docs/PHASE1_SECURITY.md`](./docs/PHASE1_SECURITY.md)  
+**📅 Roadmap :** [`docs/IMPLEMENTATION_ROADMAP.md`](./docs/IMPLEMENTATION_ROADMAP.md) 
+
+**Livrables fournis :**
+- ✅ Policies RLS Supabase (15 tables) → `supabase/rls-policies.sql`
+- ✅ Middleware Prisma tenant isolation → `src/prisma/prisma-tenant.service.ts`
+- ✅ Guards JWT + decorators → `src/common/guards/`, `src/common/decorators/`
+- ✅ Config Cloudflare (WAF, rate limits) → `cloudflare/api-shield-config.json`
+
+**Prochaine étape critique (1h) :** Appliquer RLS dans Supabase Dashboard  
+**Durée Phase 1 complète :** 1-2 semaines
+
+---
+
 ## Prérequis
 
 - Docker >= 24.x

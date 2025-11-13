@@ -1,0 +1,204 @@
+{
+  "name": "DataFriday API Protection",
+  "description": "Configuration Cloudflare pour API SaaS multi-tenant",
+  
+  "waf_rules": [
+    {
+      "description": "Block common SQL injection patterns",
+      "expression": "(http.request.uri.query contains \"' OR '1'='1\" or http.request.uri.query contains \"UNION SELECT\")",
+      "action": "block"
+    },
+    {
+      "description": "Block XSS attempts",
+      "expression": "(http.request.uri.query contains \"<script\" or http.request.body contains \"<script\")",
+      "action": "block"
+    },
+    {
+      "description": "Block path traversal",
+      "expression": "(http.request.uri.path contains \"../\" or http.request.uri.path contains \"..\\\\\")",
+      "action": "block"
+    },
+    {
+      "description": "Require valid User-Agent",
+      "expression": "(not http.user_agent contains \"Mozilla\" and not http.user_agent contains \"curl\" and not http.user_agent contains \"PostmanRuntime\")",
+      "action": "challenge"
+    }
+  ],
+
+  "rate_limiting": [
+    {
+      "description": "Global rate limit per IP",
+      "match": {
+        "request": {
+          "url": "api.datafriday.com/*"
+        }
+      },
+      "threshold": 1000,
+      "period": 60,
+      "action": "block",
+      "duration": 60
+    },
+    {
+      "description": "Auth endpoints (strict)",
+      "match": {
+        "request": {
+          "url": "api.datafriday.com/api/v1/auth/*"
+        }
+      },
+      "threshold": 5,
+      "period": 60,
+      "action": "block",
+      "duration": 300
+    },
+    {
+      "description": "Registration rate limit",
+      "match": {
+        "request": {
+          "url": "api.datafriday.com/api/v1/auth/register",
+          "methods": ["POST"]
+        }
+      },
+      "threshold": 3,
+      "period": 3600,
+      "action": "block",
+      "duration": 3600
+    },
+    {
+      "description": "API endpoints per tenant",
+      "match": {
+        "request": {
+          "url": "api.datafriday.com/api/v1/*"
+        },
+        "response": {
+          "origin_traffic": false
+        }
+      },
+      "characteristics": [
+        "ip.src",
+        "http.request.headers[\"x-tenant-id\"]"
+      ],
+      "threshold": 100,
+      "period": 60,
+      "action": "block"
+    }
+  ],
+
+  "api_shield": {
+    "jwt_validation": {
+      "enabled": true,
+      "issuer": "https://your-auth-domain.com",
+      "audience": "datafriday-api",
+      "algorithms": ["RS256", "HS256"]
+    },
+    "schema_validation": {
+      "enabled": true,
+      "schema_file": "openapi.json",
+      "enforce": false,
+      "log_only": true
+    },
+    "mutual_tls": {
+      "enabled": false,
+      "comment": "Activer pour clients entreprise si nécessaire"
+    }
+  },
+
+  "caching": {
+    "rules": [
+      {
+        "description": "Cache static assets",
+        "expression": "(http.request.uri.path matches \"\\\\.(jpg|jpeg|png|gif|css|js|ico|svg|woff2?)$\")",
+        "cache": true,
+        "edge_ttl": 2592000
+      },
+      {
+        "description": "No cache for API endpoints",
+        "expression": "(http.request.uri.path contains \"/api/v1/\")",
+        "cache": false
+      }
+    ]
+  },
+
+  "transforms": {
+    "request_headers": [
+      {
+        "operation": "set",
+        "header": "X-Forwarded-Proto",
+        "value": "https"
+      },
+      {
+        "operation": "set", 
+        "header": "X-Real-IP",
+        "value": "${cf.client_ip}"
+      }
+    ],
+    "response_headers": [
+      {
+        "operation": "set",
+        "header": "X-Content-Type-Options",
+        "value": "nosniff"
+      },
+      {
+        "operation": "set",
+        "header": "X-Frame-Options",
+        "value": "DENY"
+      },
+      {
+        "operation": "set",
+        "header": "Strict-Transport-Security",
+        "value": "max-age=31536000; includeSubDomains"
+      }
+    ]
+  },
+
+  "firewall_rules": [
+    {
+      "description": "Block known bad countries (optional)",
+      "expression": "(ip.geoip.country in {\"CN\" \"RU\"})",
+      "action": "block",
+      "enabled": false,
+      "comment": "Activer si abus détectés"
+    },
+    {
+      "description": "Allow only HTTPS",
+      "expression": "(not ssl)",
+      "action": "block"
+    },
+    {
+      "description": "Block suspicious bots",
+      "expression": "(cf.bot_management.score lt 30)",
+      "action": "challenge"
+    }
+  ],
+
+  "ddos_protection": {
+    "http_flood": {
+      "enabled": true,
+      "sensitivity": "medium"
+    },
+    "layer_7": {
+      "enabled": true
+    }
+  },
+
+  "load_balancing": {
+    "enabled": false,
+    "comment": "Configuration si plusieurs origins/régions",
+    "pools": [
+      {
+        "name": "eu-west-primary",
+        "origins": [
+          {
+            "name": "api-eu-1",
+            "address": "api-eu-1.datafriday.com",
+            "weight": 1
+          }
+        ],
+        "health_check": {
+          "path": "/api/v1/health",
+          "interval": 60,
+          "timeout": 5
+        }
+      }
+    ]
+  }
+}

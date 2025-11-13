@@ -140,23 +140,13 @@ db-restore: ## Restaure un backup (usage: make db-restore FILE=backup.sql)
 	@cat $(FILE) | docker-compose exec -T postgres psql -U datafriday -d datafriday
 	@echo "$(GREEN)✅ Backup restauré$(NC)"
 
-# === PRODUCTION ===
-
-prod: ## Démarre en mode production avec build
-	@echo "$(BLUE)🚀 Démarrage en production...$(NC)"
-	docker-compose up -d --build
-	@echo "$(GREEN)✅ Production démarrée$(NC)"
-
-prod-logs: ## Affiche les logs de production
-	docker-compose logs -f --tail=100
-
 # === ENVIRONMENTS - SUPABASE ===
 
 ## DEVELOPMENT
 dev-up: ## Démarre en DEVELOPMENT (Supabase)
 	@echo "$(BLUE)🔧 Démarrage DEVELOPMENT avec Supabase...$(NC)"
-	@if [ ! -f .env.development ]; then echo "$(RED)❌ Fichier .env.development manquant$(NC)"; exit 1; fi
-	docker-compose --env-file .env.development up -d --build
+	@if [ ! -f envFiles/.env.development ]; then echo "$(RED)❌ Fichier .env.development manquant$(NC)"; exit 1; fi
+	docker-compose --env-file envFiles/.env.development up -d --build
 	@echo "$(GREEN)✅ Development démarré$(NC)"
 
 dev-down: ## Arrête DEVELOPMENT
@@ -165,24 +155,29 @@ dev-down: ## Arrête DEVELOPMENT
 dev-logs: ## Logs DEVELOPMENT
 	docker-compose logs -f --tail=100
 
-dev-migrate: ## Migrations DEVELOPMENT
+dev-migrate: ## Migrations DEVELOPMENT (db push - léger en RAM)
+	@echo "$(BLUE)🗄️  Sync schema sur Supabase DEV...$(NC)"
+	docker-compose --env-file envFiles/.env.development exec api npx prisma db push --accept-data-loss
+	@echo "$(GREEN)✅ Schema synchronisé$(NC)"
+
+dev-migrate-deploy: ## Migrations DEVELOPMENT (migrate deploy - pour production)
 	@echo "$(BLUE)🗄️  Migrations sur Supabase DEV...$(NC)"
-	docker-compose --env-file .env.development exec api npx prisma migrate dev
+	docker-compose --env-file envFiles/.env.development exec api npx prisma migrate deploy
 	@echo "$(GREEN)✅ Migrations appliquées$(NC)"
 
 dev-seed: ## Seed DEVELOPMENT
 	@echo "$(BLUE)🌱 Seed Supabase DEV...$(NC)"
-	docker-compose --env-file .env.development exec api npm run prisma:seed
+	docker-compose --env-file envFiles/.env.development exec api npm run prisma:seed
 	@echo "$(GREEN)✅ Seed terminé$(NC)"
 
 dev-studio: ## Prisma Studio DEVELOPMENT
-	docker-compose --env-file .env.development exec api npx prisma studio
+	docker-compose --env-file envFiles/.env.development exec api npx prisma studio
 
 ## STAGING
 staging-up: ## Démarre en STAGING (Supabase)
 	@echo "$(BLUE)🚧 Démarrage STAGING avec Supabase...$(NC)"
-	@if [ ! -f .env.staging ]; then echo "$(RED)❌ Fichier .env.staging manquant$(NC)"; exit 1; fi
-	docker-compose -f docker-compose.staging.yml --env-file .env.staging up -d --build
+	@if [ ! -f envFiles/.env.staging ]; then echo "$(RED)❌ Fichier .env.staging manquant$(NC)"; exit 1; fi
+	docker-compose -f docker-compose.staging.yml --env-file envFiles/.env.staging up -d --build
 	@echo "$(GREEN)✅ Staging démarré$(NC)"
 
 staging-down: ## Arrête STAGING
@@ -193,19 +188,19 @@ staging-logs: ## Logs STAGING
 
 staging-migrate: ## Migrations STAGING
 	@echo "$(BLUE)🗄️  Migrations sur Supabase STAGING...$(NC)"
-	docker-compose -f docker-compose.staging.yml --env-file .env.staging run --rm api npx prisma migrate deploy
+	docker-compose -f docker-compose.staging.yml --env-file envFiles/.env.staging run --rm api npx prisma migrate deploy
 	@echo "$(GREEN)✅ Migrations appliquées$(NC)"
 
 staging-seed: ## Seed STAGING
 	@echo "$(BLUE)🌱 Seed Supabase STAGING...$(NC)"
-	docker-compose -f docker-compose.staging.yml --env-file .env.staging run --rm api npm run prisma:seed
+	docker-compose -f docker-compose.staging.yml --env-file envFiles/.env.staging run --rm api npm run prisma:seed
 	@echo "$(GREEN)✅ Seed terminé$(NC)"
 
 ## PRODUCTION
 prod-up: ## Démarre en PRODUCTION (Supabase)
 	@echo "$(BLUE)🚀 Démarrage PRODUCTION avec Supabase...$(NC)"
-	@if [ ! -f .env.production ]; then echo "$(RED)❌ Fichier .env.production manquant$(NC)"; exit 1; fi
-	docker-compose -f docker-compose.production.yml --env-file .env.production up -d --build
+	@if [ ! -f envFiles/.env.production ]; then echo "$(RED)❌ Fichier .env.production manquant$(NC)"; exit 1; fi
+	docker-compose -f docker-compose.production.yml --env-file envFiles/.env.production up -d --build
 	@echo "$(GREEN)✅ Production démarrée$(NC)"
 
 prod-down: ## Arrête PRODUCTION
@@ -216,19 +211,19 @@ prod-logs: ## Logs PRODUCTION
 
 prod-migrate: ## Migrations PRODUCTION
 	@echo "$(BLUE)🗄️  Migrations sur Supabase PROD...$(NC)"
-	docker-compose -f docker-compose.production.yml --env-file .env.production run --rm api npx prisma migrate deploy
+	docker-compose -f docker-compose.production.yml --env-file envFiles/.env.production run --rm api npx prisma migrate deploy
 	@echo "$(GREEN)✅ Migrations appliquées$(NC)"
 
 prod-seed: ## Seed PRODUCTION (⚠️  ATTENTION!)
 	@echo "$(RED)⚠️  SEED EN PRODUCTION - Êtes-vous sûr? (Ctrl+C pour annuler)$(NC)"
 	@sleep 3
 	@echo "$(BLUE)🌱 Seed Supabase PROD...$(NC)"
-	docker-compose -f docker-compose.production.yml --env-file .env.production run --rm api npm run prisma:seed
+	docker-compose -f docker-compose.production.yml --env-file envFiles/.env.production run --rm api npm run prisma:seed
 	@echo "$(GREEN)✅ Seed terminé$(NC)"
 
 # === QUICK START ===
 
-quickstart: setup build up prisma-generate prisma-migrate prisma-seed ## Démarrage rapide complet
+quickstart: dev-up dev-migrate dev-seed ## Démarrage rapide complet (Development)
 	@echo ""
 	@echo "$(GREEN)========================================$(NC)"
 	@echo "$(GREEN)  🎉 API DataFriday prête!$(NC)"
@@ -236,10 +231,10 @@ quickstart: setup build up prisma-generate prisma-migrate prisma-seed ## Démarr
 	@echo ""
 	@echo "  📍 API:           http://localhost:3000/api/v1"
 	@echo "  🏥 Health check:  http://localhost:3000/api/v1/health"
-	@echo "  🎨 Prisma Studio: make prisma-studio"
+	@echo "  🎨 Prisma Studio: make dev-studio"
 	@echo ""
-	@echo "$(BLUE)Commandes utiles:$(NC)"
-	@echo "  make logs        - Voir les logs"
-	@echo "  make shell-api   - Accéder au shell API"
-	@echo "  make down        - Arrêter les services"
+	@echo "$(BLUE)📝 Commandes utiles:$(NC)"
+	@echo "  make dev-logs     - Voir les logs"
+	@echo "  make dev-studio   - Interface DB"
+	@echo "  make dev-down     - Arrêter"
 	@echo ""

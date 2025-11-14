@@ -72,6 +72,7 @@ enum IngredientCategory {
   Oil
   Sweetener
   Beverage
+  Packaging
   Other
 }
 
@@ -326,6 +327,7 @@ model Supplier {
   address      String?
   postcode     String?
   picture      String?
+  sites        String[]      // Array of spaceIds
   tenantId     String
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
@@ -345,7 +347,8 @@ model MarketPrice {
   price            Decimal     @db.Decimal(10, 2)
   goodType         GoodType
   itemName         String
-  supplierId       String?
+  supplier         String?     // Nom du fournisseur
+  supplierId       String?     // ID du fournisseur
   pricePerUnit     Decimal?    @db.Decimal(10, 4)
   packedUnits      Int?
   numberOfUnits    Int?
@@ -356,7 +359,7 @@ model MarketPrice {
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
-  supplier         Supplier?   @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  supplierRel      Supplier?   @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   ingredients      Ingredient[]
   packagings       Packaging[]
 
@@ -418,21 +421,22 @@ model Packaging {
 // ==================== MENU COMPONENTS ====================
 
 model MenuComponent {
-  id          String            @id
-  name        String
-  unit        String
-  category    ComponentCategory
-  unitCost    Decimal?          @db.Decimal(10, 4)
-  allergens   String[]
-  description String?
-  storageType StorageType?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  id            String            @id
+  name          String
+  unit          String
+  category      String            // Flexible pour "Food", "Sauce", etc.
+  unitCost      Decimal?          @db.Decimal(10, 4)
+  allergens     String[]
+  description   String?
+  storageType   StorageType?
+  subComponents Json?             // Pour stocker les subComponents JSON de Figma
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 
-  ingredients ComponentIngredient[]
-  children    ComponentComponent[]  @relation("ParentToChild")
-  parents     ComponentComponent[]  @relation("ChildToParent")
-  usedIn      MenuItemComponent[]
+  ingredients   ComponentIngredient[]
+  children      ComponentComponent[]  @relation("ParentToChild")
+  parents       ComponentComponent[]  @relation("ChildToParent")
+  usedIn        MenuItemComponent[]
 
   @@index([name])
   @@index([category])
@@ -486,9 +490,10 @@ model MenuItem {
   margin                Float?
   description           String?
   storageType           StorageType[]
-  readyForSale          Boolean?
-  comboItem             Boolean           @default(false)
+  readyForSale          String?           // "Yes", "No" ou null
+  comboItem             String?           // "Yes", "No" ou null
   numberOfPiecesRecipe  Int?
+  componentsData        Json?             // Pour stocker les components JSON de Figma
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
 

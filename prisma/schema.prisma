@@ -163,9 +163,8 @@ enum TenantStatus {
 model User {
   id            String      @id @default(cuid())
   email         String
-  name          String?
-  fullName      String?
-  firstName     String?
+  firstName     String
+  lastName      String
   
   role          UserRole    @default(VIEWER)
   avatar        String?

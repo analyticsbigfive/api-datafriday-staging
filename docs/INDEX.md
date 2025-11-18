@@ -20,6 +20,16 @@ Development workflow and standards
 
 ---
 
+## Frontend Integration
+
+### 📱 [FRONTEND_GUIDE.md](./FRONTEND_GUIDE.md)
+**Complete guide for frontend developers** - Signup flow with Supabase
+
+### 📡 [API_REFERENCE.md](./API_REFERENCE.md)
+API endpoints and responses
+
+---
+
 ## Reference
 
 ### ☁️ [SUPABASE.md](./SUPABASE.md)
@@ -36,6 +46,7 @@ Data models from Figma
 ## Quick Links
 
 - **Setup:** Start here → [SETUP.md](./SETUP.md)
+- **Frontend:** Integration guide → [FRONTEND_GUIDE.md](./FRONTEND_GUIDE.md)
+- **API:** Endpoints → [API_REFERENCE.md](./API_REFERENCE.md)
 - **Database:** Schema & migrations → [DATABASE.md](./DATABASE.md)
 - **Development:** Code standards → [DEVELOPMENT.md](./DEVELOPMENT.md)
-- **Architecture:** System design → [ARCHITECTURE.md](./ARCHITECTURE.md)

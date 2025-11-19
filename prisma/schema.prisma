@@ -165,6 +165,7 @@ model User {
   email         String
   firstName     String
   lastName      String
+  fullName      String?
   
   role          UserRole    @default(VIEWER)
   avatar        String?

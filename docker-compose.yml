@@ -39,6 +39,8 @@ services:
     ports:
       - "${API_PORT:-3000}:3000"
       - "5555:5555"
+    env_file:
+      - envFiles/.env.development
     environment:
       NODE_ENV: development
       DATABASE_URL: ${DATABASE_URL}

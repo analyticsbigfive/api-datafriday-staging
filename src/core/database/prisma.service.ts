@@ -45,6 +45,16 @@ export class PrismaService
       this.logger.log('✅ Database connected successfully');
     } catch (error) {
       this.logger.error('❌ Database connection failed', error);
+      
+      // En développement, on permet à l'API de démarrer sans DB
+      // Les endpoints qui nécessitent Prisma échoueront, mais le health check fonctionnera
+      if (process.env.NODE_ENV === 'development') {
+        this.logger.warn('⚠️  Continuing in development mode without database connection');
+        this.logger.warn('⚠️  Check your DATABASE_URL in envFiles/.env.development');
+        return;
+      }
+      
+      // En production, on bloque le démarrage si la DB est inaccessible
       throw error;
     }
   }

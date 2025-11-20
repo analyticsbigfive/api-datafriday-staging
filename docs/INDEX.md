@@ -20,13 +20,16 @@ Development workflow and standards
 
 ---
 
-## Frontend Integration
+## Authentication
 
-### 📱 [FRONTEND_GUIDE.md](./FRONTEND_GUIDE.md)
-**Complete guide for frontend developers** - Signup flow with Supabase
+### 🔐 [auth/MULTI_TENANT.md](./auth/MULTI_TENANT.md)
+Multi-tenant authentication with Supabase (Database Lookup strategy)
 
-### 📡 [API_REFERENCE.md](./API_REFERENCE.md)
-API endpoints and responses
+### 📱 [auth/FRONTEND_GUIDE.md](./auth/FRONTEND_GUIDE.md)
+Complete guide for frontend developers - Signup flow with Supabase
+
+### 📡 [auth/API_REFERENCE.md](./auth/API_REFERENCE.md)
+Authentication API endpoints and responses
 
 ---
 
@@ -46,7 +49,8 @@ Data models from Figma
 ## Quick Links
 
 - **Setup:** Start here → [SETUP.md](./SETUP.md)
-- **Frontend:** Integration guide → [FRONTEND_GUIDE.md](./FRONTEND_GUIDE.md)
-- **API:** Endpoints → [API_REFERENCE.md](./API_REFERENCE.md)
+- **Auth:** Multi-tenant strategy → [auth/MULTI_TENANT.md](./auth/MULTI_TENANT.md)
+- **Frontend:** Integration guide → [auth/FRONTEND_GUIDE.md](./auth/FRONTEND_GUIDE.md)
+- **API:** Endpoints → [auth/API_REFERENCE.md](./auth/API_REFERENCE.md)
 - **Database:** Schema & migrations → [DATABASE.md](./DATABASE.md)
 - **Development:** Code standards → [DEVELOPMENT.md](./DEVELOPMENT.md)

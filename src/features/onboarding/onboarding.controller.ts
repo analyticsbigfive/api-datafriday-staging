@@ -1,13 +1,13 @@
 import { Controller, Post, Body, UseGuards } from '@nestjs/common';
-import { JwtGuard } from '../../core/auth/guards/jwt.guard';
+import { JwtOnboardingGuard } from '../../core/auth/guards/jwt-onboarding.guard';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { OnboardingService } from './onboarding.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 
 @Controller('onboarding')
-@UseGuards(JwtGuard)
+@UseGuards(JwtOnboardingGuard)
 export class OnboardingController {
-  constructor(private onboardingService: OnboardingService) {}
+  constructor(private onboardingService: OnboardingService) { }
 
   /**
    * Create organization for authenticated user

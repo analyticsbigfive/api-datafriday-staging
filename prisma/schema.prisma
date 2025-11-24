@@ -132,6 +132,12 @@ model Tenant {
   plan          TenantPlan  @default(FREE)
   status        TenantStatus @default(ACTIVE)
   metadata      Json?
+  
+  // Weezevent Integration
+  weezeventClientId     String?
+  weezeventClientSecret String?  // Encrypted
+  weezeventEnabled      Boolean  @default(false)
+  
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
@@ -142,6 +148,7 @@ model Tenant {
 
   @@index([slug])
   @@index([status])
+  @@index([weezeventEnabled])
 }
 
 enum TenantPlan {

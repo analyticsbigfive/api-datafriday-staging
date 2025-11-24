@@ -1,10 +1,19 @@
-import { Injectable, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
+import { UpdateWeezeventConfigDto } from './dto/update-weezevent-config.dto';
+import { EncryptionService } from '../../core/encryption/encryption.service';
 
 @Injectable()
 export class OnboardingService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private encryptionService: EncryptionService,
+  ) { }
 
   /**
    * Create organization and admin user in a single transaction
@@ -70,6 +79,105 @@ export class OnboardingService {
         },
       };
     });
+  }
+
+  /**
+   * Update Weezevent configuration for a tenant
+   * Client Secret will be encrypted before storage
+   */
+  async updateWeezeventConfig(
+    tenantId: string,
+    config: UpdateWeezeventConfigDto,
+  ) {
+    // Verify tenant exists
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+    });
+
+    if (!tenant) {
+      throw new NotFoundException(`Tenant with ID ${tenantId} not found`);
+    }
+
+    // Encrypt the client secret
+    const encryptedSecret = this.encryptionService.encrypt(
+      config.weezeventClientSecret,
+    );
+
+    // Update tenant with Weezevent config
+    return this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: {
+        weezeventClientId: config.weezeventClientId,
+        weezeventClientSecret: encryptedSecret,
+        weezeventEnabled: config.weezeventEnabled ?? true,
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        weezeventClientId: true,
+        weezeventEnabled: true,
+        // Never return the encrypted secret
+      },
+    });
+  }
+
+  /**
+   * Get Weezevent configuration for a tenant
+   * Returns decrypted credentials for internal use
+   */
+  async getWeezeventConfig(tenantId: string): Promise<{
+    clientId: string;
+    clientSecret: string;
+    enabled: boolean;
+  } | null> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        weezeventClientId: true,
+        weezeventClientSecret: true,
+        weezeventEnabled: true,
+      },
+    });
+
+    if (!tenant?.weezeventClientId || !tenant?.weezeventClientSecret) {
+      return null;
+    }
+
+    // Decrypt the client secret
+    const decryptedSecret = this.encryptionService.decrypt(
+      tenant.weezeventClientSecret,
+    );
+
+    return {
+      clientId: tenant.weezeventClientId,
+      clientSecret: decryptedSecret,
+      enabled: tenant.weezeventEnabled,
+    };
+  }
+
+  /**
+   * Get public Weezevent configuration (without secret)
+   * Safe to expose via API
+   */
+  async getWeezeventConfigPublic(tenantId: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        weezeventClientId: true,
+        weezeventEnabled: true,
+      },
+    });
+
+    if (!tenant?.weezeventClientId) {
+      throw new NotFoundException('Weezevent configuration not found');
+    }
+
+    return {
+      clientId: tenant.weezeventClientId,
+      enabled: tenant.weezeventEnabled,
+      configured: true,
+    };
   }
 
   /**

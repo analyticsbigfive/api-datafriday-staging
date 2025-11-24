@@ -6,6 +6,7 @@ import { PrismaModule } from './core/database/prisma.module';
 import { AuthModule } from './core/auth/auth.module';
 import { HealthModule } from './health/health.module';
 import { OnboardingModule } from './features/onboarding/onboarding.module';
+import { EncryptionModule } from './core/encryption/encryption.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { OnboardingModule } from './features/onboarding/onboarding.module';
       isGlobal: true,
       envFilePath: 'envFiles/.env.development',
     }),
+    EncryptionModule,
     PrismaModule,
     AuthModule,
     HealthModule,
@@ -21,4 +23,4 @@ import { OnboardingModule } from './features/onboarding/onboarding.module';
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }

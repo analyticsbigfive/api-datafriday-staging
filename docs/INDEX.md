@@ -33,6 +33,25 @@ Authentication API endpoints and responses
 
 ---
 
+## Weezevent Integration
+
+### 📋 [WEEZEVENT_INDEX.md](./WEEZEVENT_INDEX.md)
+**Start here** - Complete index of Weezevent integration documentation
+
+### 🔧 [WEEZEVENT_INTEGRATION.md](./WEEZEVENT_INTEGRATION.md)
+Technical documentation - API, webhooks, implementation guide
+
+### 🔗 [WEEZEVENT_DATA_MAPPING.md](./WEEZEVENT_DATA_MAPPING.md)
+Data relationships and entity mapping
+
+### 🏗️ [WEEZEVENT_ARCHITECTURE.md](./WEEZEVENT_ARCHITECTURE.md)
+Architecture analysis and recommendations
+
+### 📊 [WEEZEVENT_ANALYTICS.md](./WEEZEVENT_ANALYTICS.md)
+Complete analytics guide with queries and dashboards
+
+---
+
 ## Reference
 
 ### ☁️ [SUPABASE.md](./SUPABASE.md)
@@ -54,3 +73,4 @@ Data models from Figma
 - **API:** Endpoints → [auth/API_REFERENCE.md](./auth/API_REFERENCE.md)
 - **Database:** Schema & migrations → [DATABASE.md](./DATABASE.md)
 - **Development:** Code standards → [DEVELOPMENT.md](./DEVELOPMENT.md)
+- **Weezevent:** Integration docs → [WEEZEVENT_INDEX.md](./WEEZEVENT_INDEX.md)

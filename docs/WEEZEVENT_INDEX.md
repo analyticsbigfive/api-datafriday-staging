@@ -1,97 +1,147 @@
-# Documentation Weezevent - Index
+# Documentation Weezevent - Guide Complet
 
 ## 📚 Vue d'ensemble
 
-Cette section contient toute la documentation pour l'intégration de l'API Weezevent (WeezPay) dans DataFriday.
-
----
-
-## 📖 Documents Disponibles
-
-### 1. [WEEZEVENT_INTEGRATION.md](./WEEZEVENT_INTEGRATION.md)
-**Documentation technique complète**
-
-Contenu:
-- 🔐 Authentification OAuth 2.0
-- 📡 Tous les endpoints API (9 endpoints)
-- 💾 Modèles de données Prisma complets
-- 🔔 Configuration et gestion des webhooks
-- 🔄 Stratégie de synchronisation
-- 📝 Guide d'implémentation NestJS
-- 💻 Exemples de code complets
-- 🔒 Sécurité et best practices
-- 📊 Monitoring et logging
-
-**À utiliser pour:** Implémentation technique complète
-
----
-
-### 2. [WEEZEVENT_DATA_MAPPING.md](./WEEZEVENT_DATA_MAPPING.md)
-**Mapping des données et relations**
-
-Contenu:
-- 🔗 Toutes les entités récupérables (10 types)
-- 📊 Structure des transactions
-- 🎯 Endpoints pour chaque entité
-- 📈 Données enrichies possibles
-- 🔄 Stratégie de synchronisation par niveau
-- 💾 Schema Prisma étendu
-- 🎨 Cas d'usage analytics
-
-**À utiliser pour:** Comprendre les relations entre les données
-
----
-
-### 3. [WEEZEVENT_ARCHITECTURE.md](./WEEZEVENT_ARCHITECTURE.md)
-**Analyse et recommandations d'architecture**
-
-Contenu:
-- 🔍 Analyse complète de l'API
-- 🏗️ Comparaison des options d'architecture
-  - Option 1: Backend NestJS (recommandée)
-  - Option 2: Microservices Supabase
-- ✅ Recommandation finale avec justification
-- 📋 Plan d'implémentation en 6 phases
-- ⏱️ Estimation: 13-19 jours
-- 🔐 Considérations de sécurité
-- 📊 Monitoring et observabilité
-
-**À utiliser pour:** Décisions architecturales et planification
-
----
-
-### 4. [WEEZEVENT_ANALYTICS.md](./WEEZEVENT_ANALYTICS.md)
-**Guide complet des analytics**
-
-Contenu:
-- 📊 Analytics par événement (CA, produits populaires, revenus par jour/heure)
-- 🏪 Analytics par marchand (performance, top produits, évolution)
-- 📍 Analytics par zone (revenus, affluence, produits par zone)
-- 👥 Analytics client (profil, top clients, rétention)
-- 💰 Rapports financiers (complet, par catégorie, par méthode paiement)
-- 🔍 Requêtes complexes (panier moyen, combinaisons)
-- 📈 Dashboards recommandés
-- 💻 Exemples de code Prisma complets
-
-**À utiliser pour:** Implémentation des analytics et dashboards
+Cette documentation couvre l'intégration complète de l'API Weezevent (WeezPay) dans DataFriday, incluant le stockage des credentials, le client API, et la synchronisation des données.
 
 ---
 
 ## 🚀 Quick Start
 
-### Pour commencer l'implémentation:
+### 1. Configuration des Credentials (Phase 1 ✅)
 
-1. **Lire d'abord:** [WEEZEVENT_ARCHITECTURE.md](./WEEZEVENT_ARCHITECTURE.md)
-   - Comprendre l'architecture recommandée
-   - Valider l'approche
+Les credentials Weezevent sont stockés de manière sécurisée par organisation (tenant).
 
-2. **Ensuite:** [WEEZEVENT_DATA_MAPPING.md](./WEEZEVENT_DATA_MAPPING.md)
-   - Comprendre les données disponibles
-   - Identifier les entités nécessaires
+**Endpoints:**
+- `PATCH /onboarding/tenants/:id/weezevent` - Configurer
+- `GET /onboarding/tenants/:id/weezevent` - Récupérer
 
-3. **Implémenter:** [WEEZEVENT_INTEGRATION.md](./WEEZEVENT_INTEGRATION.md)
-   - Suivre le guide d'implémentation
-   - Utiliser les exemples de code
+**Documentation:** [WEEZEVENT_CREDENTIALS_USAGE.md](./WEEZEVENT_CREDENTIALS_USAGE.md)
+
+### 2. Client API (Phase 2 ✅)
+
+Client robuste pour communiquer avec l'API Weezevent.
+
+**Features:**
+- OAuth 2.0 automatique
+- Token caching
+- Retry avec exponential backoff
+- Gestion d'erreurs complète
+
+**Documentation:** [WEEZEVENT_API_CLIENT_USAGE.md](./WEEZEVENT_API_CLIENT_USAGE.md)
+
+### 3. Synchronisation (Phase 3 - À venir)
+
+Synchronisation des transactions, wallets, et autres données en base.
+
+**Documentation:** [WEEZEVENT_INTEGRATION.md](./WEEZEVENT_INTEGRATION.md)
+
+---
+
+## 📖 Documentation Technique
+
+### Architecture et Planification
+
+| Document | Description | Statut |
+|----------|-------------|--------|
+| [WEEZEVENT_ARCHITECTURE.md](./WEEZEVENT_ARCHITECTURE.md) | Analyse d'architecture et recommandations | ✅ Complet |
+| [WEEZEVENT_INTEGRATION.md](./WEEZEVENT_INTEGRATION.md) | Guide d'implémentation technique complet | ✅ Complet |
+| [WEEZEVENT_DATA_MAPPING.md](./WEEZEVENT_DATA_MAPPING.md) | Mapping des données et relations | ✅ Complet |
+
+### Implémentation
+
+| Document | Description | Statut |
+|----------|-------------|--------|
+| [WEEZEVENT_CREDENTIALS_USAGE.md](./WEEZEVENT_CREDENTIALS_USAGE.md) | Stockage sécurisé des credentials | ✅ Phase 1 |
+| [WEEZEVENT_API_CLIENT_USAGE.md](./WEEZEVENT_API_CLIENT_USAGE.md) | Utilisation du client API | ✅ Phase 2 |
+
+### Analytics et Cas d'Usage
+
+| Document | Description | Statut |
+|----------|-------------|--------|
+| [WEEZEVENT_ANALYTICS.md](./WEEZEVENT_ANALYTICS.md) | Guide complet des analytics | 📋 Référence |
+| [WEEZEVENT_FNB_MAPPING.md](./WEEZEVENT_FNB_MAPPING.md) | Mapping Food & Beverage | 📋 Référence |
+
+---
+
+## 🔐 Phase 1: Stockage des Credentials ✅
+
+### Implémenté
+
+- ✅ Champs Prisma dans le modèle `Tenant`
+- ✅ Service de chiffrement AES-256-GCM
+- ✅ DTOs et endpoints API
+- ✅ Migration Docker
+
+### Utilisation
+
+```typescript
+// Configurer Weezevent pour un tenant
+PATCH /onboarding/tenants/:tenantId/weezevent
+{
+  "weezeventClientId": "app_...",
+  "weezeventClientSecret": "secret...",
+  "weezeventEnabled": true
+}
+
+// Récupérer la config (public, sans secret)
+GET /onboarding/tenants/:tenantId/weezevent
+```
+
+**Guide complet:** [WEEZEVENT_CREDENTIALS_USAGE.md](./WEEZEVENT_CREDENTIALS_USAGE.md)
+
+---
+
+## 📡 Phase 2: Client API ✅
+
+### Implémenté
+
+- ✅ `WeezeventAuthService` - OAuth 2.0 + cache
+- ✅ `WeezeventApiService` - HTTP + retry logic
+- ✅ `WeezeventClientService` - Méthodes haut niveau
+- ✅ Interfaces TypeScript complètes
+- ✅ Gestion d'erreurs robuste
+
+### Endpoints Disponibles
+
+- **Transactions** - Liste et détails
+- **Wallets** - Informations wallet
+- **Users** - Données client
+- **Events** - Événements
+- **Products** - Catalogue produits
+
+### Utilisation
+
+```typescript
+import { WeezeventClientService } from '../weezevent/services/weezevent-client.service';
+
+constructor(
+  private readonly weezeventClient: WeezeventClientService,
+) {}
+
+// Récupérer des transactions
+const transactions = await this.weezeventClient.getTransactions(
+  tenantId,
+  organizationId,
+  { status: 'V', perPage: 50 }
+);
+```
+
+**Guide complet:** [WEEZEVENT_API_CLIENT_USAGE.md](./WEEZEVENT_API_CLIENT_USAGE.md)
+
+---
+
+## 🔄 Phase 3: Synchronisation (À venir)
+
+### À Implémenter
+
+- [ ] Modèles Prisma pour stocker les données
+- [ ] Service de synchronisation
+- [ ] Endpoints CRUD
+- [ ] Background jobs
+- [ ] Webhooks
+
+**Plan détaillé:** [WEEZEVENT_INTEGRATION.md](./WEEZEVENT_INTEGRATION.md#modèles-de-données-prisma)
 
 ---
 
@@ -99,130 +149,153 @@ Contenu:
 
 ### Entités Principales
 
-| Entité | Endpoint | Priorité | Document |
-|--------|----------|----------|----------|
-| **Transactions** | `/transactions` | 🔴 Haute | [Integration](./WEEZEVENT_INTEGRATION.md#1-transactions) |
-| **Wallets** | `/wallets` | 🔴 Haute | [Integration](./WEEZEVENT_INTEGRATION.md#2-wallets-informations-client) |
-| **Users (Clients)** | `/users` | 🔴 Haute | [Integration](./WEEZEVENT_INTEGRATION.md#3-users-informations-client-détaillées) |
-| **Events** | `/events` | 🔴 Haute | [Integration](./WEEZEVENT_INTEGRATION.md#4-events) |
-| **Products** | `/products` | 🔴 Haute | [Integration](./WEEZEVENT_INTEGRATION.md#5-products) |
-| **Merchants** | `/fundations` | 🟡 Moyenne | [Integration](./WEEZEVENT_INTEGRATION.md#6-fundations-merchants) |
-| **Locations** | `/locations` | 🟡 Moyenne | [Integration](./WEEZEVENT_INTEGRATION.md#7-locations) |
-| **Currencies** | `/currencies` | 🟢 Basse | [Integration](./WEEZEVENT_INTEGRATION.md#8-currencies) |
-| **Payment Methods** | `/payment-methods` | 🟢 Basse | [Integration](./WEEZEVENT_INTEGRATION.md#9-payment-methods) |
+| Entité | Endpoint | Priorité | Données Clés |
+|--------|----------|----------|--------------|
+| **Transactions** | `/transactions` | 🔴 Haute | Montant, produits, paiements |
+| **Wallets** | `/wallets` | 🔴 Haute | Balance, user_id, card |
+| **Users** | `/users` | 🔴 Haute | Nom, email, téléphone, adresse |
+| **Events** | `/events` | 🔴 Haute | Dates, lieu, capacité |
+| **Products** | `/products` | 🔴 Haute | Prix, allergènes, composants |
+| **Merchants** | `/fundations` | 🟡 Moyenne | Nom, contact |
+| **Locations** | `/locations` | 🟡 Moyenne | Zone, coordonnées |
 
-### Informations Client Disponibles
+### Informations Client
 
 Via `wallet_id` → `user_id`:
 - ✅ Nom, prénom, email
 - ✅ Téléphone, adresse complète
 - ✅ Date de naissance
 - ✅ Solde wallet
-- ✅ Historique des transactions
+- ✅ Historique transactions
 - ✅ Consentements RGPD
 
 ---
 
-## 🔄 Webhooks Disponibles
+## 🔔 Webhooks
 
-| Événement | Type | Document |
-|-----------|------|----------|
-| Transaction Created/Updated | `transaction` | [Integration](./WEEZEVENT_INTEGRATION.md#1-transaction-createdupdated) |
-| Wallet Topup | `topup` | [Integration](./WEEZEVENT_INTEGRATION.md#2-wallet-topup) |
-| Wallet Transfer | `transfer` | [Integration](./WEEZEVENT_INTEGRATION.md#3-wallet-transfer) |
-| Wallet Updated | `wallet.updated` | [Integration](./WEEZEVENT_INTEGRATION.md#4-wallet-updated) |
+### Événements Disponibles
+
+| Événement | Type | Description |
+|-----------|------|-------------|
+| Transaction Created/Updated | `transaction` | Nouvelle transaction ou mise à jour |
+| Wallet Topup | `topup` | Rechargement wallet |
+| Wallet Transfer | `transfer` | Transfert entre wallets |
+| Wallet Updated | `wallet.updated` | Mise à jour wallet |
+
+**Configuration:** [WEEZEVENT_INTEGRATION.md](./WEEZEVENT_INTEGRATION.md#webhooks)
 
 ---
 
-## 📋 Plan d'Implémentation
+## 🔒 Sécurité
 
-### Phase 1: Configuration et Auth (1-2 jours)
-- Module Weezevent
-- Service d'authentification OAuth
-- Configuration par tenant
-- Encryption des secrets
+### Implémenté
 
-### Phase 2: API Client (2-3 jours)
-- Service API Weezevent
-- Gestion des tokens
-- Retry logic
-- Error handling
+- ✅ Chiffrement AES-256-GCM des secrets
+- ✅ Tokens OAuth cachés en mémoire
+- ✅ HTTPS uniquement
+- ✅ Pas de leak dans les logs
+- ✅ Multi-tenant isolation (RLS)
+
+### À Implémenter
+
+- [ ] Validation signatures webhook
+- [ ] Rate limiting
+- [ ] Circuit breaker pattern
+
+---
+
+## 📈 Analytics
+
+### Cas d'Usage
+
+- 📊 Analytics par événement (CA, produits populaires)
+- 🏪 Analytics par marchand (performance, top produits)
+- 📍 Analytics par zone (revenus, affluence)
+- 👥 Analytics client (profil, rétention)
+- 💰 Rapports financiers (par catégorie, méthode paiement)
+
+**Guide complet:** [WEEZEVENT_ANALYTICS.md](./WEEZEVENT_ANALYTICS.md)
+
+---
+
+## 🛠️ Développement
+
+### Structure du Code
+
+```
+src/features/weezevent/
+├── weezevent.module.ts
+├── services/
+│   ├── weezevent-auth.service.ts
+│   ├── weezevent-api.service.ts
+│   └── weezevent-client.service.ts
+├── interfaces/
+│   ├── weezevent.interface.ts
+│   └── weezevent-entities.interface.ts
+└── exceptions/
+    ├── weezevent-auth.exception.ts
+    └── weezevent-api.exception.ts
+```
+
+### Tests
+
+```bash
+# Unit tests
+npm test -- weezevent
+
+# Integration tests
+npm run test:e2e -- weezevent
+```
+
+---
+
+## 📋 Plan d'Implémentation Complet
+
+### Phase 1: Configuration et Auth ✅ (1-2 jours)
+- ✅ Stockage credentials par tenant
+- ✅ Service de chiffrement
+- ✅ Endpoints API
+
+### Phase 2: API Client ✅ (2-3 jours)
+- ✅ Service d'authentification OAuth
+- ✅ Client HTTP avec retry
+- ✅ Méthodes haut niveau
 
 ### Phase 3: Transactions (3-4 jours)
-- Modèles Prisma
-- Service de synchronisation
-- Endpoints CRUD
-- Tests
+- [ ] Modèles Prisma
+- [ ] Service de synchronisation
+- [ ] Endpoints CRUD
+- [ ] Tests
 
 ### Phase 4: Webhooks (3-4 jours)
-- Controller webhook
-- Validation signature
-- Processing asynchrone (BullMQ)
-- Logging et monitoring
+- [ ] Controller webhook
+- [ ] Validation signature
+- [ ] Processing asynchrone (BullMQ)
+- [ ] Logging et monitoring
 
 ### Phase 5: Background Jobs (2-3 jours)
-- Job de synchronisation périodique
-- Job de retry pour webhooks échoués
-- Monitoring
+- [ ] Job de synchronisation périodique
+- [ ] Job de retry pour webhooks échoués
+- [ ] Monitoring
 
 ### Phase 6: Tests et Documentation (2-3 jours)
-- Tests unitaires
-- Tests d'intégration
-- Documentation API
-- Guide de configuration
+- [ ] Tests unitaires
+- [ ] Tests d'intégration
+- [ ] Documentation API
+- [ ] Guide de configuration
 
-**Total estimé: 13-19 jours**
-
----
-
-## 🔐 Sécurité
-
-Points clés à implémenter:
-- ✅ Encryption des secrets (AES-256-GCM)
-- ✅ Validation des signatures webhook
-- ✅ Rate limiting
-- ✅ Multi-tenant isolation (RLS)
-- ✅ Retry logic avec exponential backoff
-- ✅ Circuit breaker pattern
-
-Voir: [WEEZEVENT_INTEGRATION.md - Sécurité](./WEEZEVENT_INTEGRATION.md#sécurité-et-best-practices)
+**Total estimé: 13-19 jours**  
+**Progression: 2/6 phases complétées (33%)**
 
 ---
 
-## 📊 Monitoring
+## 🔗 Liens Utiles
 
-Métriques à suivre:
-- Nombre de transactions synchronisées
-- Taux d'erreur API
-- Latence des webhooks
-- Taux de retry
-
-Voir: [WEEZEVENT_INTEGRATION.md - Monitoring](./WEEZEVENT_INTEGRATION.md#monitoring-et-logging)
+- [API Reference Weezevent](https://developers.weezevent.com/)
+- [Documentation Supabase](../SUPABASE.md)
+- [Architecture DataFriday](../ARCHITECTURE.md)
 
 ---
 
-## 🎯 Architecture Recommandée
-
-**✅ Intégration Backend NestJS**
-
-Raisons:
-1. Cohérence avec l'architecture existante
-2. Multi-tenant natif avec RLS Supabase
-3. Contrôle total et flexibilité
-4. Simplicité de développement
-5. Pas de coûts supplémentaires
-
-Voir: [WEEZEVENT_ARCHITECTURE.md](./WEEZEVENT_ARCHITECTURE.md#recommandation-finale)
-
----
-
-## 📞 Support
-
-Pour toute question sur l'implémentation:
-1. Consulter d'abord la documentation technique
-2. Vérifier les exemples de code
-3. Consulter l'API Reference Weezevent officielle
-
----
-
-**Dernière mise à jour:** 2025-11-24
+**Dernière mise à jour:** 2025-11-24  
+**Statut:** Phase 2 complétée, Phase 3 en planification

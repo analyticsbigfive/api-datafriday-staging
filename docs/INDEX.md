@@ -35,20 +35,21 @@ Authentication API endpoints and responses
 
 ## Weezevent Integration
 
-### 📋 [WEEZEVENT_INDEX.md](./WEEZEVENT_INDEX.md)
-**Start here** - Complete index of Weezevent integration documentation
+### 📋 [WEEZEVENT_INDEX.md](./WEEZEVENT_INDEX.md) ⭐ **Start Here**
+Complete index and quick start guide for Weezevent integration
 
-### 🔧 [WEEZEVENT_INTEGRATION.md](./WEEZEVENT_INTEGRATION.md)
-Technical documentation - API, webhooks, implementation guide
+**Phase 1 ✅ - Credentials Storage**
+- [WEEZEVENT_CREDENTIALS_USAGE.md](./WEEZEVENT_CREDENTIALS_USAGE.md) - Secure storage and API endpoints
 
-### 🔗 [WEEZEVENT_DATA_MAPPING.md](./WEEZEVENT_DATA_MAPPING.md)
-Data relationships and entity mapping
+**Phase 2 ✅ - API Client**
+- [WEEZEVENT_API_CLIENT_USAGE.md](./WEEZEVENT_API_CLIENT_USAGE.md) - Client usage and examples
 
-### 🏗️ [WEEZEVENT_ARCHITECTURE.md](./WEEZEVENT_ARCHITECTURE.md)
-Architecture analysis and recommendations
-
-### 📊 [WEEZEVENT_ANALYTICS.md](./WEEZEVENT_ANALYTICS.md)
-Complete analytics guide with queries and dashboards
+**Technical Reference**
+- [WEEZEVENT_INTEGRATION.md](./WEEZEVENT_INTEGRATION.md) - Complete technical documentation
+- [WEEZEVENT_ARCHITECTURE.md](./WEEZEVENT_ARCHITECTURE.md) - Architecture analysis
+- [WEEZEVENT_DATA_MAPPING.md](./WEEZEVENT_DATA_MAPPING.md) - Data relationships
+- [WEEZEVENT_ANALYTICS.md](./WEEZEVENT_ANALYTICS.md) - Analytics guide
+- [WEEZEVENT_FNB_MAPPING.md](./WEEZEVENT_FNB_MAPPING.md) - Food & Beverage mapping
 
 ---
 
@@ -73,4 +74,4 @@ Data models from Figma
 - **API:** Endpoints → [auth/API_REFERENCE.md](./auth/API_REFERENCE.md)
 - **Database:** Schema & migrations → [DATABASE.md](./DATABASE.md)
 - **Development:** Code standards → [DEVELOPMENT.md](./DEVELOPMENT.md)
-- **Weezevent:** Integration docs → [WEEZEVENT_INDEX.md](./WEEZEVENT_INDEX.md)
+- **Weezevent:** Integration docs → [WEEZEVENT_INDEX.md](./WEEZEVENT_INDEX.md) ⭐

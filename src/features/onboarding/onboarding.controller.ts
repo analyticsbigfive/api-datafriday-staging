@@ -9,7 +9,7 @@ import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { OnboardingService } from './onboarding.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 
-@Controller()
+@Controller('onboarding')
 @UseGuards(JwtOnboardingGuard)
 export class OnboardingController {
   constructor(private onboardingService: OnboardingService) { }

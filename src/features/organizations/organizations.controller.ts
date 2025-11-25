@@ -7,7 +7,7 @@ import {
     Body,
     UseGuards,
 } from '@nestjs/common';
-import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-database.guard';
+import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { OrganizationsService } from './organizations.service';
 import { UpdateOrganizationDto } from './dto/update-organization.dto';
 

@@ -34,7 +34,6 @@ import { IntegrationsModule } from './features/integrations/integrations.module'
       {
         path: 'v1',
         children: [
-          { path: 'onboarding', module: OnboardingModule },
           { path: 'organizations', module: OrganizationsModule },
           { path: 'weezevent', module: WeezeventModule },
         ],

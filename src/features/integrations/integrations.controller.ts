@@ -6,7 +6,7 @@ import {
     Body,
     UseGuards,
 } from '@nestjs/common';
-import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-database.guard';
+import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { WeezeventIntegrationService } from './services/weezevent-integration.service';
 import { WebhookIntegrationService } from './services/webhook-integration.service';
 import { WeezeventConfigDto } from './dto/weezevent-config.dto';

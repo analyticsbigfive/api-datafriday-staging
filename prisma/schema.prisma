@@ -145,6 +145,15 @@ model Tenant {
   users         User[]
   spaces        Space[]
   suppliers     Supplier[]
+  
+  // Weezevent Relations
+  weezeventEvents       WeezeventEvent[]
+  weezeventMerchants    WeezeventMerchant[]
+  weezeventLocations    WeezeventLocation[]
+  weezeventProducts     WeezeventProduct[]
+  weezeventUsers        WeezeventUser[]
+  weezeventWallets      WeezeventWallet[]
+  weezeventTransactions WeezeventTransaction[]
 
   @@index([slug])
   @@index([status])
@@ -373,6 +382,318 @@ model MarketPrice {
   @@index([supplierId])
   @@index([goodType])
   @@index([itemName])
+}
+
+// ==================== WEEZEVENT SYNC ====================
+
+model WeezeventEvent {
+  id                String   @id @default(cuid())
+  weezeventId       String   @unique
+  tenantId          String
+  
+  // Event data
+  name              String
+  organizationId    String
+  startDate         DateTime
+  endDate           DateTime
+  description       String?
+  location          String?
+  capacity          Int?
+  status            String
+  
+  // Metadata
+  metadata          Json?
+  rawData           Json
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  syncedAt          DateTime @default(now())
+  
+  // Relations
+  tenant            Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  transactions      WeezeventTransaction[]
+  locations         WeezeventLocation[]
+  
+  @@index([tenantId])
+  @@index([weezeventId])
+  @@index([startDate])
+}
+
+model WeezeventMerchant {
+  id                String   @id @default(cuid())
+  weezeventId       String   @unique
+  tenantId          String
+  
+  // Merchant data
+  name              String
+  organizationId    String
+  description       String?
+  email             String?
+  phone             String?
+  address           Json?
+  
+  // Metadata
+  metadata          Json?
+  rawData           Json
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  syncedAt          DateTime @default(now())
+  
+  // Relations
+  tenant            Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  transactions      WeezeventTransaction[]
+  
+  @@index([tenantId])
+  @@index([weezeventId])
+}
+
+model WeezeventLocation {
+  id                String   @id @default(cuid())
+  weezeventId       String   @unique
+  tenantId          String
+  eventId           String?
+  
+  // Location data
+  name              String
+  type              String?
+  capacity          Int?
+  coordinates       Json?
+  
+  // Metadata
+  metadata          Json?
+  rawData           Json
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  syncedAt          DateTime @default(now())
+  
+  // Relations
+  tenant            Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  event             WeezeventEvent?          @relation(fields: [eventId], references: [id])
+  transactions      WeezeventTransaction[]
+  
+  @@index([tenantId])
+  @@index([weezeventId])
+  @@index([eventId])
+}
+
+model WeezeventProduct {
+  id                String   @id @default(cuid())
+  weezeventId       String   @unique
+  tenantId          String
+  
+  // Product data
+  name              String
+  description       String?
+  category          String?
+  basePrice         Decimal  @db.Decimal(10, 2)
+  vatRate           Decimal  @db.Decimal(5, 2)
+  image             String?
+  allergens         String[]
+  
+  // Composition
+  isCompound        Boolean  @default(false)
+  components        Json?
+  variants          Json?
+  
+  // Metadata
+  metadata          Json?
+  rawData           Json
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  syncedAt          DateTime @default(now())
+  
+  // Relations
+  tenant            Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  transactionItems  WeezeventTransactionItem[]
+  
+  @@index([tenantId])
+  @@index([weezeventId])
+  @@index([category])
+}
+
+model WeezeventUser {
+  id                String   @id @default(cuid())
+  weezeventId       String   @unique
+  tenantId          String
+  
+  // User data (Client)
+  email             String?
+  firstName         String?
+  lastName          String?
+  phone             String?
+  birthdate         DateTime?
+  address           Json?
+  
+  // Wallet
+  walletId          String?
+  
+  // GDPR
+  gdprConsent       Boolean  @default(false)
+  marketingConsent  Boolean  @default(false)
+  
+  // Metadata
+  metadata          Json?
+  rawData           Json
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  syncedAt          DateTime @default(now())
+  
+  // Relations
+  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  wallet            WeezeventWallet?  @relation(fields: [walletId], references: [id])
+  
+  @@index([tenantId])
+  @@index([weezeventId])
+  @@index([email])
+}
+
+model WeezeventWallet {
+  id                String   @id @default(cuid())
+  weezeventId       String   @unique
+  tenantId          String
+  
+  // Wallet data
+  balance           Decimal  @db.Decimal(10, 2)
+  currency          String
+  userId            String?
+  walletGroupId     String?
+  status            String
+  
+  // Card info
+  cardNumber        String?
+  cardType          String?
+  
+  // Metadata
+  metadata          Json?
+  rawData           Json
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  syncedAt          DateTime @default(now())
+  
+  // Relations
+  tenant            Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users             WeezeventUser[]
+  sellerTransactions WeezeventTransaction[] @relation("SellerWallet")
+  payments          WeezeventPayment[]
+  
+  @@index([tenantId])
+  @@index([weezeventId])
+  @@index([userId])
+}
+
+model WeezeventTransaction {
+  id                String   @id @default(cuid())
+  weezeventId       String   @unique
+  tenantId          String
+  
+  // Transaction data
+  amount            Decimal  @db.Decimal(10, 2)
+  status            String
+  transactionDate   DateTime
+  
+  // Event and merchant info
+  eventId           String?
+  eventName         String?
+  merchantId        String?
+  merchantName      String?
+  locationId        String?
+  locationName      String?
+  
+  // Seller info
+  sellerId          String?
+  sellerWalletId    String?
+  
+  // Metadata
+  metadata          Json?
+  rawData           Json
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  syncedAt          DateTime @default(now())
+  
+  // Relations
+  tenant            Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  event             WeezeventEvent?             @relation(fields: [eventId], references: [id])
+  merchant          WeezeventMerchant?          @relation(fields: [merchantId], references: [id])
+  location          WeezeventLocation?          @relation(fields: [locationId], references: [id])
+  sellerWallet      WeezeventWallet?            @relation("SellerWallet", fields: [sellerWalletId], references: [id])
+  items             WeezeventTransactionItem[]
+  
+  @@index([tenantId])
+  @@index([weezeventId])
+  @@index([eventId])
+  @@index([merchantId])
+  @@index([locationId])
+  @@index([status])
+  @@index([transactionDate])
+}
+
+model WeezeventTransactionItem {
+  id                String   @id @default(cuid())
+  transactionId     String
+  weezeventItemId   String?
+  
+  // Item data
+  productId         String?
+  productName       String?
+  compoundId        String?
+  quantity          Int
+  unitPrice         Decimal  @db.Decimal(10, 2)
+  vat               Decimal  @db.Decimal(5, 2)
+  reduction         Decimal  @db.Decimal(5, 2) @default(0)
+  
+  // Metadata
+  rawData           Json
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  
+  // Relations
+  transaction       WeezeventTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  product           WeezeventProduct?    @relation(fields: [productId], references: [id])
+  payments          WeezeventPayment[]
+  
+  @@index([transactionId])
+  @@index([productId])
+}
+
+model WeezeventPayment {
+  id                String   @id @default(cuid())
+  itemId            String
+  weezeventPaymentId String?
+  
+  // Payment data
+  walletId          String?
+  amount            Decimal  @db.Decimal(10, 2)
+  amountVat         Decimal  @db.Decimal(10, 2)
+  currencyId        String?
+  quantity          Int
+  paymentMethodId   String?
+  
+  // Metadata
+  rawData           Json
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  
+  // Relations
+  item              WeezeventTransactionItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  wallet            WeezeventWallet?         @relation(fields: [walletId], references: [id])
+  
+  @@index([itemId])
+  @@index([walletId])
 }
 
 // ==================== INGREDIENTS & PACKAGING ====================

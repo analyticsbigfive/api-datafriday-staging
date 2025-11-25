@@ -64,6 +64,9 @@ Synchronisation des transactions, wallets, et autres données en base.
 | [WEEZEVENT_API_CLIENT_USAGE.md](./WEEZEVENT_API_CLIENT_USAGE.md) | Utilisation du client API | ✅ Phase 2 |
 | [WEEZEVENT_SYNC_USER_GUIDE.md](./WEEZEVENT_SYNC_USER_GUIDE.md) | Guide synchronisation données | ✅ Phase 3 |
 | [WEEZEVENT_WEBHOOK_SETUP.md](./WEEZEVENT_WEBHOOK_SETUP.md) | Configuration webhooks temps réel | ✅ Phase 4 |
+| [WEEZEVENT_WEBHOOK_QUICKSTART.md](./WEEZEVENT_WEBHOOK_QUICKSTART.md) | Démarrage rapide webhooks | ✅ Phase 4 |
+| [WEEZEVENT_ANALYTICS_GUIDE.md](./WEEZEVENT_ANALYTICS_GUIDE.md) | Guide analytics et exploitation données | ✅ Phase 6 |
+| [WEEZEVENT_PERFORMANCE_GUIDE.md](./WEEZEVENT_PERFORMANCE_GUIDE.md) | Optimisations performance | ✅ Phase 8 |
 
 ### Analytics et Cas d'Usage
 

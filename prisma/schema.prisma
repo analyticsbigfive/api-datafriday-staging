@@ -645,6 +645,11 @@ model WeezeventTransaction {
   @@index([status])
   @@index([transactionDate])
   @@index([syncedAt])
+  @@index([sellerWalletId]) // Added walletId index
+  // Composite indexes for analytics
+  @@index([tenantId, status, transactionDate])
+  @@index([tenantId, eventId, status])
+  @@index([eventId, transactionDate])
 }
 
 // ==================== WEEZEVENT WEBHOOK ====================
@@ -705,6 +710,9 @@ model WeezeventTransactionItem {
   
   @@index([transactionId])
   @@index([productId])
+  @@index([weezeventItemId])
+  // Composite index for product analytics
+  @@index([productId, transactionId])
 }
 
 model WeezeventPayment {

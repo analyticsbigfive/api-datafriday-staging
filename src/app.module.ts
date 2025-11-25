@@ -7,6 +7,7 @@ import { AuthModule } from './core/auth/auth.module';
 import { HealthModule } from './health/health.module';
 import { OnboardingModule } from './features/onboarding/onboarding.module';
 import { EncryptionModule } from './core/encryption/encryption.module';
+import { CacheModule } from './core/cache/cache.module';
 import { WeezeventModule } from './features/weezevent/weezevent.module';
 
 @Module({
@@ -16,6 +17,7 @@ import { WeezeventModule } from './features/weezevent/weezevent.module';
       envFilePath: 'envFiles/.env.development',
     }),
     EncryptionModule,
+    CacheModule,
     PrismaModule,
     AuthModule,
     HealthModule,

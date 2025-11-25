@@ -138,6 +138,10 @@ model Tenant {
   weezeventClientSecret String?  // Encrypted
   weezeventEnabled      Boolean  @default(false)
   
+  // Weezevent Webhook
+  weezeventWebhookSecret    String?  // Secret for signature validation
+  weezeventWebhookEnabled   Boolean  @default(false)
+  
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
@@ -154,10 +158,12 @@ model Tenant {
   weezeventUsers        WeezeventUser[]
   weezeventWallets      WeezeventWallet[]
   weezeventTransactions WeezeventTransaction[]
+  weezeventWebhookEvents    WeezeventWebhookEvent[]
 
   @@index([slug])
   @@index([status])
   @@index([weezeventEnabled])
+  @@index([weezeventWebhookEnabled])
 }
 
 enum TenantPlan {
@@ -638,6 +644,38 @@ model WeezeventTransaction {
   @@index([locationId])
   @@index([status])
   @@index([transactionDate])
+  @@index([syncedAt])
+}
+
+// ==================== WEEZEVENT WEBHOOK ====================
+
+model WeezeventWebhookEvent {
+  id            String   @id @default(cuid())
+  tenantId      String
+  
+  // Webhook data
+  eventType     String   // transaction, refill, transfer, wallet
+  method        String   // create, update, delete
+  payload       Json     // Full webhook body
+  signature     String?  // X-Weezevent-Signature header
+  
+  // Processing
+  processed     Boolean  @default(false)
+  processedAt   DateTime?
+  error         String?
+  retryCount    Int      @default(0)
+  
+  // Audit
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  // Relations
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  @@index([tenantId])
+  @@index([eventType])
+  @@index([processed])
+  @@index([createdAt])
 }
 
 model WeezeventTransactionItem {

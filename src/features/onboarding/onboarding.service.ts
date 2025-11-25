@@ -157,6 +157,53 @@ export class OnboardingService {
   }
 
   /**
+   * Update webhook configuration for a tenant
+   */
+  async updateWebhookConfig(
+    tenantId: string,
+    config: { weezeventWebhookSecret?: string; weezeventWebhookEnabled?: boolean },
+  ) {
+    return this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: {
+        weezeventWebhookSecret: config.weezeventWebhookSecret,
+        weezeventWebhookEnabled: config.weezeventWebhookEnabled,
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        weezeventWebhookEnabled: true,
+        // Never return the secret
+      },
+    });
+  }
+
+  /**
+   * Get webhook configuration (public info only)
+   */
+  async getWebhookConfigPublic(tenantId: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        weezeventWebhookEnabled: true,
+      },
+    });
+
+    if (!tenant) {
+      throw new Error('Tenant not found');
+    }
+
+    return {
+      enabled: tenant.weezeventWebhookEnabled,
+      configured: !!tenant.weezeventWebhookEnabled,
+    };
+  }
+
+  /**
    * Get public Weezevent configuration (without secret)
    * Safe to expose via API
    */

@@ -8,10 +8,12 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtOnboardingGuard } from '../../core/auth/guards/jwt-onboarding.guard';
+import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-database.guard';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { OnboardingService } from './onboarding.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { UpdateWeezeventConfigDto } from './dto/update-weezevent-config.dto';
+import { UpdateWebhookConfigDto } from '../weezevent/dto/update-webhook-config.dto';
 
 @Controller('onboarding')
 @UseGuards(JwtOnboardingGuard)
@@ -59,5 +61,21 @@ export class OnboardingController {
   @Get('tenants/:tenantId/weezevent')
   async getWeezeventConfig(@Param('tenantId') tenantId: string) {
     return this.onboardingService.getWeezeventConfigPublic(tenantId);
+  }
+
+  // Webhook Configuration
+  @Patch('tenants/:id/webhook')
+  @UseGuards(JwtDatabaseGuard)
+  async updateWebhookConfig(
+    @Param('id') tenantId: string,
+    @Body() dto: UpdateWebhookConfigDto,
+  ) {
+    return this.onboardingService.updateWebhookConfig(tenantId, dto);
+  }
+
+  @Get('tenants/:id/webhook')
+  @UseGuards(JwtDatabaseGuard)
+  async getWebhookConfig(@Param('id') tenantId: string) {
+    return this.onboardingService.getWebhookConfigPublic(tenantId);
   }
 }

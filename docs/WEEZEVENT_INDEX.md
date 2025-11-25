@@ -62,6 +62,8 @@ Synchronisation des transactions, wallets, et autres données en base.
 |----------|-------------|--------|
 | [WEEZEVENT_CREDENTIALS_USAGE.md](./WEEZEVENT_CREDENTIALS_USAGE.md) | Stockage sécurisé des credentials | ✅ Phase 1 |
 | [WEEZEVENT_API_CLIENT_USAGE.md](./WEEZEVENT_API_CLIENT_USAGE.md) | Utilisation du client API | ✅ Phase 2 |
+| [WEEZEVENT_SYNC_USER_GUIDE.md](./WEEZEVENT_SYNC_USER_GUIDE.md) | Guide synchronisation données | ✅ Phase 3 |
+| [WEEZEVENT_WEBHOOK_SETUP.md](./WEEZEVENT_WEBHOOK_SETUP.md) | Configuration webhooks temps réel | ✅ Phase 4 |
 
 ### Analytics et Cas d'Usage
 

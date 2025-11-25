@@ -4,7 +4,10 @@ import { WeezeventAuthService } from './services/weezevent-auth.service';
 import { WeezeventApiService } from './services/weezevent-api.service';
 import { WeezeventClientService } from './services/weezevent-client.service';
 import { WeezeventSyncService } from './services/weezevent-sync.service';
+import { WebhookSignatureService } from './services/webhook-signature.service';
+import { WebhookEventHandler } from './services/webhook-event.handler';
 import { WeezeventController } from './weezevent.controller';
+import { WebhookController } from './webhook.controller';
 import { OnboardingModule } from '../onboarding/onboarding.module';
 
 @Module({
@@ -15,12 +18,14 @@ import { OnboardingModule } from '../onboarding/onboarding.module';
         }),
         OnboardingModule,
     ],
-    controllers: [WeezeventController],
+    controllers: [WeezeventController, WebhookController],
     providers: [
         WeezeventAuthService,
         WeezeventApiService,
         WeezeventClientService,
         WeezeventSyncService,
+        WebhookSignatureService,
+        WebhookEventHandler,
     ],
     exports: [WeezeventClientService, WeezeventSyncService],
 })

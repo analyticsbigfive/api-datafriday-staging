@@ -4,6 +4,7 @@ import { WeezeventSyncService } from './weezevent-sync.service';
 
 interface WebhookEvent {
     id: string;
+    tenantId: string;
     eventType: string;
     method: string;
     payload: any;

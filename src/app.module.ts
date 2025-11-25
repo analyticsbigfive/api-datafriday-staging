@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { RouterModule } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -9,6 +10,8 @@ import { OnboardingModule } from './features/onboarding/onboarding.module';
 import { EncryptionModule } from './core/encryption/encryption.module';
 import { CacheModule } from './core/cache/cache.module';
 import { WeezeventModule } from './features/weezevent/weezevent.module';
+import { OrganizationsModule } from './features/organizations/organizations.module';
+import { IntegrationsModule } from './features/integrations/integrations.module';
 
 @Module({
   imports: [
@@ -22,7 +25,21 @@ import { WeezeventModule } from './features/weezevent/weezevent.module';
     AuthModule,
     HealthModule,
     OnboardingModule,
+    OrganizationsModule,
+    IntegrationsModule,
     WeezeventModule,
+
+    // API Versioning
+    RouterModule.register([
+      {
+        path: 'v1',
+        children: [
+          { path: 'onboarding', module: OnboardingModule },
+          { path: 'organizations', module: OrganizationsModule },
+          { path: 'weezevent', module: WeezeventModule },
+        ],
+      },
+    ]),
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -75,7 +75,7 @@ export class WebhookController {
             }
 
             // 3. Store webhook event for audit and processing
-            const webhookEvent = await this.prisma.weezeventWebhook.create({
+            const webhookEvent = await this.prisma.weezeventWebhookEvent.create({
                 data: {
                     tenantId,
                     eventType: payload.type,

@@ -30,11 +30,19 @@ Client robuste pour communiquer avec l'API Weezevent.
 
 **Documentation:** [WEEZEVENT_API_CLIENT_USAGE.md](./WEEZEVENT_API_CLIENT_USAGE.md)
 
-### 3. Synchronisation (Phase 3 - À venir)
+### 3. Synchronisation (Phase 3 ✅)
 
 Synchronisation des transactions, wallets, et autres données en base.
 
-**Documentation:** [WEEZEVENT_INTEGRATION.md](./WEEZEVENT_INTEGRATION.md)
+**Features:**
+- 8 modèles Prisma (Transaction, Wallet, User, Event, Product, etc.)
+- Service de synchronisation avec upsert logic
+- 6 endpoints API (transactions, events, products, sync, status)
+- Support sync incrémentale et complète
+
+**Documentation:** 
+- [WEEZEVENT_SYNC_USER_GUIDE.md](./WEEZEVENT_SYNC_USER_GUIDE.md) - Guide utilisateur
+- [WEEZEVENT_INTEGRATION.md](./WEEZEVENT_INTEGRATION.md) - Documentation technique
 
 ---
 
@@ -98,6 +106,97 @@ GET /onboarding/tenants/:tenantId/weezevent
 
 - ✅ `WeezeventAuthService` - OAuth 2.0 + cache
 - ✅ `WeezeventApiService` - HTTP + retry logic
+- ✅ `WeezeventClientService` - Méthodes haut niveau
+- ✅ Tests unitaires (30/30 passés)
+
+### Utilisation
+
+```typescript
+import { WeezeventClientService } from './weezevent/services/weezevent-client.service';
+
+// Récupérer des transactions
+const transactions = await this.weezeventClient.getTransactions(
+  tenantId,
+  organizationId,
+  { status: 'V', perPage: 50 }
+);
+
+// Informations client
+const wallet = await this.weezeventClient.getWallet(tenantId, orgId, walletId);
+const user = await this.weezeventClient.getUser(tenantId, orgId, userId);
+```
+
+**Guide complet:** [WEEZEVENT_API_CLIENT_USAGE.md](./WEEZEVENT_API_CLIENT_USAGE.md)
+
+---
+
+## 🔄 Phase 3: Synchronisation des Données ✅
+
+### Implémenté
+
+- ✅ 8 modèles Prisma (Event, Merchant, Location, Product, User, Wallet, Transaction, Item, Payment)
+- ✅ Migration appliquée (8 tables + 44 indexes)
+- ✅ `WeezeventSyncService` avec 5 méthodes de sync
+- ✅ 6 endpoints API REST
+- ✅ DTOs avec validation
+- ✅ Tests unitaires (15 test cases)
+
+### Endpoints
+
+```typescript
+// Déclencher une synchronisation
+POST /weezevent/sync
+{
+  "type": "transactions",
+  "fromDate": "2024-01-01",
+  "toDate": "2024-12-31",
+  "full": false
+}
+
+// Liste des transactions synchronisées
+GET /weezevent/transactions?page=1&perPage=50&status=V
+
+// Détail d'une transaction
+GET /weezevent/transactions/:id
+
+// Statut de synchronisation
+GET /weezevent/sync/status
+
+// Liste des événements
+GET /weezevent/events?page=1&perPage=20
+
+// Liste des produits
+GET /weezevent/products?page=1&perPage=50&category=food
+```
+
+### Utilisation
+
+```typescript
+import { WeezeventSyncService } from './weezevent/services/weezevent-sync.service';
+
+// Synchroniser les transactions
+const result = await this.syncService.syncTransactions(
+  tenantId,
+  organizationId,
+  {
+    fromDate: new Date('2024-01-01'),
+    toDate: new Date('2024-12-31'),
+    full: false, // Incrémentale
+  }
+);
+
+console.log(`Synced: ${result.itemsSynced}, Created: ${result.itemsCreated}`);
+```
+
+**Guides:**
+- [WEEZEVENT_SYNC_USER_GUIDE.md](./WEEZEVENT_SYNC_USER_GUIDE.md) - Guide utilisateur complet
+- [WEEZEVENT_INTEGRATION.md](./WEEZEVENT_INTEGRATION.md) - Documentation technique
+
+---
+
+## 📊 Roadmap
+
+### Phase 4: Webhooks (Optionnel)
 - ✅ `WeezeventClientService` - Méthodes haut niveau
 - ✅ Interfaces TypeScript complètes
 - ✅ Gestion d'erreurs robuste

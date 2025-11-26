@@ -22,9 +22,6 @@ export class OrganizationsService {
                 status: true,
                 createdAt: true,
                 updatedAt: true,
-                // Don't expose sensitive data
-                weezeventClientId: false,
-                weezeventClientSecret: false,
             },
         });
 

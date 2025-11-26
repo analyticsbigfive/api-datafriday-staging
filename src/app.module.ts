@@ -12,6 +12,7 @@ import { CacheModule } from './core/cache/cache.module';
 import { WeezeventModule } from './features/weezevent/weezevent.module';
 import { OrganizationsModule } from './features/organizations/organizations.module';
 import { IntegrationsModule } from './features/integrations/integrations.module';
+import { MeModule } from './features/me/me.module';
 
 @Module({
   imports: [
@@ -28,13 +29,13 @@ import { IntegrationsModule } from './features/integrations/integrations.module'
     OrganizationsModule,
     IntegrationsModule,
     WeezeventModule,
+    MeModule,
 
     // API Versioning
     RouterModule.register([
       {
         path: 'v1',
         children: [
-          { path: 'organizations', module: OrganizationsModule },
           { path: 'weezevent', module: WeezeventModule },
         ],
       },

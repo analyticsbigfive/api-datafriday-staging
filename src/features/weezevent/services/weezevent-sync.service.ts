@@ -42,7 +42,6 @@ export class WeezeventSyncService {
      */
     async syncTransactions(
         tenantId: string,
-        organizationId: string,
         options?: SyncTransactionsOptions,
     ): Promise<SyncResult> {
         const startTime = Date.now();
@@ -59,6 +58,30 @@ export class WeezeventSyncService {
         };
 
         try {
+            // Get tenant to retrieve Weezevent organization ID
+            const tenant = await this.prisma.tenant.findUnique({
+                where: { id: tenantId },
+                select: {
+                    id: true,
+                    weezeventOrganizationId: true,
+                    weezeventEnabled: true,
+                },
+            });
+
+            if (!tenant) {
+                throw new Error(`Tenant ${tenantId} not found`);
+            }
+
+            if (!tenant.weezeventEnabled) {
+                throw new Error(`Weezevent not enabled for tenant ${tenantId}`);
+            }
+
+            if (!tenant.weezeventOrganizationId) {
+                throw new Error(`Weezevent organization ID not configured for tenant ${tenantId}`);
+            }
+
+            const organizationId = tenant.weezeventOrganizationId;
+
             this.logger.log(
                 `Starting transaction sync for tenant ${tenantId}, organization ${organizationId}`,
             );
@@ -123,6 +146,45 @@ export class WeezeventSyncService {
             result.duration = Date.now() - startTime;
             throw error;
         }
+    }
+
+    /**
+     * Sync a single transaction by ID (for webhooks)
+     */
+    async syncSingleTransaction(
+        tenantId: string,
+        transactionId: string | number,
+    ): Promise<{ created: boolean; updated: boolean }> {
+        this.logger.log(`Syncing single transaction ${transactionId} for tenant ${tenantId}`);
+
+        // Get tenant to retrieve Weezevent organization ID
+        const tenant = await this.prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: {
+                id: true,
+                weezeventOrganizationId: true,
+            },
+        });
+
+        if (!tenant) {
+            throw new Error(`Tenant ${tenantId} not found`);
+        }
+
+        if (!tenant.weezeventOrganizationId) {
+            throw new Error(`Weezevent organization ID not configured for tenant ${tenantId}`);
+        }
+
+        const organizationId = tenant.weezeventOrganizationId;
+
+        // Fetch transaction from Weezevent API
+        const apiTransaction = await this.weezeventClient.getTransaction(
+            tenantId,
+            organizationId,
+            transactionId.toString(),
+        );
+
+        // Sync the transaction
+        return this.syncTransaction(tenantId, apiTransaction);
     }
 
     /**
@@ -334,7 +396,6 @@ export class WeezeventSyncService {
      */
     async syncEvents(
         tenantId: string,
-        organizationId: string,
     ): Promise<SyncResult> {
         const startTime = Date.now();
         const result: SyncResult = {
@@ -348,7 +409,26 @@ export class WeezeventSyncService {
         };
 
         try {
-            this.logger.log(`Syncing events for tenant ${tenantId}`);
+            // Get tenant to retrieve Weezevent organization ID
+            const tenant = await this.prisma.tenant.findUnique({
+                where: { id: tenantId },
+                select: {
+                    id: true,
+                    weezeventOrganizationId: true,
+                },
+            });
+
+            if (!tenant) {
+                throw new Error(`Tenant ${tenantId} not found`);
+            }
+
+            if (!tenant.weezeventOrganizationId) {
+                throw new Error(`Weezevent organization ID not configured for tenant ${tenantId}`);
+            }
+
+            const organizationId = tenant.weezeventOrganizationId;
+
+            this.logger.log(`Syncing events for tenant ${tenantId}, organization ${organizationId}`);
 
             const response = await this.weezeventClient.getEvents(
                 tenantId,
@@ -368,8 +448,8 @@ export class WeezeventSyncService {
                         create: {
                             weezeventId,
                             tenantId,
-                            name: apiEvent.name,
                             organizationId,
+                            name: apiEvent.name,
                             startDate: new Date(apiEvent.start_date),
                             endDate: new Date(apiEvent.end_date),
                             description: apiEvent.description,
@@ -382,6 +462,7 @@ export class WeezeventSyncService {
                         },
                         update: {
                             name: apiEvent.name,
+                            organizationId,
                             startDate: new Date(apiEvent.start_date),
                             endDate: new Date(apiEvent.end_date),
                             description: apiEvent.description,
@@ -391,7 +472,6 @@ export class WeezeventSyncService {
                             metadata: apiEvent.metadata,
                             rawData: apiEvent as any,
                             syncedAt: new Date(),
-                            updatedAt: new Date(),
                         },
                     });
 
@@ -419,10 +499,7 @@ export class WeezeventSyncService {
     /**
      * Sync all products
      */
-    async syncProducts(
-        tenantId: string,
-        organizationId: string,
-    ): Promise<SyncResult> {
+    async syncProducts(tenantId: string): Promise<SyncResult> {
         const startTime = Date.now();
         const result: SyncResult = {
             type: 'products',
@@ -435,7 +512,26 @@ export class WeezeventSyncService {
         };
 
         try {
-            this.logger.log(`Syncing products for tenant ${tenantId}`);
+            // Get tenant to retrieve Weezevent organization ID
+            const tenant = await this.prisma.tenant.findUnique({
+                where: { id: tenantId },
+                select: {
+                    id: true,
+                    weezeventOrganizationId: true,
+                },
+            });
+
+            if (!tenant) {
+                throw new Error(`Tenant ${tenantId} not found`);
+            }
+
+            if (!tenant.weezeventOrganizationId) {
+                throw new Error(`Weezevent organization ID not configured for tenant ${tenantId}`);
+            }
+
+            const organizationId = tenant.weezeventOrganizationId;
+
+            this.logger.log(`Syncing products for tenant ${tenantId}, organization ${organizationId}`);
 
             const response = await this.weezeventClient.getProducts(
                 tenantId,
@@ -481,7 +577,6 @@ export class WeezeventSyncService {
                             metadata: apiProduct.metadata,
                             rawData: apiProduct as any,
                             syncedAt: new Date(),
-                            updatedAt: new Date(),
                         },
                     });
 

@@ -196,11 +196,28 @@ export class WeezeventClientService {
             per_page: options?.perPage || 50,
         };
 
-        return this.apiService.get<WeezeventPaginatedResponse<WeezeventEvent>>(
+        const response = await this.apiService.get<any>(
             tenantId,
             `/organizations/${organizationId}/events`,
             params,
         );
+
+        // Weezevent API returns an array directly, not a paginated response
+        // Normalize it to match our expected format
+        if (Array.isArray(response)) {
+            return {
+                data: response,
+                meta: {
+                    current_page: options?.page || 1,
+                    per_page: options?.perPage || 50,
+                    total: response.length,
+                    total_pages: 1,
+                },
+            };
+        }
+
+        // If it's already in the correct format, return as is
+        return response;
     }
 
     // ==================== PRODUCTS ====================
@@ -244,10 +261,27 @@ export class WeezeventClientService {
             params.category = options.category;
         }
 
-        return this.apiService.get<WeezeventPaginatedResponse<WeezeventProduct>>(
+        const response = await this.apiService.get<any>(
             tenantId,
             `/organizations/${organizationId}/products`,
             params,
         );
+
+        // Weezevent API returns an array directly, not a paginated response
+        // Normalize it to match our expected format
+        if (Array.isArray(response)) {
+            return {
+                data: response,
+                meta: {
+                    current_page: options?.page || 1,
+                    per_page: options?.perPage || 50,
+                    total: response.length,
+                    total_pages: 1,
+                },
+            };
+        }
+
+        // If it's already in the correct format, return as is
+        return response;
     }
 }

@@ -109,6 +109,7 @@ export class OnboardingService {
       data: {
         weezeventClientId: config.weezeventClientId,
         weezeventClientSecret: encryptedSecret,
+        weezeventOrganizationId: config.weezeventOrganizationId,
         weezeventEnabled: config.weezeventEnabled ?? true,
       },
       select: {
@@ -116,6 +117,7 @@ export class OnboardingService {
         name: true,
         slug: true,
         weezeventClientId: true,
+        weezeventOrganizationId: true,
         weezeventEnabled: true,
         // Never return the encrypted secret
       },
@@ -135,8 +137,9 @@ export class OnboardingService {
       where: { id: tenantId },
       select: {
         weezeventClientId: true,
-        weezeventClientSecret: true,
+        weezeventOrganizationId: true,
         weezeventEnabled: true,
+        weezeventClientSecret: true, // Needed for internal logic, but not returned to API
       },
     });
 
@@ -212,6 +215,7 @@ export class OnboardingService {
       where: { id: tenantId },
       select: {
         weezeventClientId: true,
+        weezeventOrganizationId: true,
         weezeventEnabled: true,
       },
     });
@@ -222,6 +226,7 @@ export class OnboardingService {
 
     return {
       clientId: tenant.weezeventClientId,
+      organizationId: tenant.weezeventOrganizationId,
       enabled: tenant.weezeventEnabled,
       configured: true,
     };

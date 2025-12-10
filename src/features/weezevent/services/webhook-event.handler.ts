@@ -126,15 +126,27 @@ export class WebhookEventHandler {
             throw new Error('Weezevent not enabled for this tenant');
         }
 
-        // Note: We would need to add a method to sync a single transaction
-        // For now, we'll trigger a sync of recent transactions
-        // This ensures we get the latest data from Weezevent API
+        // Sync the single transaction from Weezevent API
         this.logger.log(
-            `Triggering sync for transaction ${transactionId} (tenant: ${tenantId})`,
+            `Syncing transaction ${transactionId} from Weezevent API (tenant: ${tenantId})`,
         );
 
-        // TODO: Implement single transaction sync in WeezeventSyncService
-        // For now, this will be handled by the regular sync process
+        try {
+            const result = await this.syncService.syncSingleTransaction(
+                tenantId,
+                transactionId,
+            );
+
+            this.logger.log(
+                `Transaction ${transactionId} synced successfully (created: ${result.created}, updated: ${result.updated})`,
+            );
+        } catch (error) {
+            this.logger.error(
+                `Failed to sync transaction ${transactionId}`,
+                error.stack,
+            );
+            throw error;
+        }
     }
 
     /**

@@ -134,9 +134,10 @@ model Tenant {
   metadata      Json?
   
   // Weezevent Integration
-  weezeventClientId     String?
-  weezeventClientSecret String?  // Encrypted
-  weezeventEnabled      Boolean  @default(false)
+  weezeventClientId        String?
+  weezeventClientSecret    String?  // Encrypted
+  weezeventOrganizationId  String?  // Weezevent Organization ID
+  weezeventEnabled         Boolean  @default(false)
   
   // Weezevent Webhook
   weezeventWebhookSecret    String?  // Secret for signature validation

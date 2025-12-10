@@ -36,6 +36,10 @@ export class WeezeventIntegrationService {
             );
         }
 
+        if (config.weezeventOrganizationId !== undefined) {
+            data.weezeventOrganizationId = config.weezeventOrganizationId;
+        }
+
         if (config.weezeventEnabled !== undefined) {
             data.weezeventEnabled = config.weezeventEnabled;
         }
@@ -48,6 +52,7 @@ export class WeezeventIntegrationService {
                 name: true,
                 slug: true,
                 weezeventClientId: true,
+                weezeventOrganizationId: true,
                 weezeventEnabled: true,
                 // Never return encrypted secret
             },
@@ -64,6 +69,7 @@ export class WeezeventIntegrationService {
                 id: true,
                 name: true,
                 weezeventClientId: true,
+                weezeventOrganizationId: true,
                 weezeventEnabled: true,
             },
         });
@@ -74,6 +80,7 @@ export class WeezeventIntegrationService {
 
         return {
             clientId: org.weezeventClientId,
+            organizationId: org.weezeventOrganizationId,
             enabled: org.weezeventEnabled,
             configured: !!org.weezeventClientId,
         };

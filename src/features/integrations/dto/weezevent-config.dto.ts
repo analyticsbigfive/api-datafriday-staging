@@ -10,6 +10,10 @@ export class WeezeventConfigDto {
     weezeventClientSecret?: string;
 
     @IsOptional()
+    @IsString()
+    weezeventOrganizationId?: string;
+
+    @IsOptional()
     @IsBoolean()
     weezeventEnabled?: boolean;
 }

@@ -9,6 +9,10 @@ export class UpdateWeezeventConfigDto {
     @MinLength(20, { message: 'Client Secret must be at least 20 characters' })
     weezeventClientSecret: string;
 
+    @IsString()
+    @IsOptional()
+    weezeventOrganizationId?: string;
+
     @IsBoolean()
     @IsOptional()
     weezeventEnabled?: boolean;

@@ -16,7 +16,7 @@ interface TokenCache {
 export class WeezeventAuthService {
     private readonly logger = new Logger(WeezeventAuthService.name);
     private readonly tokenCache = new Map<string, TokenCache>();
-    private readonly authUrl = 'https://api.weezevent.com/oauth/token';
+    private readonly authUrl = 'https://accounts.weezevent.com/realms/accounts/protocol/openid-connect/token';
 
     constructor(
         private readonly httpService: HttpService,
@@ -57,17 +57,18 @@ export class WeezeventAuthService {
         const config = await this.getWeezeventConfig(tenantId);
 
         try {
-            // Request token using client credentials grant
+            // Create Basic Auth header
+            const credentials = Buffer.from(`${config.clientId}:${config.clientSecret}`).toString('base64');
+            
+            // Request token using client credentials grant with Basic Auth
             const response = await this.httpService.axiosRef.post<WeezeventTokenResponse>(
                 this.authUrl,
                 new URLSearchParams({
                     grant_type: 'client_credentials',
-                    client_id: config.clientId,
-                    client_secret: config.clientSecret,
-                    scope: 'transactions.read wallets.read events.read products.read users.read',
                 }),
                 {
                     headers: {
+                        'Authorization': `Basic ${credentials}`,
                         'Content-Type': 'application/x-www-form-urlencoded',
                     },
                 },

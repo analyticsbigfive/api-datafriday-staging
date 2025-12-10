@@ -4,6 +4,8 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { SyncWeezeventDto } from './dto/sync-weezevent.dto';
 import { GetTransactionsQueryDto } from './dto/get-transactions-query.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
+import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
+import { SyncTrackerService } from './services/sync-tracker.service';
 
 @Controller('weezevent')
 @UseGuards(JwtDatabaseGuard)
@@ -13,6 +15,7 @@ export class WeezeventController {
     constructor(
         private readonly syncService: WeezeventSyncService,
         private readonly prisma: PrismaService,
+        private readonly syncTracker: SyncTrackerService,
     ) { }
 
     /**
@@ -20,9 +23,10 @@ export class WeezeventController {
      */
     @Get('transactions')
     async getTransactions(
+        @CurrentUser() user: any,
         @Query() query: GetTransactionsQueryDto,
-        @Param('tenantId') tenantId: string,
     ) {
+        const tenantId = user.tenantId;
         const { page = 1, perPage = 50, status, fromDate, toDate, eventId, merchantId } = query;
 
         const where: any = { tenantId };
@@ -69,9 +73,10 @@ export class WeezeventController {
      */
     @Get('transactions/:id')
     async getTransaction(
+        @CurrentUser() user: any,
         @Param('id') id: string,
-        @Param('tenantId') tenantId: string,
     ) {
+        const tenantId = user.tenantId;
         return this.prisma.weezeventTransaction.findFirst({
             where: { id, tenantId },
             include: {
@@ -92,12 +97,12 @@ export class WeezeventController {
      */
     @Post('sync')
     async syncData(
+        @CurrentUser() user: any,
         @Body() dto: SyncWeezeventDto,
-        @Param('tenantId') tenantId: string,
-        @Param('organizationId') organizationId: string,
     ): Promise<SyncResult> {
+        const tenantId = user.tenantId;
         this.logger.log(
-            `Manual sync triggered: type=${dto.type}, tenant=${tenantId}, org=${organizationId}`,
+            `Manual sync triggered: type=${dto.type}, tenant=${tenantId}`,
         );
 
         const fromDate = dto.fromDate ? new Date(dto.fromDate) : undefined;
@@ -105,7 +110,7 @@ export class WeezeventController {
 
         switch (dto.type) {
             case 'transactions':
-                return this.syncService.syncTransactions(tenantId, organizationId, {
+                return this.syncService.syncTransactions(tenantId, {
                     fromDate,
                     toDate,
                     full: dto.full,
@@ -113,10 +118,10 @@ export class WeezeventController {
                 });
 
             case 'events':
-                return this.syncService.syncEvents(tenantId, organizationId);
+                return this.syncService.syncEvents(tenantId);
 
             case 'products':
-                return this.syncService.syncProducts(tenantId, organizationId);
+                return this.syncService.syncProducts(tenantId);
 
             default:
                 throw new Error(`Sync type ${dto.type} not yet implemented`);
@@ -127,7 +132,8 @@ export class WeezeventController {
      * Get sync status
      */
     @Get('sync/status')
-    async getSyncStatus(@Param('tenantId') tenantId: string) {
+    async getSyncStatus(@CurrentUser() user: any) {
+        const tenantId = user.tenantId;
         // Get last sync time for each type
         const [lastTransaction, lastEvent, lastProduct] = await Promise.all([
             this.prisma.weezeventTransaction.findFirst({
@@ -165,7 +171,8 @@ export class WeezeventController {
                 events: eventCount,
                 products: productCount,
             },
-            isRunning: false, // TODO: Track running syncs
+            runningSyncs: this.syncTracker.getRunningSyncs(tenantId),
+            isRunning: this.syncTracker.getRunningSyncs(tenantId).length > 0,
         };
     }
 
@@ -174,10 +181,11 @@ export class WeezeventController {
      */
     @Get('events')
     async getEvents(
-        @Param('tenantId') tenantId: string,
+        @CurrentUser() user: any,
         @Query('page') page: number = 1,
         @Query('perPage') perPage: number = 50,
     ) {
+        const tenantId = user.tenantId;
         const [events, total] = await Promise.all([
             this.prisma.weezeventEvent.findMany({
                 where: { tenantId },
@@ -204,11 +212,12 @@ export class WeezeventController {
      */
     @Get('products')
     async getProducts(
-        @Param('tenantId') tenantId: string,
+        @CurrentUser() user: any,
         @Query('page') page: number = 1,
         @Query('perPage') perPage: number = 50,
         @Query('category') category?: string,
     ) {
+        const tenantId = user.tenantId;
         const where: any = { tenantId };
         if (category) where.category = category;
 

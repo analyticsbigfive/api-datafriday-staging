@@ -134,7 +134,7 @@ describe('WeezeventSyncService', () => {
                 id: 'payment-1',
             });
 
-            const result = await service.syncTransactions(tenantId, organizationId);
+            const result = await service.syncTransactions(tenantId);
 
             expect(result.success).toBe(true);
             expect(result.itemsSynced).toBe(1);
@@ -186,7 +186,7 @@ describe('WeezeventSyncService', () => {
                 id: 'payment-1',
             });
 
-            const result = await service.syncTransactions(tenantId, organizationId);
+            const result = await service.syncTransactions(tenantId);
 
             expect(result.itemsSynced).toBe(2);
             expect(mockWeezeventClient.getTransactions).toHaveBeenCalledTimes(2);
@@ -221,7 +221,7 @@ describe('WeezeventSyncService', () => {
                 id: 'payment-1',
             });
 
-            const result = await service.syncTransactions(tenantId, organizationId);
+            const result = await service.syncTransactions(tenantId);
 
             expect(result.itemsCreated).toBe(0);
             expect(result.itemsUpdated).toBe(1);
@@ -253,7 +253,7 @@ describe('WeezeventSyncService', () => {
                 id: 'payment-1',
             });
 
-            const result = await service.syncTransactions(tenantId, organizationId);
+            const result = await service.syncTransactions(tenantId);
 
             expect(result.itemsSynced).toBe(1);
             expect(result.errors).toBe(1);
@@ -274,7 +274,7 @@ describe('WeezeventSyncService', () => {
                 },
             });
 
-            await service.syncTransactions(tenantId, organizationId, {
+            await service.syncTransactions(tenantId, {
                 fromDate,
                 toDate,
             });
@@ -398,7 +398,7 @@ describe('WeezeventSyncService', () => {
                 weezeventId: '1',
             });
 
-            const result = await service.syncEvents(tenantId, organizationId);
+            const result = await service.syncEvents(tenantId);
 
             expect(result.success).toBe(true);
             expect(result.itemsSynced).toBe(1);
@@ -443,7 +443,7 @@ describe('WeezeventSyncService', () => {
                 weezeventId: '5',
             });
 
-            const result = await service.syncProducts(tenantId, organizationId);
+            const result = await service.syncProducts(tenantId);
 
             expect(result.success).toBe(true);
             expect(result.itemsSynced).toBe(1);

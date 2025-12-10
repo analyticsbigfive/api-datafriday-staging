@@ -30,16 +30,6 @@ import { MeModule } from './features/me/me.module';
     IntegrationsModule,
     WeezeventModule,
     MeModule,
-
-    // API Versioning
-    RouterModule.register([
-      {
-        path: 'v1',
-        children: [
-          { path: 'weezevent', module: WeezeventModule },
-        ],
-      },
-    ]),
   ],
   controllers: [AppController],
   providers: [AppService],

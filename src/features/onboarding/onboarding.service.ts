@@ -24,41 +24,60 @@ export class OnboardingService {
     email: string,
     dto: CreateOrganizationDto,
   ) {
-    // Check if user already has an organization
-    const existingUser = await this.prisma.user.findFirst({
-      where: { id: supabaseUserId },
-      include: { tenant: true },
-    });
-
-    if (existingUser) {
-      throw new ConflictException('User already has an organization');
-    }
-
     // Generate unique slug from organization name
     const baseSlug = this.generateSlug(dto.organizationName);
     const slug = await this.ensureUniqueSlug(baseSlug);
 
-    // Create tenant and user in transaction
+    // Create tenant, user, and UserTenant relation in transaction
     return this.prisma.$transaction(async (tx) => {
-      // Create tenant
+      // Create tenant with business info
       const tenant = await tx.tenant.create({
         data: {
           name: dto.organizationName,
           slug,
           plan: 'FREE',
-          status: 'TRIAL', // 30 days trial with all features
+          status: 'TRIAL',
+          organizationType: dto.organizationType,
+          email: dto.organizationEmail,
+          phone: dto.organizationPhone,
+          siret: dto.siret,
+          address: dto.address,
+          city: dto.city,
+          postalCode: dto.postalCode,
+          country: dto.country || 'France',
+          numberOfEmployees: dto.numberOfEmployees,
+          numberOfSpaces: dto.numberOfSpaces,
+          paymentMethod: dto.paymentMethod,
         },
       });
 
-      // Create admin user
-      const user = await tx.user.create({
+      // Check if user already exists
+      let user = await tx.user.findUnique({
+        where: { id: supabaseUserId },
+      });
+
+      if (!user) {
+        // Create user if doesn't exist
+        user = await tx.user.create({
+          data: {
+            id: supabaseUserId,
+            email,
+            firstName: dto.firstName,
+            lastName: dto.lastName,
+            fullName: `${dto.firstName} ${dto.lastName}`,
+            tenantId: tenant.id,
+            role: 'ADMIN',
+          },
+        });
+      }
+
+      // Create UserTenant relation (user is owner)
+      await tx.userTenant.create({
         data: {
-          id: supabaseUserId, // Use Supabase user ID
-          email,
-          firstName: dto.firstName,
-          lastName: dto.lastName,
+          userId: user.id,
           tenantId: tenant.id,
-          role: 'ADMIN', // First user is always ADMIN
+          role: 'ADMIN',
+          isOwner: true,
         },
       });
 
@@ -69,6 +88,9 @@ export class OnboardingService {
           slug: tenant.slug,
           plan: tenant.plan,
           status: tenant.status,
+          organizationType: tenant.organizationType,
+          email: tenant.email,
+          phone: tenant.phone,
         },
         user: {
           id: user.id,

@@ -1,0 +1,9 @@
+# Ce dossier est temporaire pour les tests
+# À supprimer après validation des fonctionnalités
+
+# Ne pas committer les credentials
+config.json
+.env
+
+# Logs
+*.log

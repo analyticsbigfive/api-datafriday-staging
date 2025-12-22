@@ -24,6 +24,15 @@ build: ## Construit les images Docker
 	@echo "$(BLUE)🔨 Construction des images Docker...$(NC)"
 	docker-compose build
 
+env-dev-init: ## Initialise envFiles/.env.development si absent (ne l'écrase jamais)
+	@if [ ! -f envFiles/.env.development ]; then \
+		mkdir -p envFiles; \
+		cp .env.example envFiles/.env.development; \
+		echo "$(GREEN)✅ envFiles/.env.development créé depuis .env.example (à compléter)$(NC)"; \
+	else \
+		echo "$(GREEN)✅ envFiles/.env.development existe déjà (aucun écrasement)$(NC)"; \
+	fi
+
 up: ## Démarre les conteneurs (production)
 	@echo "$(BLUE)🚀 Démarrage des conteneurs...$(NC)"
 	docker-compose up -d
@@ -31,8 +40,23 @@ up: ## Démarre les conteneurs (production)
 
 dev-up: ## Démarre les conteneurs DEVELOPMENT
 	@echo "$(BLUE)🚀 Démarrage DEVELOPMENT...$(NC)"
+	@$(MAKE) env-dev-init
 	docker-compose --env-file envFiles/.env.development --profile dev up -d api-dev
 	@echo "$(GREEN)✅ Development démarré$(NC)"
+
+frontend-up: ## Démarre l'interface de test frontend (Docker)
+	@echo "$(BLUE)🎨 Démarrage test-frontend...$(NC)"
+	docker-compose --profile frontend up -d test-frontend
+	@echo "$(GREEN)✅ Test frontend prêt sur http://localhost:8080$(NC)"
+
+frontend-down: ## Arrête l'interface de test frontend
+	@echo "$(YELLOW)🛑 Arrêt test-frontend...$(NC)"
+	docker-compose --profile frontend down
+
+dev-full: ## Démarre l'API (dev) + frontend de test
+	@echo "$(BLUE)🚀 Démarrage complet (API dev + frontend)...$(NC)"
+	$(MAKE) dev-up
+	$(MAKE) frontend-up
 
 dev: ## Démarre les conteneurs en mode développement
 	@echo "$(BLUE)🔧 Démarrage en mode développement...$(NC)"

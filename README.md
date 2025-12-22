@@ -108,6 +108,51 @@ curl http://localhost:3000/api/v1/health
 
 ---
 
+## 🔐 Environment Variables
+
+### Full List (names only)
+
+```
+API_PORT
+CORS_ORIGIN
+CORS_ORIGINS
+DATABASE_URL
+DIRECT_URL
+ENABLE_LOGGING
+ENCRYPTION_KEY
+JWT_EXPIRES_IN
+JWT_SECRET
+LOG_LEVEL
+NODE_ENV
+PORT
+RATE_LIMIT_MAX
+RATE_LIMIT_TTL
+SUPABASE_ACCESS_TOKEN
+SUPABASE_ANON_KEY
+SUPABASE_DB_PASSWORD
+SUPABASE_PROJECT_ID
+SUPABASE_SERVICE_ROLE_KEY
+SUPABASE_URL
+WEEZEVENT_CLIENT_ID
+WEEZEVENT_CLIENT_SECRET
+```
+
+### Minimum Required (for a functional API)
+
+```
+DATABASE_URL
+JWT_SECRET
+ENCRYPTION_KEY
+SUPABASE_URL
+SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+```
+
+### Notes
+
+- **CORS**: the code currently reads `CORS_ORIGIN` (single origin) while some env templates use `CORS_ORIGINS` (comma-separated).
+- **Ports**: Docker publish uses `API_PORT` (host port mapping), while Nest listens on `PORT` (container internal port).
+
 ## 📁 Project Structure
 
 ```
@@ -151,6 +196,16 @@ api-datafriday/
 docker-compose --env-file envFiles/.env.development up -d    # Start
 docker-compose --env-file envFiles/.env.development down     # Stop
 docker-compose logs -f api-dev                               # View logs
+
+# Development (Makefile)
+make dev-up                                                  # Start API dev
+make dev-down                                                # Stop
+make dev-logs                                                # Logs
+
+# Test frontend (Docker)
+make frontend-up                                             # Start test UI on http://localhost:8080
+make frontend-down                                           # Stop test UI
+make dev-full                                                # Start API dev + test UI
 
 # Tests
 docker-compose exec api-dev npm test                         # Run tests

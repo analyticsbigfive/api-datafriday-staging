@@ -45,6 +45,9 @@ describe('OnboardingService', () => {
       firstName: 'John',
       lastName: 'Doe',
       organizationName: 'My Company',
+      organizationType: 'Restaurant',
+      organizationEmail: 'contact@mycompany.com',
+      organizationPhone: '+33123456789',
     };
 
     it('should create tenant and user successfully', async () => {
@@ -74,7 +77,11 @@ describe('OnboardingService', () => {
       mockPrismaService.$transaction.mockImplementation(async (callback) => {
         const tx = {
           tenant: { create: jest.fn().mockResolvedValue(mockTenant) },
-          user: { create: jest.fn().mockResolvedValue(mockUser) },
+          user: { 
+            findUnique: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockResolvedValue(mockUser) 
+          },
+          userTenant: { create: jest.fn().mockResolvedValue({}) },
         };
         return callback(tx);
       });
@@ -129,7 +136,11 @@ describe('OnboardingService', () => {
               slug: 'my-company-1',
             }),
           },
-          user: { create: jest.fn().mockResolvedValue({}) },
+          user: { 
+            findUnique: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockResolvedValue({}) 
+          },
+          userTenant: { create: jest.fn().mockResolvedValue({}) },
         };
         return callback(tx);
       });

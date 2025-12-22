@@ -249,7 +249,7 @@ export class WeezeventSyncService {
     }
 
     /**
-     * Sync transaction items and payments
+     * Sync transaction items and payments - OPTIMIZED with batch operations
      */
     private async syncTransactionItems(
         transactionId: string,
@@ -260,38 +260,59 @@ export class WeezeventSyncService {
             where: { transactionId },
         });
 
-        // Create new items
-        for (const row of rows) {
-            const item = await this.prisma.weezeventTransactionItem.create({
-                data: {
-                    transactionId,
-                    weezeventItemId: row.id.toString(),
-                    productName: `Item ${row.item_id}`,
-                    compoundId: row.compound_id?.toString(),
-                    quantity: 1,
-                    unitPrice: row.unit_price,
-                    vat: row.vat,
-                    reduction: row.reduction || 0,
-                    rawData: row as any,
-                },
-            });
+        // Batch create items and collect payments data
+        const itemsData = rows.map(row => ({
+            transactionId,
+            weezeventItemId: row.id.toString(),
+            productName: `Item ${row.item_id}`,
+            compoundId: row.compound_id?.toString() || null,
+            quantity: 1,
+            unitPrice: row.unit_price || 0,
+            vat: row.vat || 0,
+            reduction: row.reduction || 0,
+            rawData: row as any,
+        }));
 
-            // Create payments for this item
+        // Create all items in batch
+        await this.prisma.weezeventTransactionItem.createMany({
+            data: itemsData,
+        });
+
+        // Get created items to link payments
+        const createdItems = await this.prisma.weezeventTransactionItem.findMany({
+            where: { transactionId },
+            select: { id: true, weezeventItemId: true },
+        });
+
+        // Build item ID map for quick lookup
+        const itemIdMap = new Map(createdItems.map(item => [item.weezeventItemId, item.id]));
+
+        // Collect all payments data
+        const paymentsData: any[] = [];
+        for (const row of rows) {
+            const itemId = itemIdMap.get(row.id.toString());
+            if (!itemId || !row.payments) continue;
+
             for (const payment of row.payments) {
-                await this.prisma.weezeventPayment.create({
-                    data: {
-                        itemId: item.id,
-                        weezeventPaymentId: payment.id.toString(),
-                        walletId: payment.wallet_id?.toString(),
-                        amount: payment.amount,
-                        amountVat: payment.amount_vat,
-                        currencyId: payment.currency_id?.toString(),
-                        quantity: payment.quantity,
-                        paymentMethodId: payment.payment_method_id?.toString(),
-                        rawData: payment as any,
-                    },
+                paymentsData.push({
+                    itemId,
+                    weezeventPaymentId: payment.id?.toString() || null,
+                    walletId: payment.wallet_id?.toString() || null,
+                    amount: payment.amount || 0,
+                    amountVat: payment.amount_vat || 0,
+                    currencyId: payment.currency_id?.toString() || null,
+                    quantity: payment.quantity || 1,
+                    paymentMethodId: payment.payment_method_id?.toString() || null,
+                    rawData: payment as any,
                 });
             }
+        }
+
+        // Batch create all payments
+        if (paymentsData.length > 0) {
+            await this.prisma.weezeventPayment.createMany({
+                data: paymentsData,
+            });
         }
     }
 
@@ -436,53 +457,82 @@ export class WeezeventSyncService {
                 { perPage: 100 },
             );
 
+            // Safe date parsing helper
+            const parseDate = (dateStr: string | undefined): Date | null => {
+                if (!dateStr) return null;
+                const parsed = new Date(dateStr);
+                return isNaN(parsed.getTime()) ? null : parsed;
+            };
+
+            // OPTIMIZED: Batch operations instead of individual queries
+            const weezeventIds = response.data.map(e => e.id.toString());
+            
+            // Single query to get all existing events
+            const existingEvents = await this.prisma.weezeventEvent.findMany({
+                where: { weezeventId: { in: weezeventIds } },
+                select: { weezeventId: true },
+            });
+            const existingIds = new Set(existingEvents.map(e => e.weezeventId));
+
+            // Prepare data for batch operations
+            const eventsToCreate: any[] = [];
+            const eventsToUpdate: { weezeventId: string; data: any }[] = [];
+
             for (const apiEvent of response.data) {
                 try {
                     const weezeventId = apiEvent.id.toString();
-                    const existing = await this.prisma.weezeventEvent.findUnique({
-                        where: { weezeventId },
-                    });
+                    const eventData = {
+                        name: apiEvent.name || `Event ${apiEvent.id}`,
+                        organizationId,
+                        startDate: parseDate(apiEvent.start_date),
+                        endDate: parseDate(apiEvent.end_date),
+                        description: apiEvent.description || null,
+                        location: apiEvent.location || null,
+                        capacity: apiEvent.capacity || null,
+                        status: apiEvent.status || null,
+                        metadata: apiEvent.metadata || null,
+                        rawData: apiEvent as any,
+                        syncedAt: new Date(),
+                    };
 
-                    await this.prisma.weezeventEvent.upsert({
-                        where: { weezeventId },
-                        create: {
+                    if (existingIds.has(weezeventId)) {
+                        eventsToUpdate.push({ weezeventId, data: eventData });
+                    } else {
+                        eventsToCreate.push({
                             weezeventId,
                             tenantId,
-                            organizationId,
-                            name: apiEvent.name,
-                            startDate: new Date(apiEvent.start_date),
-                            endDate: new Date(apiEvent.end_date),
-                            description: apiEvent.description,
-                            location: apiEvent.location,
-                            capacity: apiEvent.capacity,
-                            status: apiEvent.status,
-                            metadata: apiEvent.metadata,
-                            rawData: apiEvent as any,
-                            syncedAt: new Date(),
-                        },
-                        update: {
-                            name: apiEvent.name,
-                            organizationId,
-                            startDate: new Date(apiEvent.start_date),
-                            endDate: new Date(apiEvent.end_date),
-                            description: apiEvent.description,
-                            location: apiEvent.location,
-                            capacity: apiEvent.capacity,
-                            status: apiEvent.status,
-                            metadata: apiEvent.metadata,
-                            rawData: apiEvent as any,
-                            syncedAt: new Date(),
-                        },
-                    });
-
-                    result.itemsSynced++;
-                    if (!existing) result.itemsCreated++;
-                    else result.itemsUpdated++;
+                            ...eventData,
+                        });
+                    }
                 } catch (error) {
-                    this.logger.error(`Failed to sync event ${apiEvent.id}`, error.stack);
+                    this.logger.error(`Failed to prepare event ${apiEvent.id}`, error.stack);
                     result.errors++;
                 }
             }
+
+            // Batch create new events
+            if (eventsToCreate.length > 0) {
+                await this.prisma.weezeventEvent.createMany({
+                    data: eventsToCreate,
+                    skipDuplicates: true,
+                });
+                result.itemsCreated = eventsToCreate.length;
+            }
+
+            // Batch update existing events using transaction
+            if (eventsToUpdate.length > 0) {
+                await this.prisma.$transaction(
+                    eventsToUpdate.map(({ weezeventId, data }) =>
+                        this.prisma.weezeventEvent.update({
+                            where: { weezeventId },
+                            data,
+                        })
+                    )
+                );
+                result.itemsUpdated = eventsToUpdate.length;
+            }
+
+            result.itemsSynced = eventsToCreate.length + eventsToUpdate.length;
 
             result.success = result.errors === 0;
             result.duration = Date.now() - startTime;
@@ -539,61 +589,75 @@ export class WeezeventSyncService {
                 { perPage: 100 },
             );
 
+            // OPTIMIZED: Batch operations instead of individual queries
+            const weezeventIds = response.data.map(p => p.id.toString());
+            
+            // Single query to get all existing products
+            const existingProducts = await this.prisma.weezeventProduct.findMany({
+                where: { weezeventId: { in: weezeventIds } },
+                select: { weezeventId: true },
+            });
+            const existingIds = new Set(existingProducts.map(p => p.weezeventId));
+
+            // Prepare data for batch operations
+            const productsToCreate: any[] = [];
+            const productsToUpdate: { weezeventId: string; data: any }[] = [];
+
             for (const apiProduct of response.data) {
-                try {
-                    const weezeventId = apiProduct.id.toString();
-                    const existing = await this.prisma.weezeventProduct.findUnique({
-                        where: { weezeventId },
-                    });
+                const weezeventId = apiProduct.id.toString();
+                const productData = {
+                    name: apiProduct.name || `Product ${apiProduct.id}`,
+                    description: apiProduct.description || null,
+                    category: apiProduct.category || null,
+                    basePrice: apiProduct.base_price || null,
+                    vatRate: apiProduct.vat_rate || null,
+                    image: apiProduct.image || null,
+                    allergens: apiProduct.allergens || [],
+                    components: apiProduct.components || null,
+                    variants: apiProduct.variants || null,
+                    metadata: apiProduct.metadata || null,
+                    rawData: apiProduct as any,
+                    syncedAt: new Date(),
+                };
 
-                    await this.prisma.weezeventProduct.upsert({
-                        where: { weezeventId },
-                        create: {
-                            weezeventId,
-                            tenantId,
-                            name: apiProduct.name,
-                            description: apiProduct.description,
-                            category: apiProduct.category,
-                            basePrice: apiProduct.base_price,
-                            vatRate: apiProduct.vat_rate,
-                            image: apiProduct.image,
-                            allergens: apiProduct.allergens || [],
-                            components: apiProduct.components,
-                            variants: apiProduct.variants,
-                            metadata: apiProduct.metadata,
-                            rawData: apiProduct as any,
-                            syncedAt: new Date(),
-                        },
-                        update: {
-                            name: apiProduct.name,
-                            description: apiProduct.description,
-                            category: apiProduct.category,
-                            basePrice: apiProduct.base_price,
-                            vatRate: apiProduct.vat_rate,
-                            image: apiProduct.image,
-                            allergens: apiProduct.allergens || [],
-                            components: apiProduct.components,
-                            variants: apiProduct.variants,
-                            metadata: apiProduct.metadata,
-                            rawData: apiProduct as any,
-                            syncedAt: new Date(),
-                        },
+                if (existingIds.has(weezeventId)) {
+                    productsToUpdate.push({ weezeventId, data: productData });
+                } else {
+                    productsToCreate.push({
+                        weezeventId,
+                        tenantId,
+                        ...productData,
                     });
-
-                    result.itemsSynced++;
-                    if (!existing) result.itemsCreated++;
-                    else result.itemsUpdated++;
-                } catch (error) {
-                    this.logger.error(
-                        `Failed to sync product ${apiProduct.id}`,
-                        error.stack,
-                    );
-                    result.errors++;
                 }
             }
 
-            result.success = result.errors === 0;
+            // Batch create new products
+            if (productsToCreate.length > 0) {
+                await this.prisma.weezeventProduct.createMany({
+                    data: productsToCreate,
+                    skipDuplicates: true,
+                });
+                result.itemsCreated = productsToCreate.length;
+            }
+
+            // Batch update existing products using transaction
+            if (productsToUpdate.length > 0) {
+                await this.prisma.$transaction(
+                    productsToUpdate.map(({ weezeventId, data }) =>
+                        this.prisma.weezeventProduct.update({
+                            where: { weezeventId },
+                            data,
+                        })
+                    )
+                );
+                result.itemsUpdated = productsToUpdate.length;
+            }
+
+            result.itemsSynced = productsToCreate.length + productsToUpdate.length;
+            result.success = true;
             result.duration = Date.now() - startTime;
+
+            this.logger.log(`Products sync completed: ${result.itemsSynced} synced (${result.itemsCreated} created, ${result.itemsUpdated} updated) in ${result.duration}ms`);
 
             return result;
         } catch (error) {

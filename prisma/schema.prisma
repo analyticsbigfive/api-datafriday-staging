@@ -131,6 +131,22 @@ model Tenant {
   logo          String?
   plan          TenantPlan  @default(FREE)
   status        TenantStatus @default(ACTIVE)
+  
+  // Business Information
+  organizationType  String?     // Restaurant, Hotel, Bar, Event, etc.
+  siret             String?
+  address           String?
+  city              String?
+  postalCode        String?
+  country           String?     @default("France")
+  email             String?
+  phone             String?
+  
+  // Additional Info
+  numberOfEmployees Int?
+  numberOfSpaces    Int?
+  paymentMethod     String?     // Card, Transfer, Direct Debit, etc.
+  
   metadata      Json?
   
   // Weezevent Integration
@@ -147,7 +163,8 @@ model Tenant {
   updatedAt     DateTime    @updatedAt
 
   // Relations
-  users         User[]
+  users         User[]          // Keep for backward compatibility
+  userTenants   UserTenant[]    // New many-to-many relation
   spaces        Space[]
   suppliers     Supplier[]
   
@@ -192,18 +209,38 @@ model User {
   
   role          UserRole    @default(VIEWER)
   avatar        String?
-  tenantId      String
+  tenantId      String      // Keep for backward compatibility
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
   // Relations
   tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userTenants   UserTenant[]    // New many-to-many relation
   pinnedSpaces  UserPinnedSpace[]
   spaceAccess   UserSpaceAccess[]
 
   @@unique([email, tenantId])
   @@index([tenantId])
   @@index([email])
+}
+
+// Many-to-many relation between User and Tenant
+model UserTenant {
+  id        String   @id @default(cuid())
+  userId    String
+  tenantId  String
+  role      UserRole @default(ADMIN)
+  isOwner   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenantId])
+  @@index([userId])
+  @@index([tenantId])
+  @@index([isOwner])
 }
 
 model UserPinnedSpace {
@@ -401,12 +438,12 @@ model WeezeventEvent {
   // Event data
   name              String
   organizationId    String
-  startDate         DateTime
-  endDate           DateTime
+  startDate         DateTime?
+  endDate           DateTime?
   description       String?
   location          String?
   capacity          Int?
-  status            String
+  status            String?
   
   // Metadata
   metadata          Json?
@@ -497,8 +534,8 @@ model WeezeventProduct {
   name              String
   description       String?
   category          String?
-  basePrice         Decimal  @db.Decimal(10, 2)
-  vatRate           Decimal  @db.Decimal(5, 2)
+  basePrice         Decimal?  @db.Decimal(10, 2)
+  vatRate           Decimal?  @db.Decimal(5, 2)
   image             String?
   allergens         String[]
   
@@ -592,7 +629,6 @@ model WeezeventWallet {
   tenant            Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   users             WeezeventUser[]
   sellerTransactions WeezeventTransaction[] @relation("SellerWallet")
-  payments          WeezeventPayment[]
   
   @@index([tenantId])
   @@index([weezeventId])
@@ -737,7 +773,6 @@ model WeezeventPayment {
   
   // Relations
   item              WeezeventTransactionItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  wallet            WeezeventWallet?         @relation(fields: [walletId], references: [id])
   
   @@index([itemId])
   @@index([walletId])

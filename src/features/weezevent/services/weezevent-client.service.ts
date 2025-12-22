@@ -62,11 +62,27 @@ export class WeezeventClientService {
             params,
         );
 
-        return this.apiService.get<WeezeventPaginatedResponse<WeezeventTransaction>>(
+        const response = await this.apiService.get<any>(
             tenantId,
             `/organizations/${organizationId}/transactions`,
             params,
         );
+
+        // Weezevent API may return an array directly, normalize to paginated format
+        if (Array.isArray(response)) {
+            return {
+                data: response,
+                meta: {
+                    current_page: options?.page || 1,
+                    per_page: options?.perPage || 50,
+                    total: response.length,
+                    total_pages: 1,
+                },
+            };
+        }
+
+        // If it's already in the correct format, return as is
+        return response;
     }
 
     /**

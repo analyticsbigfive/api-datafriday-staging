@@ -2,11 +2,13 @@ import {
   Injectable,
   ConflictException,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { UpdateWeezeventConfigDto } from './dto/update-weezevent-config.dto';
 import { EncryptionService } from '../../core/encryption/encryption.service';
+import { randomBytes } from 'crypto';
 
 @Injectable()
 export class OnboardingService {
@@ -14,6 +16,234 @@ export class OnboardingService {
     private prisma: PrismaService,
     private encryptionService: EncryptionService,
   ) { }
+
+  /**
+   * Generate a unique invitation code (8 characters, uppercase alphanumeric)
+   */
+  private generateInvitationCode(): string {
+    return randomBytes(4).toString('hex').toUpperCase();
+  }
+
+  /**
+   * Ensure the invitation code is unique
+   */
+  private async generateUniqueInvitationCode(): Promise<string> {
+    let code: string;
+    let exists = true;
+    let attempts = 0;
+    
+    while (exists && attempts < 10) {
+      code = this.generateInvitationCode();
+      const existing = await this.prisma.tenant.findFirst({
+        where: { invitationCode: code },
+      });
+      exists = !!existing;
+      attempts++;
+    }
+    
+    if (exists) {
+      throw new ConflictException('Could not generate unique invitation code. Please try again.');
+    }
+    
+    return code;
+  }
+
+  /**
+   * Check if user exists in DB and get their status
+   */
+  async getUserStatus(supabaseUserId: string, email: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: supabaseUserId },
+      include: {
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            plan: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    if (user) {
+      return {
+        exists: true,
+        hasOrganization: !!user.tenantId,
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role,
+        },
+        tenant: user.tenant,
+      };
+    }
+
+    // User doesn't exist in DB yet
+    return {
+      exists: false,
+      hasOrganization: false,
+      user: null,
+      tenant: null,
+    };
+  }
+
+  /**
+   * Join an existing tenant by slug
+   * Creates user record and links to the tenant
+   */
+  async joinTenant(
+    supabaseUserId: string,
+    email: string,
+    tenantSlug: string,
+    firstName?: string,
+    lastName?: string,
+  ) {
+    // Find tenant by slug
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { slug: tenantSlug },
+    });
+
+    if (!tenant) {
+      throw new NotFoundException(`Organization with slug "${tenantSlug}" not found`);
+    }
+
+    // Check if user already exists
+    const existingUser = await this.prisma.user.findUnique({
+      where: { id: supabaseUserId },
+    });
+
+    if (existingUser) {
+      throw new ConflictException('User already exists. Use a different endpoint to switch tenants.');
+    }
+
+    // Create user and link to tenant
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          id: supabaseUserId,
+          email,
+          firstName: firstName || email.split('@')[0],
+          lastName: lastName || '',
+          fullName: firstName && lastName ? `${firstName} ${lastName}` : email.split('@')[0],
+          tenantId: tenant.id,
+          role: 'STAFF', // Default role when joining existing tenant
+        },
+      });
+
+      // Create UserTenant relation
+      await tx.userTenant.create({
+        data: {
+          userId: user.id,
+          tenantId: tenant.id,
+          role: 'STAFF',
+          isOwner: false,
+        },
+      });
+
+      return {
+        message: 'Successfully joined organization',
+        tenant: {
+          id: tenant.id,
+          name: tenant.name,
+          slug: tenant.slug,
+          plan: tenant.plan,
+          status: tenant.status,
+        },
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role,
+        },
+      };
+    });
+  }
+
+  /**
+   * Join an existing tenant using an invitation code
+   * This is the SECURE way for users to join organizations
+   */
+  async joinByInvitationCode(
+    supabaseUserId: string,
+    email: string,
+    invitationCode: string,
+    firstName?: string,
+    lastName?: string,
+  ) {
+    if (!invitationCode || invitationCode.trim().length === 0) {
+      throw new BadRequestException('Invitation code is required');
+    }
+
+    // Find tenant by invitation code
+    const tenant = await this.prisma.tenant.findFirst({
+      where: { 
+        invitationCode: invitationCode.toUpperCase().trim(),
+        invitationEnabled: true,
+        status: { not: 'SUSPENDED' },
+      },
+    });
+
+    if (!tenant) {
+      throw new NotFoundException('Invalid or expired invitation code');
+    }
+
+    // Check if user already exists
+    const existingUser = await this.prisma.user.findUnique({
+      where: { id: supabaseUserId },
+    });
+
+    if (existingUser) {
+      throw new ConflictException('You are already a member of an organization');
+    }
+
+    // Create user and link to tenant
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          id: supabaseUserId,
+          email,
+          firstName: firstName || email.split('@')[0],
+          lastName: lastName || '',
+          fullName: firstName && lastName ? `${firstName} ${lastName}` : email.split('@')[0],
+          tenantId: tenant.id,
+          role: 'STAFF', // Default role when joining via invitation
+        },
+      });
+
+      // Create UserTenant relation
+      await tx.userTenant.create({
+        data: {
+          userId: user.id,
+          tenantId: tenant.id,
+          role: 'STAFF',
+          isOwner: false,
+        },
+      });
+
+      return {
+        message: 'Successfully joined organization',
+        tenant: {
+          id: tenant.id,
+          name: tenant.name,
+          slug: tenant.slug,
+          plan: tenant.plan,
+          status: tenant.status,
+        },
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role,
+        },
+      };
+    });
+  }
 
   /**
    * Create organization and admin user in a single transaction
@@ -27,16 +257,21 @@ export class OnboardingService {
     // Generate unique slug from organization name
     const baseSlug = this.generateSlug(dto.organizationName);
     const slug = await this.ensureUniqueSlug(baseSlug);
+    
+    // Generate unique invitation code
+    const invitationCode = await this.generateUniqueInvitationCode();
 
     // Create tenant, user, and UserTenant relation in transaction
     return this.prisma.$transaction(async (tx) => {
-      // Create tenant with business info
+      // Create tenant with business info and invitation code
       const tenant = await tx.tenant.create({
         data: {
           name: dto.organizationName,
           slug,
           plan: 'FREE',
           status: 'TRIAL',
+          invitationCode,
+          invitationEnabled: true,
           organizationType: dto.organizationType,
           email: dto.organizationEmail,
           phone: dto.organizationPhone,
@@ -91,6 +326,7 @@ export class OnboardingService {
           organizationType: tenant.organizationType,
           email: tenant.email,
           phone: tenant.phone,
+          invitationCode: tenant.invitationCode, // Include for owner to share
         },
         user: {
           id: user.id,

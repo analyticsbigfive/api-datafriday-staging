@@ -132,6 +132,10 @@ model Tenant {
   plan          TenantPlan  @default(FREE)
   status        TenantStatus @default(ACTIVE)
   
+  // Invitation System
+  invitationCode    String?     @unique  // Code for joining this tenant
+  invitationEnabled Boolean     @default(true)  // Allow new members to join
+  
   // Business Information
   organizationType  String?     // Restaurant, Hotel, Bar, Event, etc.
   siret             String?

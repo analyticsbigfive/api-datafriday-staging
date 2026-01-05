@@ -66,6 +66,7 @@ Tous les autres endpoints nécessitent un utilisateur lié à un tenant.
     .addTag('Onboarding', 'Création de compte et organisation')
     .addTag('Tenants', 'Gestion des organisations (admin)')
     .addTag('Me', 'Profil utilisateur courant')
+    .addTag('Spaces', 'Gestion des espaces/établissements')
     .addTag('Weezevent', 'Intégration Weezevent')
     .addTag('Organizations', 'Gestion de l\'organisation courante')
     .build();

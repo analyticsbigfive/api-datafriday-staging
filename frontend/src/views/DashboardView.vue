@@ -58,6 +58,9 @@
           <router-link v-if="isAdmin" to="/tenants" class="btn btn-primary text-center">
             🏢 Gérer les Tenants
           </router-link>
+          <router-link to="/spaces" class="btn btn-primary text-center">
+            🏗️ Mes Espaces
+          </router-link>
           <router-link to="/weezevent" class="btn btn-primary text-center">
             🎫 Weezevent Sync
           </router-link>

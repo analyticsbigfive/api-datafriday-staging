@@ -37,6 +37,18 @@ const routes = [
     meta: { requiresAuth: true, requiresAdmin: true }
   },
   {
+    path: '/spaces',
+    name: 'Spaces',
+    component: () => import('@/views/SpacesView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/spaces/:id',
+    name: 'SpaceDetail',
+    component: () => import('@/views/SpaceDetailView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/weezevent',
     name: 'Weezevent',
     component: () => import('@/views/WeezeventView.vue'),

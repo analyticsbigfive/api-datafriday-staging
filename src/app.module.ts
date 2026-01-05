@@ -14,6 +14,7 @@ import { OrganizationsModule } from './features/organizations/organizations.modu
 import { IntegrationsModule } from './features/integrations/integrations.module';
 import { MeModule } from './features/me/me.module';
 import { TenantsModule } from './features/tenants/tenants.module';
+import { SpacesModule } from './features/spaces/spaces.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { TenantsModule } from './features/tenants/tenants.module';
     WeezeventModule,
     MeModule,
     TenantsModule,
+    SpacesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

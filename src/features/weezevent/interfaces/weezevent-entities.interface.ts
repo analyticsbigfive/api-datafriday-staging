@@ -78,12 +78,16 @@ export interface WeezeventEvent {
     id: number;
     name: string;
     organization_id: number;
-    start_date: string;
-    end_date: string;
+    // API peut retourner start_date/end_date OU live_start/live_end
+    start_date?: string;
+    end_date?: string;
+    live_start?: string;
+    live_end?: string;
     description?: string;
     location?: string;
+    venue?: string; // Alternative à location
     capacity?: number;
-    status: string;
+    status?: string;
     metadata?: Record<string, any>;
 }
 

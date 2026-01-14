@@ -15,6 +15,7 @@ import { IntegrationsModule } from './features/integrations/integrations.module'
 import { MeModule } from './features/me/me.module';
 import { TenantsModule } from './features/tenants/tenants.module';
 import { SpacesModule } from './features/spaces/spaces.module';
+import { UsersModule } from './features/users/users.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { SpacesModule } from './features/spaces/spaces.module';
     MeModule,
     TenantsModule,
     SpacesModule,
+    UsersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

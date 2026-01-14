@@ -21,5 +21,8 @@ export * from './spaces/spaces.module';
 // Tenants
 export * from './tenants';
 
+// Users
+export * from './users';
+
 // Weezevent
 export * from './weezevent/weezevent.module';

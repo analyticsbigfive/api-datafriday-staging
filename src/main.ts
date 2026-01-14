@@ -65,6 +65,7 @@ Tous les autres endpoints nécessitent un utilisateur lié à un tenant.
     .addTag('Health', 'Vérification du status de l\'API')
     .addTag('Onboarding', 'Création de compte et organisation')
     .addTag('Tenants', 'Gestion des organisations (admin)')
+    .addTag('Users', 'Gestion des utilisateurs')
     .addTag('Me', 'Profil utilisateur courant')
     .addTag('Spaces', 'Gestion des espaces/établissements')
     .addTag('Weezevent', 'Intégration Weezevent')

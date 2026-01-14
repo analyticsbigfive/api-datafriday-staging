@@ -481,15 +481,23 @@ export class WeezeventSyncService {
             for (const apiEvent of response.data) {
                 try {
                     const weezeventId = apiEvent.id.toString();
+                    
+                    // Support both date formats: start_date/end_date OR live_start/live_end
+                    const startDateStr = apiEvent.live_start || apiEvent.start_date;
+                    const endDateStr = apiEvent.live_end || apiEvent.end_date;
+                    
+                    // Support both location formats
+                    const locationStr = apiEvent.location || apiEvent.venue || null;
+                    
                     const eventData = {
                         name: apiEvent.name || `Event ${apiEvent.id}`,
                         organizationId,
-                        startDate: parseDate(apiEvent.start_date),
-                        endDate: parseDate(apiEvent.end_date),
-                        description: apiEvent.description || null,
-                        location: apiEvent.location || null,
+                        startDate: parseDate(startDateStr),
+                        endDate: parseDate(endDateStr),
+                        description: apiEvent.description || apiEvent.name || null,
+                        location: locationStr,
                         capacity: apiEvent.capacity || null,
-                        status: apiEvent.status || null,
+                        status: apiEvent.status || 'unknown',
                         metadata: apiEvent.metadata || null,
                         rawData: apiEvent as any,
                         syncedAt: new Date(),

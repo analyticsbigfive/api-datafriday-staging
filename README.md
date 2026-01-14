@@ -159,32 +159,52 @@ SUPABASE_SERVICE_ROLE_KEY
 api-datafriday/
 ├── src/
 │   ├── core/                      # Core Infrastructure
-│   │   ├── database/              # Prisma & Tenant
-│   │   ├── auth/                  # JWT & RBAC
-│   │   ├── exceptions/            # Error Handling
-│   │   └── pipes/                 # Validation
-│   ├── health/                    # Health Checks
-│   ├── features/                  # Feature Modules (Phase 2)
-│   └── shared/                    # Shared Interfaces
+│   │   ├── auth/                  # JWT, Guards, Strategies
+│   │   ├── cache/                 # In-memory cache service
+│   │   ├── database/              # Prisma & Tenant isolation
+│   │   ├── encryption/            # Data encryption service
+│   │   ├── exceptions/            # Global error handling
+│   │   ├── pipes/                 # Validation pipes
+│   │   └── index.ts               # Core barrel exports
+│   │
+│   ├── features/                  # Feature Modules
+│   │   ├── integrations/          # External integrations config
+│   │   ├── me/                    # User profile endpoint
+│   │   ├── onboarding/            # User/org onboarding
+│   │   ├── organizations/         # Organization management
+│   │   ├── spaces/                # Venues/spaces management
+│   │   ├── tenants/               # Tenant administration
+│   │   ├── weezevent/             # Weezevent integration
+│   │   └── index.ts               # Features barrel exports
+│   │
+│   ├── health/                    # Health check endpoints
+│   ├── config/                    # App configuration
+│   ├── shared/                    # Shared utilities
+│   │   ├── decorators/            # Custom decorators
+│   │   ├── dto/                   # Common DTOs
+│   │   ├── interfaces/            # Shared interfaces
+│   │   ├── utils/                 # Utility functions
+│   │   └── index.ts               # Shared barrel exports
+│   │
+│   ├── app.module.ts              # Root module
+│   └── main.ts                    # Application entry point
 │
 ├── prisma/
-│   ├── schema.prisma              # 27 Data Models
-│   └── migrations/                # Prisma Migrations
+│   ├── schema.prisma              # 37+ Data Models
+│   └── migrations/                # Database migrations
 │
 ├── supabase/
 │   └── migrations/                # RLS Policies
 │
-├── docs/                          # Complete Documentation
-│   ├── INDEX.md                   # Documentation Index
-│   ├── status/                    # Project Status
-│   ├── phases/                    # Completed Phases
-│   ├── architecture/              # Architecture Docs
-│   ├── database/                  # Database Guides
-│   └── setup/                     # Setup Guides
+├── docs/                          # Documentation
+│   ├── INDEX.md                   # Documentation index
+│   ├── reports/                   # Test reports
+│   ├── weezevent/                 # Weezevent docs
+│   └── auth/                      # Auth documentation
 │
-└── envFiles/                      # Environment Configs
-    ├── .env.example
-    └── .env.development
+├── scripts/                       # Utility scripts
+├── envFiles/                      # Environment configs
+└── cloudflare/                    # Cloudflare config
 ```
 
 ---

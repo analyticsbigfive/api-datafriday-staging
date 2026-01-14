@@ -1,5 +1,7 @@
 # Documentation Index - DataFriday API
 
+**Dernière mise à jour:** 14 Janvier 2026
+
 ## 📖 Table des Matières
 
 ### Core Documentation
@@ -7,6 +9,8 @@
 - [API Reference](./API_REFERENCE.md) - Référence API complète
 - [API Architecture](./API_ARCHITECTURE.md) - Architecture détaillée
 - [API Migration v1](./API_MIGRATION_V1.md) - Guide migration
+- [Analyse Projet](./ANALYSE_PROJET.md) - Analyse complète du projet
+- [Résumé Exécutif](./RESUME_EXECUTIF.md) - Vue d'ensemble
 
 ### Setup & Configuration
 - [Setup Guide](./SETUP.md) - Installation
@@ -33,6 +37,10 @@
 - [Performance Guide](./WEEZEVENT_PERFORMANCE_GUIDE.md) - Optimisations
 - [Data Mapping](./WEEZEVENT_DATA_MAPPING.md) - Mapping données
 - [Testing Guide](./WEEZEVENT_TESTING_GUIDE.md) - Tests
+- [weezevent/](./weezevent/) - Documentation détaillée Weezevent
+
+### Reports & Tests
+- [reports/](./reports/) - Rapports de tests et résultats
 
 ---
 

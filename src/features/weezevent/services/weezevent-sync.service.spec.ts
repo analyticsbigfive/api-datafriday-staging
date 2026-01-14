@@ -9,18 +9,27 @@ describe('WeezeventSyncService', () => {
     let weezeventClient: WeezeventClientService;
 
     const mockPrismaService = {
+        tenant: {
+            findUnique: jest.fn(),
+        },
         weezeventTransaction: {
             findUnique: jest.fn(),
+            findMany: jest.fn(),
             upsert: jest.fn(),
             count: jest.fn(),
             findFirst: jest.fn(),
+            createMany: jest.fn(),
+            updateMany: jest.fn(),
         },
         weezeventTransactionItem: {
             deleteMany: jest.fn(),
             create: jest.fn(),
+            createMany: jest.fn(),
+            findMany: jest.fn(),
         },
         weezeventPayment: {
             create: jest.fn(),
+            createMany: jest.fn(),
         },
         weezeventWallet: {
             upsert: jest.fn(),
@@ -30,16 +39,23 @@ describe('WeezeventSyncService', () => {
         },
         weezeventEvent: {
             findUnique: jest.fn(),
+            findMany: jest.fn(),
             upsert: jest.fn(),
             count: jest.fn(),
             findFirst: jest.fn(),
+            createMany: jest.fn(),
+            updateMany: jest.fn(),
         },
         weezeventProduct: {
             findUnique: jest.fn(),
+            findMany: jest.fn(),
             upsert: jest.fn(),
             count: jest.fn(),
             findFirst: jest.fn(),
+            createMany: jest.fn(),
+            updateMany: jest.fn(),
         },
+        $transaction: jest.fn(),
     };
 
     const mockWeezeventClient = {
@@ -68,6 +84,18 @@ describe('WeezeventSyncService', () => {
         service = module.get<WeezeventSyncService>(WeezeventSyncService);
         prisma = module.get<PrismaService>(PrismaService);
         weezeventClient = module.get<WeezeventClientService>(WeezeventClientService);
+
+        // Default mock for tenant lookup
+        mockPrismaService.tenant.findUnique.mockResolvedValue({
+            id: 'tenant-123',
+            weezeventEnabled: true,
+            weezeventOrganizationId: 'org-456',
+        });
+
+        // Default mock for transaction item findMany (returns created items with IDs)
+        mockPrismaService.weezeventTransactionItem.findMany.mockResolvedValue([
+            { id: 'item-1', weezeventItemId: '1' },
+        ]);
     });
 
     afterEach(() => {
@@ -393,6 +421,7 @@ describe('WeezeventSyncService', () => {
             });
 
             mockPrismaService.weezeventEvent.findUnique.mockResolvedValue(null);
+            mockPrismaService.weezeventEvent.findMany.mockResolvedValue([]);
             mockPrismaService.weezeventEvent.upsert.mockResolvedValue({
                 id: 'event-1',
                 weezeventId: '1',
@@ -438,6 +467,7 @@ describe('WeezeventSyncService', () => {
             });
 
             mockPrismaService.weezeventProduct.findUnique.mockResolvedValue(null);
+            mockPrismaService.weezeventProduct.findMany.mockResolvedValue([]);
             mockPrismaService.weezeventProduct.upsert.mockResolvedValue({
                 id: 'product-1',
                 weezeventId: '5',

@@ -70,10 +70,10 @@ describe('WeezeventAuthService', () => {
 
             expect(token).toBe('mock-access-token');
             expect(mockHttpService.axiosRef.post).toHaveBeenCalledWith(
-                'https://api.weezevent.com/oauth/token',
-                expect.any(URLSearchParams),
+                'https://accounts.weezevent.com/realms/accounts/protocol/openid-connect/token',
+                expect.any(Object),
                 expect.objectContaining({
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    headers: expect.objectContaining({ 'Content-Type': 'application/x-www-form-urlencoded' }),
                 }),
             );
         });

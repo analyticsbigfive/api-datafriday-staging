@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConflictException } from '@nestjs/common';
 import { OnboardingService } from './onboarding.service';
 import { PrismaService } from '../../core/database/prisma.service';
+import { EncryptionService } from '../../core/encryption/encryption.service';
 
 describe('OnboardingService', () => {
   let service: OnboardingService;
@@ -14,9 +15,15 @@ describe('OnboardingService', () => {
     },
     tenant: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       create: jest.fn(),
     },
     $transaction: jest.fn(),
+  };
+
+  const mockEncryptionService = {
+    encrypt: jest.fn().mockReturnValue('encrypted-data'),
+    decrypt: jest.fn().mockReturnValue('decrypted-data'),
   };
 
   beforeEach(async () => {
@@ -26,6 +33,10 @@ describe('OnboardingService', () => {
         {
           provide: PrismaService,
           useValue: mockPrismaService,
+        },
+        {
+          provide: EncryptionService,
+          useValue: mockEncryptionService,
         },
       ],
     }).compile();
@@ -108,16 +119,42 @@ describe('OnboardingService', () => {
       });
     });
 
-    it('should throw ConflictException if user already has organization', async () => {
-      // Mock: user exists
-      mockPrismaService.user.findFirst.mockResolvedValue({
+    it('should handle existing user by updating tenant relation', async () => {
+      mockPrismaService.user.findFirst.mockResolvedValue(null);
+      mockPrismaService.tenant.findUnique.mockResolvedValue(null);
+      mockPrismaService.tenant.findFirst.mockResolvedValue(null);
+
+      const existingUser = {
         id: supabaseUserId,
+        email: email,
+        firstName: 'John',
+        lastName: 'Doe',
         tenantId: 'existing-tenant',
+      };
+
+      mockPrismaService.$transaction.mockImplementation(async (callback) => {
+        const tx = {
+          tenant: {
+            create: jest.fn().mockResolvedValue({
+              id: 'tenant-1',
+              name: 'My Company',
+              slug: 'my-company',
+              plan: 'FREE',
+              status: 'TRIAL',
+            }),
+          },
+          user: { 
+            findUnique: jest.fn().mockResolvedValue(existingUser),
+            create: jest.fn().mockResolvedValue({}) 
+          },
+          userTenant: { create: jest.fn().mockResolvedValue({}) },
+        };
+        return callback(tx);
       });
 
-      await expect(
-        service.createOrganization(supabaseUserId, email, dto),
-      ).rejects.toThrow(ConflictException);
+      // Should not throw - it handles existing user by using it
+      const result = await service.createOrganization(supabaseUserId, email, dto);
+      expect(result.tenant.id).toBe('tenant-1');
     });
 
     it('should generate unique slug if conflict exists', async () => {

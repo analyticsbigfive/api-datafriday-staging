@@ -60,6 +60,19 @@ export class CacheService {
     }
 
     /**
+     * Check if key exists in cache (and not expired)
+     */
+    has(key: string): boolean {
+        const entry = this.cache.get(key);
+        if (!entry) return false;
+        if (Date.now() > entry.expiresAt) {
+            this.cache.delete(key);
+            return false;
+        }
+        return true;
+    }
+
+    /**
      * Clear all cache
      */
     clear(): void {

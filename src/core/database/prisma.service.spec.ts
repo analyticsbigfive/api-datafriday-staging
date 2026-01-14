@@ -1,7 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from './prisma.service';
 
-describe('PrismaService', () => {
+/**
+ * PrismaService Integration Tests
+ * These tests require a real database connection and should be run separately
+ * Skip these tests if DATABASE_URL is not set
+ */
+const hasDatabase = !!process.env.DATABASE_URL;
+
+(hasDatabase ? describe : describe.skip)('PrismaService (Integration)', () => {
   let service: PrismaService;
 
   beforeEach(async () => {

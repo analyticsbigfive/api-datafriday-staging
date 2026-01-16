@@ -278,12 +278,45 @@ model UserSpaceAccess {
 // ==================== SPACE & CONFIG ====================
 
 model Space {
-  id        String   @id
-  name      String
-  image     String?
-  tenantId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                String   @id
+  name              String
+  image             String?  @db.Text
+  tenantId          String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Contact Info
+  tel               String?
+  email             String?
+  contactTel        String?
+  contactEmail      String?
+  mainContactPerson String?
+
+  // Address
+  addressLine1      String?
+  addressLine2      String?
+  city              String?
+  postcode          String?
+  department        Int?
+  country           String?
+
+  // Space Details
+  spaceType         String?           // Stadium, Arena, etc.
+  spaceTypeOther    String?
+  maxCapacity       Int?
+  homeTeam          String?
+
+  // Social Media
+  facebook          String?
+  instagram         String?
+  twitter           String?
+  tiktok            String?
+
+  // Metrics (calculated/cached)
+  avgEvent          Float?
+  avgTransaction    Float?
+  perCapita         Float?
+  cachedMetrics     Json?             // Cache des métriques calculées
 
   // Relations
   tenant          Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -293,6 +326,8 @@ model Space {
 
   @@index([tenantId])
   @@index([name])
+  @@index([spaceType])
+  @@index([city])
 }
 
 model Config {
@@ -835,17 +870,19 @@ model Packaging {
 // ==================== MENU COMPONENTS ====================
 
 model MenuComponent {
-  id            String            @id
-  name          String
-  unit          String
-  category      String            // Flexible pour "Food", "Sauce", etc.
-  unitCost      Decimal?          @db.Decimal(10, 4)
-  allergens     String[]
-  description   String?
-  storageType   StorageType?
-  subComponents Json?             // Pour stocker les subComponents JSON de Figma
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+  id                   String            @id
+  name                 String
+  unit                 String
+  category             String            // Flexible pour "Food", "Sauce", etc.
+  unitCost             Decimal?          @db.Decimal(10, 4)
+  allergens            String[]
+  description          String?
+  storageType          StorageType?
+  subComponents        Json?             // Pour stocker les subComponents JSON de Figma
+  componentCategory    String?           // "Veg", "Sauce", etc.
+  numberOfUnitsRecipe  Int?              // Nombre d'unités par recette
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
 
   ingredients   ComponentIngredient[]
   children      ComponentComponent[]  @relation("ParentToChild")
@@ -891,11 +928,51 @@ model ComponentComponent {
 
 // ==================== MENU ITEMS ====================
 
+// ==================== PRODUCT CLASSIFICATION ====================
+
+// Types dynamiques de produits (Beverage, Food, Combo, Glasses, Ticket/Bracelets...)
+model ProductType {
+  id          String   @id
+  name        String
+  tenantId    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  categories  ProductCategory[]
+  menuItems   MenuItem[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([name])
+}
+
+// Catégories dynamiques de produits (Beer, Soft Drink, Main, Desert...)
+model ProductCategory {
+  id          String   @id
+  name        String
+  typeId      String
+  tenantId    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  type        ProductType @relation(fields: [typeId], references: [id], onDelete: Cascade)
+  menuItems   MenuItem[]
+
+  @@unique([tenantId, typeId, name])
+  @@index([tenantId])
+  @@index([typeId])
+  @@index([name])
+}
+
+// ==================== MENU ITEMS ====================
+
 model MenuItem {
   id                    String            @id
   name                  String
-  type                  String
-  category              MenuItemCategory
+  type                  String            // Legacy field - kept for compatibility
+  typeId                String?           // FK to ProductType
+  category              MenuItemCategory  // Legacy enum - kept for compatibility
+  categoryId            String?           // FK to ProductCategory
   diet                  Diet[]
   allergens             String[]
   picture               String?
@@ -911,6 +988,8 @@ model MenuItem {
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
 
+  productType           ProductType?      @relation(fields: [typeId], references: [id])
+  productCategory       ProductCategory?  @relation(fields: [categoryId], references: [id])
   components            MenuItemComponent[]
   ingredients           MenuItemIngredient[]
   packagings            MenuItemPackaging[]
@@ -918,6 +997,8 @@ model MenuItem {
 
   @@index([name])
   @@index([category])
+  @@index([typeId])
+  @@index([categoryId])
   @@index([readyForSale])
 }
 
@@ -1013,4 +1094,105 @@ model CsvMapping {
   updatedAt   DateTime @updatedAt
 
   @@index([mappingType])
+}
+
+// ==================== EVENTS (Internal Planning) ====================
+
+// Types d'événements (Concert, Sport Match, Conference...)
+model EventType {
+  id          String          @id @default(uuid())
+  name        String
+  tenantId    String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  categories  EventCategory[]
+  events      Event[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([name])
+}
+
+// Catégories d'événements (Show, Ligue 1, Festival...)
+model EventCategory {
+  id          String    @id @default(uuid())
+  name        String
+  eventTypeId String
+  tenantId    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  eventType     EventType          @relation(fields: [eventTypeId], references: [id], onDelete: Cascade)
+  subcategories EventSubcategory[]
+  events        Event[]
+
+  @@unique([tenantId, eventTypeId, name])
+  @@index([tenantId])
+  @@index([eventTypeId])
+  @@index([name])
+}
+
+// Sous-catégories d'événements (Communautaire, International, Régional...)
+model EventSubcategory {
+  id              String        @id @default(uuid())
+  name            String
+  eventCategoryId String
+  tenantId        String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  eventCategory   EventCategory @relation(fields: [eventCategoryId], references: [id], onDelete: Cascade)
+  events          Event[]
+
+  @@unique([tenantId, eventCategoryId, name])
+  @@index([tenantId])
+  @@index([eventCategoryId])
+  @@index([name])
+}
+
+// Événements planifiés
+model Event {
+  id                  String          @id @default(uuid())
+  name                String
+  eventDate           DateTime
+  spaceId             String?
+  configurationId     String?
+  eventTypeId         String?
+  eventCategoryId     String?
+  eventSubcategoryId  String?
+  tenantId            String?
+  
+  // Event details
+  location            String?
+  spaceName           String?
+  sessions            String?         // "Open/Show" info
+  numberOfSessions    Int?
+  hasOpeningAct       Boolean?
+  hasIntermission     Boolean?
+  
+  // Revenue tracking (calculated)
+  revenue             Decimal?        @db.Decimal(12, 2)
+  transactionCount    Int?
+  avgSpendPerTx       Decimal?        @db.Decimal(10, 2)
+  perCapita           Decimal?        @db.Decimal(10, 2)
+  
+  // Status
+  status              String?         // "success", "pending", etc.
+  calculatedAt        DateTime?
+  
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  // Relations
+  eventType           EventType?         @relation(fields: [eventTypeId], references: [id])
+  eventCategory       EventCategory?     @relation(fields: [eventCategoryId], references: [id])
+  eventSubcategory    EventSubcategory?  @relation(fields: [eventSubcategoryId], references: [id])
+
+  @@index([tenantId])
+  @@index([spaceId])
+  @@index([eventDate])
+  @@index([eventTypeId])
+  @@index([eventCategoryId])
+  @@index([eventSubcategoryId])
 }

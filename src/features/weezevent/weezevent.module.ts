@@ -10,6 +10,7 @@ import { WeezeventController } from './weezevent.controller';
 import { WebhookController } from './webhook.controller';
 import { OnboardingModule } from '../onboarding/onboarding.module';
 import { SyncTrackerService } from './services/sync-tracker.service';
+import { WeezeventCronService } from './services/weezevent-cron.service';
 
 @Module({
     imports: [
@@ -28,6 +29,7 @@ import { SyncTrackerService } from './services/sync-tracker.service';
         WebhookSignatureService,
         WebhookEventHandler,
         SyncTrackerService,
+        WeezeventCronService,
     ],
     exports: [WeezeventClientService, WeezeventSyncService],
 })

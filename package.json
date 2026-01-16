@@ -37,6 +37,7 @@
     "@nestjs/jwt": "^10.2.0",
     "@nestjs/passport": "^10.0.3",
     "@nestjs/platform-fastify": "^10.3.0",
+    "@nestjs/schedule": "^6.1.0",
     "@nestjs/swagger": "^7.4.2",
     "@prisma/client": "^5.7.1",
     "axios": "^1.13.2",

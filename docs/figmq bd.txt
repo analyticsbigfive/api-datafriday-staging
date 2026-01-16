@@ -1,0 +1,921 @@
+import { Hono } from "npm:hono";
+import { cors } from "npm:hono/cors";
+import { logger } from "npm:hono/logger";
+import * as kv from "./kv_store.tsx";
+const app = new Hono();
+
+// Enable logger
+app.use('*', logger(console.log));
+
+// Enable CORS for all routes and methods
+app.use(
+  "/*",
+  cors({
+    origin: "*",
+    allowHeaders: ["Content-Type", "Authorization"],
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    exposeHeaders: ["Content-Length"],
+    maxAge: 600,
+  }),
+);
+
+// Health check endpoint
+app.get("/make-server-eb31619c/health", (c) => {
+  return c.json({ status: "ok" });
+});
+
+// Debug endpoint to check all keys
+app.get("/make-server-eb31619c/debug/keys", async (c) => {
+  try {
+    const spaces = await kv.getByPrefix("space:");
+    const configs = await kv.getByPrefix("config:");
+    
+    // Group configurations by spaceId
+    const configsBySpace: Record<string, any[]> = {};
+    const orphanedConfigs: any[] = [];
+    
+    configs.forEach((config: any) => {
+      if (config.spaceId) {
+        if (!configsBySpace[config.spaceId]) {
+          configsBySpace[config.spaceId] = [];
+        }
+        configsBySpace[config.spaceId].push(config);
+      } else {
+        orphanedConfigs.push(config);
+      }
+    });
+    
+    return c.json({ 
+      success: true, 
+      data: {
+        spacesCount: spaces.length,
+        spaces: spaces.map((s: any) => ({ 
+          id: s.id, 
+          name: s.name,
+          configCount: configsBySpace[s.id]?.length || 0
+        })),
+        configurationsCount: configs.length,
+        configurations: configs.map((c: any) => ({ 
+          id: c.id, 
+          name: c.name, 
+          spaceId: c.spaceId,
+          hasData: !!(c.data)
+        })),
+        configsBySpace,
+        orphanedConfigs: orphanedConfigs.map((c: any) => ({
+          id: c.id,
+          name: c.name
+        }))
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching debug keys:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// ===== 3D SPACE BUILDER SPACES =====
+// Get all spaces
+app.get("/make-server-eb31619c/spaces", async (c) => {
+  try {
+    const spaces = await kv.getByPrefix("space:");
+    return c.json({ success: true, data: spaces });
+  } catch (error) {
+    console.error("Error fetching spaces:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Get single space
+app.get("/make-server-eb31619c/spaces/:id", async (c) => {
+  try {
+    const id = c.req.param("id");
+    const space = await kv.get(`space:${id}`);
+    if (!space) {
+      return c.json({ success: false, error: "Space not found" }, 404);
+    }
+    return c.json({ success: true, data: space });
+  } catch (error) {
+    console.error("Error fetching space:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Create/Update space
+app.post("/make-server-eb31619c/spaces", async (c) => {
+  try {
+    const body = await c.req.json();
+    const id = body.id || `space-${Date.now()}`;
+    const data = {
+      ...body,
+      id,
+      updatedAt: new Date().toISOString(),
+    };
+    await kv.set(`space:${id}`, data);
+    return c.json({ success: true, data });
+  } catch (error) {
+    console.error("Error saving space:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Delete space
+app.delete("/make-server-eb31619c/spaces/:id", async (c) => {
+  try {
+    const id = c.req.param("id");
+    
+    // Delete the space
+    await kv.del(`space:${id}`);
+    
+    // Delete all configurations for this space
+    const allConfigs = await kv.getByPrefix("config:");
+    const spaceConfigs = allConfigs.filter((config: any) => config.spaceId === id);
+    for (const config of spaceConfigs) {
+      await kv.del(`config:${config.id}`);
+    }
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting space:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Update space image
+app.put("/make-server-eb31619c/spaces/:id/image", async (c) => {
+  try {
+    const id = c.req.param("id");
+    const body = await c.req.json();
+    const { image } = body;
+    
+    if (!image) {
+      return c.json({ success: false, error: "Image data is required" }, 400);
+    }
+    
+    // Get existing space
+    const space = await kv.get(`space:${id}`);
+    if (!space) {
+      return c.json({ success: false, error: "Space not found" }, 404);
+    }
+    
+    // Update space with new image
+    const updatedSpace = {
+      ...space,
+      image,
+      updatedAt: new Date().toISOString(),
+    };
+    
+    await kv.set(`space:${id}`, updatedSpace);
+    return c.json({ success: true, data: updatedSpace });
+  } catch (error) {
+    console.error("Error updating space image:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Get configurations for a specific space
+app.get("/make-server-eb31619c/spaces/:spaceId/configurations", async (c) => {
+  try {
+    const spaceId = c.req.param("spaceId");
+    console.log(`Fetching configurations for space: ${spaceId}`);
+    const allConfigs = await kv.getByPrefix("config:");
+    console.log(`Total configurations in database: ${allConfigs.length}`);
+    const spaceConfigs = allConfigs.filter((config: any) => config.spaceId === spaceId);
+    console.log(`Configurations for space ${spaceId}: ${spaceConfigs.length}`);
+    if (spaceConfigs.length === 0 && allConfigs.length > 0) {
+      console.log(`Warning: No configurations found for space ${spaceId}, but ${allConfigs.length} total configurations exist`);
+      console.log(`First 5 configs:`, allConfigs.slice(0, 5).map((c: any) => ({ id: c.id, name: c.name, spaceId: c.spaceId })));
+    }
+    return c.json({ success: true, data: spaceConfigs });
+  } catch (error) {
+    console.error("Error fetching space configurations:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Get pinned spaces
+app.get("/make-server-eb31619c/pinned-spaces", async (c) => {
+  try {
+    const pinnedData = await kv.get("pinned-spaces");
+    return c.json({ success: true, data: pinnedData?.spaceIds || [] });
+  } catch (error) {
+    console.error("Error fetching pinned spaces:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Set pinned spaces
+app.post("/make-server-eb31619c/pinned-spaces", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { spaceIds } = body;
+    
+    if (!Array.isArray(spaceIds)) {
+      return c.json({ success: false, error: "spaceIds must be an array" }, 400);
+    }
+    
+    await kv.set("pinned-spaces", { spaceIds });
+    return c.json({ success: true, data: spaceIds });
+  } catch (error) {
+    console.error("Error setting pinned spaces:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// ===== 3D SPACE BUILDER CONFIGURATIONS =====
+// Get all configurations
+app.get("/make-server-eb31619c/configurations", async (c) => {
+  try {
+    const configs = await kv.getByPrefix("config:");
+    return c.json({ success: true, data: configs });
+  } catch (error) {
+    console.error("Error fetching configurations:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Get single configuration
+app.get("/make-server-eb31619c/configurations/:id", async (c) => {
+  try {
+    const id = c.req.param("id");
+    const config = await kv.get(`config:${id}`);
+    if (!config) {
+      return c.json({ success: false, error: "Configuration not found" }, 404);
+    }
+    return c.json({ success: true, data: config });
+  } catch (error) {
+    console.error("Error fetching configuration:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Create/Update configuration
+app.post("/make-server-eb31619c/configurations", async (c) => {
+  try {
+    const body = await c.req.json();
+    const id = body.id || `config-${Date.now()}`;
+    const data = {
+      ...body,
+      id,
+      updatedAt: new Date().toISOString(),
+    };
+    await kv.set(`config:${id}`, data);
+    return c.json({ success: true, data });
+  } catch (error) {
+    console.error("Error saving configuration:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Delete configuration
+app.delete("/make-server-eb31619c/configurations/:id", async (c) => {
+  try {
+    const id = c.req.param("id");
+    await kv.del(`config:${id}`);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting configuration:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// ===== MARKET PRICE LIST =====
+// Get all market prices
+app.get("/make-server-eb31619c/market-prices", async (c) => {
+  try {
+    const prices = await kv.getByPrefix("market-price:");
+    return c.json({ success: true, data: prices });
+  } catch (error) {
+    console.error("Error fetching market prices:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Create/Update market price
+app.post("/make-server-eb31619c/market-prices", async (c) => {
+  try {
+    const body = await c.req.json();
+    const id = body.id || `market-price-${Date.now()}`;
+    const data = {
+      ...body,
+      id,
+      pricePerUnit: body.price / body.unitsPerPurchase,
+    };
+    await kv.set(`market-price:${id}`, data);
+    return c.json({ success: true, data });
+  } catch (error) {
+    console.error("Error saving market price:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Delete market price
+app.delete("/make-server-eb31619c/market-prices/:id", async (c) => {
+  try {
+    const id = c.req.param("id");
+    await kv.del(`market-price:${id}`);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting market price:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Deduplicate market prices
+app.post("/make-server-eb31619c/market-prices/deduplicate", async (c) => {
+  try {
+    const prices = await kv.getByPrefix("market-price:");
+    const seen = new Map<string, any>();
+    let deletedCount = 0;
+    
+    for (const price of prices) {
+      // Create a key based on all fields except id
+      const key = JSON.stringify({
+        supplier_id: price.supplier_id || price.supplier, // Support both old and new format
+        itemName: price.itemName,
+        goodType: price.goodType,
+        unit: price.unit,
+        unitsPerPurchase: price.unitsPerPurchase,
+        price: price.price,
+        pricePerUnit: price.pricePerUnit,
+      });
+      
+      if (seen.has(key)) {
+        // Duplicate found - delete this one
+        await kv.del(`market-price:${price.id}`);
+        deletedCount++;
+        console.log(`Deleted duplicate market price: ${price.itemName} (id: ${price.id})`);
+      } else {
+        // First occurrence - keep it
+        seen.set(key, price);
+      }
+    }
+    
+    return c.json({ 
+      success: true, 
+      message: `Removed ${deletedCount} duplicate market price entries`,
+      deletedCount 
+    });
+  } catch (error) {
+    console.error("Error deduplicating market prices:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// ===== CSV MAPPINGS =====
+// Save CSV column mapping
+app.post("/make-server-eb31619c/csv-mappings", async (c) => {
+  try {
+    const { mappingType, mapping } = await c.req.json();
+    
+    if (!mappingType || !mapping) {
+      return c.json({ success: false, error: "mappingType and mapping are required" }, 400);
+    }
+    
+    const key = `csv-mapping:${mappingType}`;
+    const data = {
+      mappingType,
+      mapping,
+      updatedAt: new Date().toISOString(),
+    };
+    
+    await kv.set(key, data);
+    console.log(`Saved CSV mapping for ${mappingType}`);
+    
+    return c.json({ success: true, data });
+  } catch (error) {
+    console.error("Error saving CSV mapping:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Get CSV column mapping
+app.get("/make-server-eb31619c/csv-mappings/:mappingType", async (c) => {
+  try {
+    const mappingType = c.req.param("mappingType");
+    const key = `csv-mapping:${mappingType}`;
+    const data = await kv.get(key);
+    
+    if (!data) {
+      return c.json({ success: false, error: "Mapping not found" }, 404);
+    }
+    
+    return c.json({ success: true, data });
+  } catch (error) {
+    console.error("Error fetching CSV mapping:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// ===== INGREDIENTS =====
+// Get all ingredients
+app.get("/make-server-eb31619c/ingredients", async (c) => {
+  try {
+    const ingredients = await kv.getByPrefix("ingredient:");
+    return c.json({ success: true, data: ingredients });
+  } catch (error) {
+    console.error("Error fetching ingredients:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Create/Update ingredient
+app.post("/make-server-eb31619c/ingredients", async (c) => {
+  try {
+    const body = await c.req.json();
+    const id = body.id || `ingredient-${Date.now()}`;
+    const data = {
+      ...body,
+      id,
+    };
+    await kv.set(`ingredient:${id}`, data);
+    return c.json({ success: true, data });
+  } catch (error) {
+    console.error("Error saving ingredient:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Delete ingredient
+app.delete("/make-server-eb31619c/ingredients/:id", async (c) => {
+  try {
+    const id = c.req.param("id");
+    await kv.del(`ingredient:${id}`);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting ingredient:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Cleanup invalid ingredients (those without marketPriceId)
+app.post("/make-server-eb31619c/ingredients/cleanup", async (c) => {
+  try {
+    const ingredients = await kv.getByPrefix("ingredient:");
+    let deletedCount = 0;
+    
+    for (const ingredient of ingredients) {
+      // Delete if missing required fields or invalid marketPriceId
+      if (!ingredient.marketPriceId || 
+          !ingredient.name || 
+          !ingredient.ingredientCategory ||
+          !ingredient.recipeUnit ||
+          typeof ingredient.costPerRecipeUnit !== 'number' ||
+          typeof ingredient.costPerPurchaseUnit !== 'number' ||
+          typeof ingredient.purchaseUnitsPerRecipeUnit !== 'number') {
+        await kv.del(`ingredient:${ingredient.id}`);
+        deletedCount++;
+        console.log(`Deleted invalid ingredient: ${ingredient.name || ingredient.id}`);
+      }
+    }
+    
+    return c.json({ 
+      success: true, 
+      message: `Cleaned up ${deletedCount} invalid ingredient entries` 
+    });
+  } catch (error) {
+    console.error("Error cleaning up ingredients:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// ===== PACKAGING =====
+// Get all packaging
+app.get("/make-server-eb31619c/packaging", async (c) => {
+  try {
+    const packaging = await kv.getByPrefix("packaging:");
+    return c.json({ success: true, data: packaging });
+  } catch (error) {
+    console.error("Error fetching packaging:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Create/Update packaging
+app.post("/make-server-eb31619c/packaging", async (c) => {
+  try {
+    const body = await c.req.json();
+    const id = body.id || `packaging-${Date.now()}`;
+    const data = {
+      ...body,
+      id,
+    };
+    await kv.set(`packaging:${id}`, data);
+    return c.json({ success: true, data });
+  } catch (error) {
+    console.error("Error saving packaging:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Delete packaging
+app.delete("/make-server-eb31619c/packaging/:id", async (c) => {
+  try {
+    const id = c.req.param("id");
+    await kv.del(`packaging:${id}`);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting packaging:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Cleanup invalid packaging (those without marketPriceId)
+app.post("/make-server-eb31619c/packaging/cleanup", async (c) => {
+  try {
+    const packaging = await kv.getByPrefix("packaging:");
+    let deletedCount = 0;
+    
+    for (const pkg of packaging) {
+      // Delete if missing required fields or invalid marketPriceId
+      if (!pkg.marketPriceId || 
+          !pkg.name || 
+          !pkg.ingredientCategory ||
+          !pkg.recipeUnit ||
+          typeof pkg.costPerRecipeUnit !== 'number' ||
+          typeof pkg.costPerPurchaseUnit !== 'number' ||
+          typeof pkg.purchaseUnitsPerRecipeUnit !== 'number') {
+        await kv.del(`packaging:${pkg.id}`);
+        deletedCount++;
+        console.log(`Deleted invalid packaging: ${pkg.name || pkg.id}`);
+      }
+    }
+    
+    return c.json({ 
+      success: true, 
+      message: `Cleaned up ${deletedCount} invalid packaging entries` 
+    });
+  } catch (error) {
+    console.error("Error cleaning up packaging:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// ===== MENU COMPONENTS =====
+// Get all menu components
+app.get("/make-server-eb31619c/menu-components", async (c) => {
+  try {
+    const components = await kv.getByPrefix("menu-component:");
+    return c.json({ success: true, data: components });
+  } catch (error) {
+    console.error("Error fetching menu components:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Create/Update menu component
+app.post("/make-server-eb31619c/menu-components", async (c) => {
+  try {
+    const body = await c.req.json();
+    const id = body.id || `menu-component-${Date.now()}`;
+    
+    // Validate and repair subComponents data
+    const repairedSubComponents = body.subComponents?.map((sub: any) => {
+      const repairedSub = { ...sub };
+      
+      // Ensure all required fields are present
+      if (!repairedSub.unitCost || repairedSub.unitCost === 0) {
+        // If unitCost is missing but we have cost and numberOfUnits, calculate it
+        if (repairedSub.cost > 0 && repairedSub.numberOfUnits > 0) {
+          repairedSub.unitCost = repairedSub.cost / repairedSub.numberOfUnits;
+          console.log(`Repaired unitCost for "${repairedSub.name}": ${repairedSub.unitCost}`);
+        }
+      }
+      
+      // Ensure numberOfUnits is present
+      if (!repairedSub.numberOfUnits || repairedSub.numberOfUnits === 0) {
+        // If numberOfUnits is missing but we have cost and unitCost, calculate it
+        if (repairedSub.cost > 0 && repairedSub.unitCost > 0) {
+          repairedSub.numberOfUnits = repairedSub.cost / repairedSub.unitCost;
+          console.log(`Repaired numberOfUnits for "${repairedSub.name}": ${repairedSub.numberOfUnits}`);
+        } else {
+          // Default to 1.0 if we can't calculate
+          repairedSub.numberOfUnits = 1.0;
+          console.log(`Set default numberOfUnits for "${repairedSub.name}": 1.0`);
+        }
+      }
+      
+      // Ensure cost is consistent
+      repairedSub.cost = (repairedSub.unitCost || 0) * (repairedSub.numberOfUnits || 0);
+      
+      return repairedSub;
+    }) || [];
+    
+    const data = {
+      ...body,
+      id,
+      subComponents: repairedSubComponents,
+    };
+    
+    console.log(`Saving menu component "${data.name}" (${id}) with ${repairedSubComponents.length} subComponents`);
+    await kv.set(`menu-component:${id}`, data);
+    return c.json({ success: true, data });
+  } catch (error) {
+    console.error("Error saving menu component:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Delete menu component
+app.delete("/make-server-eb31619c/menu-components/:id", async (c) => {
+  try {
+    const id = c.req.param("id");
+    await kv.del(`menu-component:${id}`);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting menu component:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Repair all menu components - fix missing numberOfUnits
+app.post("/make-server-eb31619c/menu-components/repair", async (c) => {
+  try {
+    const components = await kv.getByPrefix("menu-component:");
+    let repairedCount = 0;
+    let totalSubComponentsRepaired = 0;
+    
+    for (const component of components) {
+      let componentNeedsRepair = false;
+      
+      const repairedSubComponents = component.subComponents?.map((sub: any) => {
+        const repairedSub = { ...sub };
+        let subNeedsRepair = false;
+        
+        // Fix unitCost if missing
+        if (!repairedSub.unitCost || repairedSub.unitCost === 0) {
+          if (repairedSub.cost > 0 && repairedSub.numberOfUnits > 0) {
+            repairedSub.unitCost = repairedSub.cost / repairedSub.numberOfUnits;
+            subNeedsRepair = true;
+            console.log(`Repaired unitCost for "${repairedSub.name}" in component "${component.name}": ${repairedSub.unitCost}`);
+          }
+        }
+        
+        // Fix numberOfUnits if missing or zero
+        if (!repairedSub.numberOfUnits || repairedSub.numberOfUnits === 0) {
+          if (repairedSub.cost > 0 && repairedSub.unitCost > 0) {
+            repairedSub.numberOfUnits = repairedSub.cost / repairedSub.unitCost;
+            subNeedsRepair = true;
+            console.log(`Repaired numberOfUnits for "${repairedSub.name}" in component "${component.name}": ${repairedSub.numberOfUnits}`);
+          } else {
+            repairedSub.numberOfUnits = 1.0;
+            subNeedsRepair = true;
+            console.log(`Set default numberOfUnits for "${repairedSub.name}" in component "${component.name}": 1.0`);
+          }
+        }
+        
+        // Recalculate cost to ensure consistency
+        repairedSub.cost = (repairedSub.unitCost || 0) * (repairedSub.numberOfUnits || 0);
+        
+        if (subNeedsRepair) {
+          totalSubComponentsRepaired++;
+          componentNeedsRepair = true;
+        }
+        
+        return repairedSub;
+      }) || [];
+      
+      if (componentNeedsRepair) {
+        const repairedComponent = {
+          ...component,
+          subComponents: repairedSubComponents,
+        };
+        await kv.set(`menu-component:${component.id}`, repairedComponent);
+        repairedCount++;
+        console.log(`Repaired component "${component.name}" (${component.id})`);
+      }
+    }
+    
+    return c.json({ 
+      success: true, 
+      message: `Repaired ${repairedCount} components (${totalSubComponentsRepaired} subComponents total)`,
+      repairedCount,
+      totalSubComponentsRepaired
+    });
+  } catch (error) {
+    console.error("Error repairing menu components:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// ===== MENU ITEMS =====
+// Get all menu items
+app.get("/make-server-eb31619c/menu-items", async (c) => {
+  try {
+    const items = await kv.getByPrefix("menu-item:");
+    return c.json({ success: true, data: items });
+  } catch (error) {
+    console.error("Error fetching menu items:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Create/Update menu item
+app.post("/make-server-eb31619c/menu-items", async (c) => {
+  try {
+    const body = await c.req.json();
+    const id = body.id || `menu-item-${Date.now()}`;
+    const data = {
+      ...body,
+      id,
+    };
+    await kv.set(`menu-item:${id}`, data);
+    return c.json({ success: true, data });
+  } catch (error) {
+    console.error("Error saving menu item:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Delete menu item
+app.delete("/make-server-eb31619c/menu-items/:id", async (c) => {
+  try {
+    const id = c.req.param("id");
+    await kv.del(`menu-item:${id}`);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting menu item:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Refresh menu item costs based on current ingredient/component prices
+app.post("/make-server-eb31619c/menu-items/refresh-costs", async (c) => {
+  try {
+    const menuItems = await kv.getByPrefix("menu-item:");
+    const ingredients = await kv.getByPrefix("ingredient:");
+    const components = await kv.getByPrefix("menu-component:");
+    
+    let updatedCount = 0;
+    let totalCostChanges = 0;
+    
+    for (const menuItem of menuItems) {
+      let hasChanges = false;
+      
+      // Update each component/ingredient cost based on current prices
+      const updatedComponents = menuItem.components?.map((comp: any) => {
+        if (comp.itemType === 'Ingredient') {
+          // Find the current ingredient
+          const currentIngredient = ingredients.find((ing: any) => ing.id === comp.sourceId);
+          if (currentIngredient) {
+            const newUnitCost = currentIngredient.costPerRecipeUnit;
+            const newStorageType = currentIngredient.storageType;
+            if (newUnitCost !== comp.unitCost || newStorageType !== comp.storageType) {
+              hasChanges = true;
+              if (newUnitCost !== comp.unitCost) {
+                totalCostChanges++;
+                console.log(`Updated cost for ingredient "${comp.name}" in menu item "${menuItem.name}": ${comp.unitCost} → ${newUnitCost}`);
+              }
+              if (newStorageType !== comp.storageType) {
+                console.log(`Updated storage type for ingredient "${comp.name}" in menu item "${menuItem.name}": ${comp.storageType} → ${newStorageType}`);
+              }
+              return {
+                ...comp,
+                unitCost: newUnitCost,
+                totalCost: newUnitCost * comp.numberOfUnits,
+                storageType: newStorageType,
+              };
+            }
+          }
+        } else if (comp.itemType === 'Component') {
+          // Find the current component
+          const currentComponent = components.find((c: any) => c.id === comp.sourceId);
+          if (currentComponent) {
+            const newUnitCost = currentComponent.unitCost;
+            const newStorageType = currentComponent.storageType;
+            if (newUnitCost !== comp.unitCost || newStorageType !== comp.storageType) {
+              hasChanges = true;
+              if (newUnitCost !== comp.unitCost) {
+                totalCostChanges++;
+                console.log(`Updated cost for component "${comp.name}" in menu item "${menuItem.name}": ${comp.unitCost} → ${newUnitCost}`);
+              }
+              if (newStorageType !== comp.storageType) {
+                console.log(`Updated storage type for component "${comp.name}" in menu item "${menuItem.name}": ${comp.storageType} → ${newStorageType}`);
+              }
+              return {
+                ...comp,
+                unitCost: newUnitCost,
+                totalCost: newUnitCost * comp.numberOfUnits,
+                storageType: newStorageType,
+              };
+            }
+          }
+        }
+        return comp;
+      }) || [];
+      
+      if (hasChanges) {
+        // Recalculate total cost and margin
+        const totalCost = updatedComponents.reduce((sum: number, comp: any) => sum + comp.totalCost, 0) / menuItem.numberOfPiecesRecipe;
+        const margin = menuItem.basePrice > 0 ? ((menuItem.basePrice - totalCost) / menuItem.basePrice) * 100 : 0;
+        
+        const updatedMenuItem = {
+          ...menuItem,
+          components: updatedComponents,
+          totalCost,
+          margin,
+        };
+        
+        await kv.set(`menu-item:${menuItem.id}`, updatedMenuItem);
+        updatedCount++;
+      }
+    }
+    
+    return c.json({ 
+      success: true, 
+      message: `Refreshed ${updatedCount} menu items with ${totalCostChanges} cost updates`,
+      updatedCount,
+      totalCostChanges
+    });
+  } catch (error) {
+    console.error("Error refreshing menu item costs:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// ===== SUPPLIERS =====
+// Get all suppliers
+app.get("/make-server-eb31619c/suppliers", async (c) => {
+  try {
+    const suppliers = await kv.getByPrefix("supplier:");
+    return c.json({ success: true, data: suppliers });
+  } catch (error) {
+    console.error("Error fetching suppliers:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Create/Update supplier
+app.post("/make-server-eb31619c/suppliers", async (c) => {
+  try {
+    const body = await c.req.json();
+    const id = body.id || `supplier-${Date.now()}`;
+    const data = {
+      ...body,
+      id,
+    };
+    console.log(`Saving supplier ${id} with ${data.sites?.length || 0} space IDs:`, data.sites);
+    await kv.set(`supplier:${id}`, data);
+    return c.json({ success: true, data });
+  } catch (error) {
+    console.error("Error saving supplier:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Delete supplier
+app.delete("/make-server-eb31619c/suppliers/:id", async (c) => {
+  try {
+    const id = c.req.param("id");
+    await kv.del(`supplier:${id}`);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting supplier:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// ===== SPACE MENU CONFIGURATIONS =====
+// Get menu configuration for a specific space and configuration
+app.get("/make-server-eb31619c/space-menus/:spaceId/:configId", async (c) => {
+  try {
+    const spaceId = c.req.param("spaceId");
+    const configId = c.req.param("configId");
+    const key = `space-menu:${spaceId}:${configId}`;
+    const menuConfig = await kv.get(key);
+    return c.json({ success: true, data: menuConfig || null });
+  } catch (error) {
+    console.error("Error fetching space menu configuration:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Save menu configuration for a space and configuration
+app.post("/make-server-eb31619c/space-menus", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { spaceId, configId, menuItems } = body;
+    
+    if (!spaceId || !configId) {
+      return c.json({ success: false, error: "spaceId and configId are required" }, 400);
+    }
+    
+    const key = `space-menu:${spaceId}:${configId}`;
+    const data = {
+      spaceId,
+      configId,
+      menuItems, // { elementId: { menuItemId: boolean } }
+      updatedAt: new Date().toISOString(),
+    };
+    
+    await kv.set(key, data);
+    console.log(`Saved menu configuration for space ${spaceId}, config ${configId}`);
+    return c.json({ success: true, data });
+  } catch (error) {
+    console.error("Error saving space menu configuration:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+})
+
+Deno.serve(app.fetch);
+

@@ -8,6 +8,7 @@ import {
   MaxLength,
   MinLength,
   Matches,
+  IsBoolean,
 } from 'class-validator';
 import { TenantPlan, TenantStatus } from '@prisma/client';
 
@@ -96,4 +97,24 @@ export class UpdateTenantDto {
   @IsOptional()
   @IsString()
   paymentMethod?: string;
+
+  // Weezevent Integration
+  @IsOptional()
+  @IsBoolean()
+  weezeventEnabled?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  weezeventOrganizationId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  weezeventClientId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  weezeventClientSecret?: string;
 }

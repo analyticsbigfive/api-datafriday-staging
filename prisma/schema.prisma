@@ -728,6 +728,39 @@ model WeezeventTransaction {
   @@index([eventId, transactionDate])
 }
 
+// ==================== WEEZEVENT SYNC STATE ====================
+
+// Track sync state per tenant/type for incremental sync
+model WeezeventSyncState {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  syncType            String   // 'events', 'transactions', 'products', 'wallets', 'users'
+  
+  // Cursor-based sync (most efficient)
+  lastSyncedAt        DateTime?           // Last successful sync time
+  lastCursor          String?             // API cursor for pagination
+  lastWeezeventId     String?             // Last processed Weezevent ID
+  lastUpdatedAt       DateTime?           // Last 'updated_at' from API
+  
+  // Stats
+  totalSynced         Int      @default(0)
+  lastSyncCount       Int      @default(0)
+  lastSyncDuration    Int?                // Duration in ms
+  lastError           String?
+  consecutiveErrors   Int      @default(0)
+  
+  // Checkpoints for large syncs
+  checkpoint          Json?               // Store progress for resumable syncs
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([tenantId, syncType])
+  @@index([tenantId])
+  @@index([syncType])
+  @@index([lastSyncedAt])
+}
+
 // ==================== WEEZEVENT WEBHOOK ====================
 
 model WeezeventWebhookEvent {

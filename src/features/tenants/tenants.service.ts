@@ -34,6 +34,11 @@ export class TenantsService {
     numberOfEmployees: true,
     numberOfSpaces: true,
     paymentMethod: true,
+    // Weezevent Integration
+    weezeventEnabled: true,
+    weezeventOrganizationId: true,
+    weezeventClientId: true,
+    weezeventClientSecret: true, // Attention: sera retourné chiffré
     createdAt: true,
     updatedAt: true,
   };

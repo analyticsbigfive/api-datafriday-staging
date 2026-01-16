@@ -1,12 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { WeezeventController } from './weezevent.controller';
 import { WeezeventSyncService } from './services/weezevent-sync.service';
+import { WeezeventIncrementalSyncService } from './services/weezevent-incremental-sync.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SyncTrackerService } from './services/sync-tracker.service';
 
 describe('WeezeventController', () => {
   let controller: WeezeventController;
   let syncService: WeezeventSyncService;
+  let incrementalSyncService: WeezeventIncrementalSyncService;
   let prisma: PrismaService;
   let syncTracker: SyncTrackerService;
 
@@ -70,6 +72,13 @@ describe('WeezeventController', () => {
     syncProducts: jest.fn(),
   };
 
+  const mockIncrementalSyncService = {
+    syncTransactionsIncremental: jest.fn(),
+    syncEventsIncremental: jest.fn(),
+    getSyncStatus: jest.fn().mockResolvedValue({}),
+    resetSyncState: jest.fn(),
+  };
+
   const mockSyncTracker = {
     getRunningSyncs: jest.fn().mockReturnValue([]),
   };
@@ -81,6 +90,10 @@ describe('WeezeventController', () => {
         {
           provide: WeezeventSyncService,
           useValue: mockSyncService,
+        },
+        {
+          provide: WeezeventIncrementalSyncService,
+          useValue: mockIncrementalSyncService,
         },
         {
           provide: PrismaService,
@@ -95,6 +108,7 @@ describe('WeezeventController', () => {
 
     controller = module.get<WeezeventController>(WeezeventController);
     syncService = module.get<WeezeventSyncService>(WeezeventSyncService);
+    incrementalSyncService = module.get<WeezeventIncrementalSyncService>(WeezeventIncrementalSyncService);
     prisma = module.get<PrismaService>(PrismaService);
     syncTracker = module.get<SyncTrackerService>(SyncTrackerService);
 
@@ -163,32 +177,50 @@ describe('WeezeventController', () => {
   });
 
   describe('syncData', () => {
-    it('should trigger transactions sync', async () => {
-      const syncResult = { success: true, synced: 100, errors: [] };
-      mockSyncService.syncTransactions.mockResolvedValue(syncResult);
+    it('should trigger transactions incremental sync', async () => {
+      const syncResult = { 
+        success: true, 
+        isIncremental: true, 
+        itemsSynced: 100, 
+        itemsCreated: 50,
+        itemsSkipped: 20,
+        errors: [] 
+      };
+      mockIncrementalSyncService.syncTransactionsIncremental.mockResolvedValue(syncResult);
 
       const result = await controller.syncData(mockUser, { type: 'transactions' });
 
       expect(result).toEqual(syncResult);
-      expect(mockSyncService.syncTransactions).toHaveBeenCalledWith(
+      expect(mockIncrementalSyncService.syncTransactionsIncremental).toHaveBeenCalledWith(
         'tenant-123',
         expect.objectContaining({
-          fromDate: undefined,
-          toDate: undefined,
-          full: undefined,
-          eventId: undefined,
+          forceFullSync: undefined,
+          batchSize: 500,
+          maxItems: 10000,
         }),
       );
     });
 
-    it('should trigger events sync', async () => {
-      const syncResult = { success: true, synced: 10, errors: [] };
-      mockSyncService.syncEvents.mockResolvedValue(syncResult);
+    it('should trigger events incremental sync', async () => {
+      const syncResult = { 
+        success: true, 
+        isIncremental: true, 
+        itemsSynced: 10, 
+        errors: [] 
+      };
+      mockIncrementalSyncService.syncEventsIncremental.mockResolvedValue(syncResult);
 
       const result = await controller.syncData(mockUser, { type: 'events' });
 
       expect(result).toEqual(syncResult);
-      expect(mockSyncService.syncEvents).toHaveBeenCalledWith('tenant-123');
+      expect(mockIncrementalSyncService.syncEventsIncremental).toHaveBeenCalledWith(
+        'tenant-123',
+        expect.objectContaining({
+          forceFullSync: undefined,
+          batchSize: 500,
+          maxItems: 10000,
+        }),
+      );
     });
 
     it('should trigger products sync', async () => {
@@ -209,33 +241,41 @@ describe('WeezeventController', () => {
   });
 
   describe('getSyncStatus', () => {
-    it('should return sync status', async () => {
-      mockPrismaService.weezeventTransaction.findFirst.mockResolvedValue({
-        syncedAt: new Date('2024-01-01'),
+    it('should return sync status with incremental states', async () => {
+      mockIncrementalSyncService.getSyncStatus.mockResolvedValue({
+        events: {
+          lastSyncedAt: new Date('2024-01-01'),
+          totalSynced: 100,
+        },
+        transactions: {
+          lastSyncedAt: new Date('2024-01-02'),
+          totalSynced: 5000,
+        },
+        products: {
+          totalSynced: 50,
+        },
       });
-      mockPrismaService.weezeventEvent.findFirst.mockResolvedValue({
-        syncedAt: new Date('2024-01-01'),
-      });
-      mockPrismaService.weezeventProduct.findFirst.mockResolvedValue({
-        syncedAt: new Date('2024-01-01'),
-      });
-      mockPrismaService.weezeventTransaction.count.mockResolvedValue(100);
-      mockPrismaService.weezeventEvent.count.mockResolvedValue(10);
+      mockPrismaService.weezeventTransaction.count.mockResolvedValue(5000);
+      mockPrismaService.weezeventEvent.count.mockResolvedValue(100);
       mockPrismaService.weezeventProduct.count.mockResolvedValue(50);
       mockSyncTracker.getRunningSyncs.mockReturnValue([]);
 
       const result = await controller.getSyncStatus(mockUser);
 
       expect(result).toEqual({
-        lastSync: {
-          transactions: new Date('2024-01-01'),
-          events: new Date('2024-01-01'),
-          products: new Date('2024-01-01'),
+        events: {
+          lastSyncedAt: new Date('2024-01-01'),
+          totalSynced: 100,
+          count: 100,
         },
-        counts: {
-          transactions: 100,
-          events: 10,
-          products: 50,
+        transactions: {
+          lastSyncedAt: new Date('2024-01-02'),
+          totalSynced: 5000,
+          count: 5000,
+        },
+        products: {
+          totalSynced: 50,
+          count: 50,
         },
         runningSyncs: [],
         isRunning: false,

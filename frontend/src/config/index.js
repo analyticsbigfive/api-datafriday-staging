@@ -3,7 +3,7 @@
 
 export const config = {
   // API URL - loaded from .env
-  apiUrl: import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1',
+  apiUrl: import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1',
   
   // Supabase configuration - loaded from .env
   supabase: {

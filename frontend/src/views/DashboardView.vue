@@ -155,7 +155,7 @@ const checkHealth = async () => {
   loading.value = true
   try {
     // Use direct URL to avoid proxy issues
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1'
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1'
     const response = await fetch(`${apiUrl}/health`)
     const data = await response.json()
     healthData.value = data

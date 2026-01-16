@@ -6,6 +6,10 @@ export class SyncWeezeventDto {
     type: 'transactions' | 'wallets' | 'users' | 'events' | 'products';
 
     @IsOptional()
+    @IsString()
+    tenantId?: string;
+
+    @IsOptional()
     @IsDateString()
     fromDate?: string;
 

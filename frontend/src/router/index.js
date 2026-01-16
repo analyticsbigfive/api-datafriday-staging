@@ -82,27 +82,60 @@ const router = createRouter({
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
   
+  // Prevent infinite loops - if we're already navigating to the same path, allow it
+  if (to.path === from.path) {
+    next()
+    return
+  }
+  
   // Wait for auth check to complete
   if (!authStore.initialized) {
-    await authStore.checkAuth()
+    try {
+      await authStore.checkAuth()
+    } catch (error) {
+      console.error('Auth check failed in navigation guard:', error)
+      // On error, allow navigation to continue to avoid blocking
+      if (!to.meta.requiresAuth) {
+        next()
+        return
+      }
+    }
   }
 
   const isAuthenticated = authStore.isAuthenticated
   const needsOnboarding = authStore.needsOnboarding
   const userRole = authStore.dbUser?.role || null
 
+  // Prevent redirect loops
   if (to.meta.requiresAuth && !isAuthenticated) {
     // Not authenticated, redirect to login
-    next('/login')
+    if (to.path !== '/login') {
+      next('/login')
+    } else {
+      next()
+    }
   } else if (to.meta.requiresGuest && isAuthenticated) {
     // Already authenticated, redirect to dashboard or onboarding
-    next(needsOnboarding ? '/onboarding' : '/dashboard')
+    const destination = needsOnboarding ? '/onboarding' : '/dashboard'
+    if (to.path !== destination) {
+      next(destination)
+    } else {
+      next()
+    }
   } else if (isAuthenticated && needsOnboarding && to.meta.requiresAuth && !to.meta.allowOnboarding) {
     // Authenticated but needs onboarding, redirect to onboarding
-    next('/onboarding')
+    if (to.path !== '/onboarding') {
+      next('/onboarding')
+    } else {
+      next()
+    }
   } else if (to.meta.requiresAdmin && userRole !== 'ADMIN') {
     // Requires ADMIN role but user doesn't have it
-    next('/dashboard')
+    if (to.path !== '/dashboard') {
+      next('/dashboard')
+    } else {
+      next()
+    }
   } else {
     next()
   }

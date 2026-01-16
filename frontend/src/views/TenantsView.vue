@@ -189,6 +189,59 @@
               <label class="label">Type d'organisation</label>
               <input v-model="tenantForm.organizationType" type="text" class="input" placeholder="Restaurant, Hotel, Event..." />
             </div>
+
+            <!-- Weezevent Configuration -->
+            <div class="border-t border-gray-200 pt-4 mt-4">
+              <h3 class="text-lg font-semibold text-gray-900 mb-4">🎫 Configuration Weezevent</h3>
+              
+              <div class="mb-4">
+                <label class="flex items-center space-x-3">
+                  <input 
+                    v-model="tenantForm.weezeventEnabled" 
+                    type="checkbox" 
+                    class="h-4 w-4 text-primary-600 rounded"
+                  />
+                  <span class="text-sm font-medium text-gray-700">Activer Weezevent</span>
+                </label>
+              </div>
+
+              <div v-if="tenantForm.weezeventEnabled" class="space-y-4">
+                <div>
+                  <label class="label">Organization ID *</label>
+                  <input 
+                    v-model="tenantForm.weezeventOrganizationId" 
+                    type="text" 
+                    class="input" 
+                    placeholder="182509"
+                    :required="tenantForm.weezeventEnabled"
+                  />
+                  <p class="text-xs text-gray-500 mt-1">L'ID de votre organisation Weezevent</p>
+                </div>
+
+                <div>
+                  <label class="label">Client ID *</label>
+                  <input 
+                    v-model="tenantForm.weezeventClientId" 
+                    type="text" 
+                    class="input font-mono text-sm"
+                    placeholder="app_xxx..."
+                    :required="tenantForm.weezeventEnabled"
+                  />
+                </div>
+
+                <div>
+                  <label class="label">Client Secret *</label>
+                  <input 
+                    v-model="tenantForm.weezeventClientSecret" 
+                    type="password" 
+                    class="input font-mono text-sm"
+                    placeholder="******************"
+                    :required="tenantForm.weezeventEnabled"
+                  />
+                  <p class="text-xs text-gray-500 mt-1">Sera chiffré côté serveur</p>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="flex justify-end space-x-4 mt-6">
@@ -238,7 +291,11 @@ const tenantForm = reactive({
   email: '',
   plan: 'FREE',
   status: 'ACTIVE',
-  organizationType: ''
+  organizationType: '',
+  weezeventEnabled: false,
+  weezeventOrganizationId: '',
+  weezeventClientId: '',
+  weezeventClientSecret: ''
 })
 
 const formatDate = (dateString) => {
@@ -278,7 +335,7 @@ const loadTenants = async () => {
   try {
     const params = new URLSearchParams({
       page: pagination.currentPage,
-      perPage: pagination.perPage
+      limit: pagination.perPage
     })
     
     if (filters.search) params.append('search', filters.search)
@@ -321,6 +378,10 @@ const resetForm = () => {
   tenantForm.plan = 'FREE'
   tenantForm.status = 'ACTIVE'
   tenantForm.organizationType = ''
+  tenantForm.weezeventEnabled = false
+  tenantForm.weezeventOrganizationId = ''
+  tenantForm.weezeventClientId = ''
+  tenantForm.weezeventClientSecret = ''
 }
 
 const closeModals = () => {
@@ -353,13 +414,25 @@ const editTenant = (tenant) => {
   tenantForm.plan = tenant.plan
   tenantForm.status = tenant.status
   tenantForm.organizationType = tenant.organizationType || ''
+  tenantForm.weezeventEnabled = tenant.weezeventEnabled || false
+  tenantForm.weezeventOrganizationId = tenant.weezeventOrganizationId || ''
+  tenantForm.weezeventClientId = tenant.weezeventClientId || ''
+  tenantForm.weezeventClientSecret = '' // Ne pas afficher le secret existant
   showEditModal.value = true
 }
 
 const updateTenant = async () => {
   saving.value = true
   try {
-    await api.patch(`/tenants/${selectedTenant.value.id}`, tenantForm)
+    // Préparer les données à envoyer
+    const updateData = { ...tenantForm }
+    
+    // Si le secret est vide, ne pas l'envoyer (garder l'ancien)
+    if (!updateData.weezeventClientSecret) {
+      delete updateData.weezeventClientSecret
+    }
+    
+    await api.patch(`/tenants/${selectedTenant.value.id}`, updateData)
     toastStore.success('Tenant mis à jour avec succès')
     closeModals()
     loadTenants()

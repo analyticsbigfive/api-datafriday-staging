@@ -88,6 +88,8 @@ export interface WeezeventEvent {
     venue?: string; // Alternative à location
     capacity?: number;
     status?: string;
+    created_at?: string;
+    updated_at?: string; // For incremental sync
     metadata?: Record<string, any>;
 }
 

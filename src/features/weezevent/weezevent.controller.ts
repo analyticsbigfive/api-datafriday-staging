@@ -1,5 +1,6 @@
-import { Controller, Get, Post, Body, Query, Param, UseGuards, Logger } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Query, Param, UseGuards, Logger } from '@nestjs/common';
 import { WeezeventSyncService, SyncResult } from './services/weezevent-sync.service';
+import { WeezeventIncrementalSyncService, IncrementalSyncResult } from './services/weezevent-incremental-sync.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SyncWeezeventDto } from './dto/sync-weezevent.dto';
 import { GetTransactionsQueryDto } from './dto/get-transactions-query.dto';
@@ -14,6 +15,7 @@ export class WeezeventController {
 
     constructor(
         private readonly syncService: WeezeventSyncService,
+        private readonly incrementalSyncService: WeezeventIncrementalSyncService,
         private readonly prisma: PrismaService,
         private readonly syncTracker: SyncTrackerService,
     ) { }
@@ -93,16 +95,16 @@ export class WeezeventController {
     }
 
     /**
-     * Trigger manual synchronization
+     * Trigger manual synchronization (supports incremental)
      */
     @Post('sync')
     async syncData(
         @CurrentUser() user: any,
         @Body() dto: SyncWeezeventDto,
-    ): Promise<SyncResult> {
+    ): Promise<SyncResult | IncrementalSyncResult> {
         const tenantId = user.tenantId;
         this.logger.log(
-            `Manual sync triggered: type=${dto.type}, tenant=${tenantId}`,
+            `Manual sync triggered: type=${dto.type}, tenant=${tenantId}, forceFullSync=${dto.full || false}`,
         );
 
         const fromDate = dto.fromDate ? new Date(dto.fromDate) : undefined;
@@ -110,17 +112,24 @@ export class WeezeventController {
 
         switch (dto.type) {
             case 'transactions':
-                return this.syncService.syncTransactions(tenantId, {
-                    fromDate,
-                    toDate,
-                    full: dto.full,
-                    eventId: dto.eventId,
+                // Use incremental sync service
+                return this.incrementalSyncService.syncTransactionsIncremental(tenantId, {
+                    forceFullSync: dto.full,
+                    updatedSince: fromDate,
+                    batchSize: 500,
+                    maxItems: 10000,
                 });
 
             case 'events':
-                return this.syncService.syncEvents(tenantId);
+                // Use incremental sync service
+                return this.incrementalSyncService.syncEventsIncremental(tenantId, {
+                    forceFullSync: dto.full,
+                    batchSize: 500,
+                    maxItems: 10000,
+                });
 
             case 'products':
+                // Products use regular sync (usually small dataset)
                 return this.syncService.syncProducts(tenantId);
 
             default:
@@ -129,29 +138,14 @@ export class WeezeventController {
     }
 
     /**
-     * Get sync status
+     * Get sync status (including incremental state)
      */
     @Get('sync/status')
     async getSyncStatus(@CurrentUser() user: any) {
         const tenantId = user.tenantId;
-        // Get last sync time for each type
-        const [lastTransaction, lastEvent, lastProduct] = await Promise.all([
-            this.prisma.weezeventTransaction.findFirst({
-                where: { tenantId },
-                orderBy: { syncedAt: 'desc' },
-                select: { syncedAt: true },
-            }),
-            this.prisma.weezeventEvent.findFirst({
-                where: { tenantId },
-                orderBy: { syncedAt: 'desc' },
-                select: { syncedAt: true },
-            }),
-            this.prisma.weezeventProduct.findFirst({
-                where: { tenantId },
-                orderBy: { syncedAt: 'desc' },
-                select: { syncedAt: true },
-            }),
-        ]);
+
+        // Get incremental sync states
+        const incrementalStatus = await this.incrementalSyncService.getSyncStatus(tenantId);
 
         // Get counts
         const [transactionCount, eventCount, productCount] = await Promise.all([
@@ -161,18 +155,43 @@ export class WeezeventController {
         ]);
 
         return {
-            lastSync: {
-                transactions: lastTransaction?.syncedAt,
-                events: lastEvent?.syncedAt,
-                products: lastProduct?.syncedAt,
+            // Incremental sync states
+            events: {
+                ...incrementalStatus.events,
+                count: eventCount,
             },
-            counts: {
-                transactions: transactionCount,
-                events: eventCount,
-                products: productCount,
+            transactions: {
+                ...incrementalStatus.transactions,
+                count: transactionCount,
             },
+            products: {
+                ...incrementalStatus.products,
+                count: productCount,
+            },
+            // Running syncs
             runningSyncs: this.syncTracker.getRunningSyncs(tenantId),
             isRunning: this.syncTracker.getRunningSyncs(tenantId).length > 0,
+        };
+    }
+
+    /**
+     * Reset sync state (force full sync next time)
+     */
+    @Delete('sync/state')
+    async resetSyncState(
+        @CurrentUser() user: any,
+        @Query('type') syncType?: string,
+    ) {
+        const tenantId = user.tenantId;
+        this.logger.log(`Resetting sync state for tenant ${tenantId}${syncType ? ` (type: ${syncType})` : ''}`);
+        
+        await this.incrementalSyncService.resetSyncState(tenantId, syncType);
+        
+        return { 
+            success: true, 
+            message: syncType 
+                ? `Sync state reset for ${syncType}` 
+                : 'All sync states reset',
         };
     }
 

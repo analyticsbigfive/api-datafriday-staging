@@ -5,9 +5,81 @@
       <p class="text-white/70 mt-1">Synchronisation et gestion des données Weezevent</p>
     </div>
 
+    <!-- Tenant Selector -->
+    <div class="card mb-6">
+      <div class="flex items-center justify-between">
+        <div class="flex-1">
+          <label class="label">🏢 Sélectionner le tenant à synchroniser</label>
+          <select 
+            v-model="selectedTenantId" 
+            @change="onTenantChange"
+            class="input max-w-md"
+            :disabled="loadingTenants"
+          >
+            <option value="">-- Choisir un tenant --</option>
+            <option 
+              v-for="tenant in availableTenants" 
+              :key="tenant.id" 
+              :value="tenant.id"
+            >
+              {{ tenant.name }} ({{ tenant.slug }})
+              {{ tenant.weezeventEnabled ? '✅' : '❌ Weezevent non activé' }}
+            </option>
+          </select>
+          <p v-if="selectedTenant" class="text-sm text-gray-500 mt-2">
+            <span v-if="selectedTenant.weezeventEnabled" class="text-green-600">
+              ✅ Weezevent activé - Organization ID: {{ selectedTenant.weezeventOrganizationId }}
+            </span>
+            <span v-else class="text-red-600">
+              ❌ Weezevent n'est pas activé sur ce tenant
+            </span>
+          </p>
+        </div>
+        <button @click="loadTenants" class="btn btn-secondary ml-4" :disabled="loadingTenants">
+          {{ loadingTenants ? '⏳...' : '🔄 Recharger' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- Sync Status Card -->
+    <div class="card mb-6">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl font-bold text-gray-900">📊 État de la synchronisation</h2>
+        <button @click="loadSyncStatus" class="btn btn-secondary text-sm" :disabled="loadingStatus">
+          {{ loadingStatus ? '⏳...' : '🔄 Rafraîchir' }}
+        </button>
+      </div>
+      
+      <div v-if="syncStatus" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div v-for="(status, type) in syncStatus" :key="type" class="bg-gray-50 rounded-lg p-4">
+          <h3 class="font-medium text-gray-700 capitalize">{{ type }}</h3>
+          <div class="mt-2 space-y-1 text-sm">
+            <p><span class="text-gray-500">Dernier sync:</span> {{ formatDate(status.lastSyncedAt) }}</p>
+            <p><span class="text-gray-500">Items synchronisés:</span> {{ status.lastSyncCount || 0 }}</p>
+            <p><span class="text-gray-500">Total:</span> {{ status.totalSynced || 0 }}</p>
+            <p v-if="status.lastError" class="text-red-600">❌ {{ status.lastError }}</p>
+          </div>
+        </div>
+      </div>
+      <div v-else class="text-center py-4 text-gray-500">
+        Chargement du statut...
+      </div>
+    </div>
+
     <!-- Sync Controls -->
     <div class="card mb-6">
       <h2 class="text-xl font-bold text-gray-900 mb-4">🔄 Synchronisation</h2>
+      
+      <!-- Mode Toggle -->
+      <div class="mb-4 p-3 bg-blue-50 rounded-lg">
+        <label class="flex items-center space-x-3">
+          <input type="checkbox" v-model="forceFullSync" class="h-4 w-4 text-primary-600 rounded" />
+          <span class="text-sm text-gray-700">
+            <strong>Forcer sync complet</strong> (ignore l'état incrémental, re-télécharge tout)
+          </span>
+        </label>
+      </div>
+
       <div class="flex flex-wrap gap-4">
         <button @click="syncEvents" class="btn btn-primary" :disabled="syncing">
           {{ syncing ? '⏳ Sync...' : '🎫 Sync Événements' }}
@@ -23,11 +95,32 @@
         </button>
       </div>
 
+      <!-- Reset Sync State -->
+      <div class="mt-4 pt-4 border-t border-gray-200">
+        <button @click="resetSyncState" class="btn btn-danger text-sm" :disabled="syncing">
+          🗑️ Reset état de sync (force full sync au prochain)
+        </button>
+      </div>
+
       <div v-if="syncResult" class="mt-4 p-4 rounded-lg" :class="syncResult.success ? 'bg-green-50' : 'bg-red-50'">
-        <p :class="syncResult.success ? 'text-green-700' : 'text-red-700'">
+        <p :class="syncResult.success ? 'text-green-700' : 'text-red-700'" class="font-medium">
           {{ syncResult.message }}
         </p>
-        <pre v-if="syncResult.data" class="mt-2 text-sm overflow-x-auto">{{ JSON.stringify(syncResult.data, null, 2) }}</pre>
+        <div v-if="syncResult.data" class="mt-2 text-sm">
+          <p v-if="syncResult.data.isIncremental !== undefined">
+            Mode: <strong>{{ syncResult.data.isIncremental ? 'INCRÉMENTAL ⚡' : 'COMPLET 📦' }}</strong>
+          </p>
+          <p v-if="syncResult.data.itemsSynced !== undefined">
+            Items synchronisés: <strong>{{ syncResult.data.itemsSynced }}</strong>
+            ({{ syncResult.data.itemsCreated || 0 }} nouveaux, {{ syncResult.data.itemsUpdated || 0 }} mis à jour, {{ syncResult.data.itemsSkipped || 0 }} ignorés)
+          </p>
+          <p v-if="syncResult.data.duration">Durée: <strong>{{ syncResult.data.duration }}ms</strong></p>
+          <p v-if="syncResult.data.hasMore" class="text-orange-600">⚠️ Plus de données disponibles, le prochain sync continuera</p>
+        </div>
+        <pre v-if="showRawResult" class="mt-2 text-xs overflow-x-auto bg-gray-100 p-2 rounded">{{ JSON.stringify(syncResult.data, null, 2) }}</pre>
+        <button @click="showRawResult = !showRawResult" class="text-xs text-primary-600 mt-2">
+          {{ showRawResult ? 'Masquer' : 'Voir' }} JSON brut
+        </button>
       </div>
     </div>
 
@@ -167,8 +260,18 @@ const tabs = [
 
 const activeTab = ref('events')
 const loading = ref(false)
+const loadingStatus = ref(false)
+const loadingTenants = ref(false)
 const syncing = ref(false)
 const syncResult = ref(null)
+const showRawResult = ref(false)
+const forceFullSync = ref(false)
+const syncStatus = ref(null)
+
+// Tenant selection
+const availableTenants = ref([])
+const selectedTenantId = ref('')
+const selectedTenant = ref(null)
 
 const events = ref([])
 const products = ref([])
@@ -201,19 +304,89 @@ const getStatusBadge = (status) => {
     completed: 'badge badge-success',
     pending: 'badge badge-warning',
     failed: 'badge badge-danger',
-    refunded: 'badge badge-info'
+    refunded: 'badge badge-info',
+    V: 'badge badge-success',
+    W: 'badge badge-warning',
+    C: 'badge badge-danger',
+    R: 'badge badge-info'
   }
-  return badges[status?.toLowerCase()] || 'badge'
+  return badges[status?.toUpperCase?.()] || badges[status?.toLowerCase?.()] || 'badge'
+}
+
+const loadTenants = async () => {
+  loadingTenants.value = true
+  try {
+    const response = await api.get('/tenants?limit=100')
+    availableTenants.value = response.data.data || response.data
+    
+    // Auto-select first tenant with Weezevent enabled
+    if (!selectedTenantId.value && availableTenants.value.length > 0) {
+      const weezeventTenant = availableTenants.value.find(t => t.weezeventEnabled)
+      if (weezeventTenant) {
+        selectedTenantId.value = weezeventTenant.id
+        selectedTenant.value = weezeventTenant
+      }
+    }
+  } catch (e) {
+    console.error('Error loading tenants:', e)
+    toastStore.error('Erreur lors du chargement des tenants')
+  } finally {
+    loadingTenants.value = false
+  }
+}
+
+const onTenantChange = () => {
+  selectedTenant.value = availableTenants.value.find(t => t.id === selectedTenantId.value)
+  
+  if (!selectedTenant.value?.weezeventEnabled) {
+    toastStore.warning('Ce tenant n\'a pas Weezevent activé')
+  } else {
+    // Reload data for new tenant
+    loadSyncStatus()
+    loadEvents()
+  }
+}
+
+const loadSyncStatus = async () => {
+  if (!selectedTenantId.value) {
+    syncStatus.value = null
+    return
+  }
+  
+  loadingStatus.value = true
+  try {
+    const response = await api.get(`/weezevent/sync/status?tenantId=${selectedTenantId.value}`)
+    syncStatus.value = response.data
+  } catch (e) {
+    console.error('Error loading sync status:', e)
+  } finally {
+    loadingStatus.value = false
+  }
 }
 
 const syncEvents = async () => {
+  if (!selectedTenantId.value) {
+    toastStore.error('Veuillez sélectionner un tenant')
+    return
+  }
+  
+  if (!selectedTenant.value?.weezeventEnabled) {
+    toastStore.error('Weezevent n\'est pas activé sur ce tenant')
+    return
+  }
+  
   syncing.value = true
   syncResult.value = null
   try {
-    const response = await api.post('/weezevent/sync', { types: ['events'] })
+    const response = await api.post('/weezevent/sync', { 
+      type: 'events',
+      full: forceFullSync.value,
+      tenantId: selectedTenantId.value
+    })
     syncResult.value = { success: true, message: 'Événements synchronisés', data: response.data }
     loadEvents()
-    toastStore.success('Événements synchronisés')
+    loadSyncStatus()
+    toastStore.success(`Événements synchronisés (${response.data.itemsSynced || 0} items)`)
   } catch (e) {
     syncResult.value = { success: false, message: e.response?.data?.message || e.message }
     toastStore.error('Erreur de synchronisation')
@@ -223,13 +396,22 @@ const syncEvents = async () => {
 }
 
 const syncProducts = async () => {
+  if (!selectedTenantId.value || !selectedTenant.value?.weezeventEnabled) {
+    toastStore.error('Veuillez sélectionner un tenant avec Weezevent activé')
+    return
+  }
+  
   syncing.value = true
   syncResult.value = null
   try {
-    const response = await api.post('/weezevent/sync', { types: ['products'] })
+    const response = await api.post('/weezevent/sync', { 
+      type: 'products',
+      tenantId: selectedTenantId.value 
+    })
     syncResult.value = { success: true, message: 'Produits synchronisés', data: response.data }
     loadProducts()
-    toastStore.success('Produits synchronisés')
+    loadSyncStatus()
+    toastStore.success(`Produits synchronisés (${response.data.itemsSynced || 0} items)`)
   } catch (e) {
     syncResult.value = { success: false, message: e.response?.data?.message || e.message }
     toastStore.error('Erreur de synchronisation')
@@ -239,13 +421,23 @@ const syncProducts = async () => {
 }
 
 const syncTransactions = async () => {
+  if (!selectedTenantId.value || !selectedTenant.value?.weezeventEnabled) {
+    toastStore.error('Veuillez sélectionner un tenant avec Weezevent activé')
+    return
+  }
+  
   syncing.value = true
   syncResult.value = null
   try {
-    const response = await api.post('/weezevent/sync', { types: ['transactions'] })
+    const response = await api.post('/weezevent/sync', { 
+      type: 'transactions',
+      full: forceFullSync.value,
+      tenantId: selectedTenantId.value
+    })
     syncResult.value = { success: true, message: 'Transactions synchronisées', data: response.data }
     loadTransactions()
-    toastStore.success('Transactions synchronisées')
+    loadSyncStatus()
+    toastStore.success(`Transactions synchronisées (${response.data.itemsSynced || 0} items)`)
   } catch (e) {
     syncResult.value = { success: false, message: e.response?.data?.message || e.message }
     toastStore.error('Erreur de synchronisation')
@@ -255,18 +447,56 @@ const syncTransactions = async () => {
 }
 
 const syncAll = async () => {
+  if (!selectedTenantId.value || !selectedTenant.value?.weezeventEnabled) {
+    toastStore.error('Veuillez sélectionner un tenant avec Weezevent activé')
+    return
+  }
+  
   syncing.value = true
   syncResult.value = null
   try {
-    const response = await api.post('/weezevent/sync', { types: ['events', 'products', 'transactions'] })
-    syncResult.value = { success: true, message: 'Synchronisation complète', data: response.data }
+    const tenantId = selectedTenantId.value
+    // Sync events
+    const eventsRes = await api.post('/weezevent/sync', { type: 'events', full: forceFullSync.value, tenantId })
+    // Sync products
+    const productsRes = await api.post('/weezevent/sync', { type: 'products', tenantId })
+    // Sync transactions
+    const transactionsRes = await api.post('/weezevent/sync', { type: 'transactions', full: forceFullSync.value, tenantId })
+    
+    syncResult.value = { 
+      success: true, 
+      message: 'Synchronisation complète', 
+      data: {
+        events: eventsRes.data,
+        products: productsRes.data,
+        transactions: transactionsRes.data,
+        totalSynced: (eventsRes.data.itemsSynced || 0) + (productsRes.data.itemsSynced || 0) + (transactionsRes.data.itemsSynced || 0)
+      }
+    }
     loadEvents()
     loadProducts()
     loadTransactions()
+    loadSyncStatus()
     toastStore.success('Synchronisation complète réussie')
   } catch (e) {
     syncResult.value = { success: false, message: e.response?.data?.message || e.message }
     toastStore.error('Erreur de synchronisation')
+  } finally {
+    syncing.value = false
+  }
+}
+
+const resetSyncState = async () => {
+  if (!confirm('Êtes-vous sûr de vouloir réinitialiser l\'état de synchronisation ? Le prochain sync sera complet.')) {
+    return
+  }
+  syncing.value = true
+  try {
+    await api.delete('/weezevent/sync/state')
+    toastStore.success('État de sync réinitialisé')
+    loadSyncStatus()
+  } catch (e) {
+    toastStore.error('Erreur: ' + (e.response?.data?.message || e.message))
   } finally {
     syncing.value = false
   }
@@ -319,7 +549,11 @@ watch(activeTab, (newTab) => {
   if (newTab === 'transactions' && transactions.value.length === 0) loadTransactions()
 })
 
-onMounted(() => {
-  loadEvents()
+onMounted(async () => {
+  await loadTenants()
+  if (selectedTenantId.value) {
+    loadSyncStatus()
+    loadEvents()
+  }
 })
 </script>

@@ -31,12 +31,25 @@ export const useAuthStore = defineStore('auth', () => {
       return response.data
     } catch (e) {
       console.warn('Could not check DB user status:', e.message)
-      needsOnboarding.value = true
+      // Don't set needsOnboarding on error - might be API down, not missing user
+      if (e.response?.status === 404) {
+        needsOnboarding.value = true
+      }
       return null
     }
   }
 
   async function checkAuth() {
+    // Prevent multiple simultaneous checks
+    if (loading.value) {
+      return
+    }
+    
+    // If already initialized and has valid session, skip check
+    if (initialized.value && token.value && user.value) {
+      return
+    }
+    
     try {
       loading.value = true
       
@@ -48,9 +61,20 @@ export const useAuthStore = defineStore('auth', () => {
         
         // Check if user exists in DB
         await checkDbUser()
+      } else {
+        // No session
+        token.value = null
+        user.value = null
+        dbUser.value = null
+        needsOnboarding.value = false
       }
     } catch (e) {
       console.error('Auth check error:', e)
+      // On error, clear auth state
+      token.value = null
+      user.value = null
+      dbUser.value = null
+      needsOnboarding.value = false
     } finally {
       loading.value = false
       initialized.value = true
@@ -156,11 +180,20 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   // Listen for auth changes
-  supabase.auth.onAuthStateChange((event, session) => {
-    if (session) {
-      token.value = session.access_token
-      user.value = session.user
-    } else {
+  supabase.auth.onAuthStateChange(async (event, session) => {
+    console.log('Auth state changed:', event, session ? 'session exists' : 'no session')
+    
+    if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+      if (session) {
+        token.value = session.access_token
+        user.value = session.user
+        
+        // Check DB user when signing in
+        if (event === 'SIGNED_IN') {
+          await checkDbUser()
+        }
+      }
+    } else if (event === 'SIGNED_OUT') {
       token.value = null
       user.value = null
       dbUser.value = null

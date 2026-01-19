@@ -210,6 +210,22 @@ export class WeezeventSyncService {
             return sum + rowTotal;
         }, 0);
 
+        // Extract status as string (API may return object with name/title)
+        const transactionStatus = apiTransaction.status as any;
+        const statusValue = typeof transactionStatus === 'object' && transactionStatus?.name 
+            ? transactionStatus.name 
+            : (typeof transactionStatus === 'string' ? transactionStatus : 'unknown');
+
+        // Parse transaction date - try multiple sources including rawData
+        const rawTx = apiTransaction as any;
+        const dateStr = rawTx.created || rawTx.updated || rawTx.validated || rawTx.date || rawTx.created_at;
+        
+        if (!dateStr) {
+            this.logger.warn(`Transaction ${weezeventId} has no date field. Keys: ${Object.keys(rawTx).join(', ')}`);
+        }
+        
+        const transactionDate = dateStr ? new Date(dateStr) : new Date();
+
         // Upsert transaction
         const transaction = await this.prisma.weezeventTransaction.upsert({
             where: { weezeventId },
@@ -217,8 +233,8 @@ export class WeezeventSyncService {
                 weezeventId,
                 tenantId,
                 amount: totalAmount,
-                status: apiTransaction.status,
-                transactionDate: new Date(apiTransaction.created),
+                status: statusValue,
+                transactionDate,
                 eventName: apiTransaction.event_name,
                 merchantName: apiTransaction.fundation_name,
                 locationName: apiTransaction.location_name,
@@ -229,7 +245,7 @@ export class WeezeventSyncService {
             },
             update: {
                 amount: totalAmount,
-                status: apiTransaction.status,
+                status: statusValue,
                 eventName: apiTransaction.event_name,
                 merchantName: apiTransaction.fundation_name,
                 locationName: apiTransaction.location_name,
@@ -334,6 +350,12 @@ export class WeezeventSyncService {
 
         const weezeventId = apiWallet.id.toString();
 
+        // Extract status as string (API may return object with name/title)
+        const walletStatus = apiWallet.status as any;
+        const walletStatusValue = typeof walletStatus === 'object' && walletStatus?.name 
+            ? walletStatus.name 
+            : (typeof walletStatus === 'string' ? walletStatus : 'unknown');
+
         return this.prisma.weezeventWallet.upsert({
             where: { weezeventId },
             create: {
@@ -343,7 +365,7 @@ export class WeezeventSyncService {
                 currency: 'EUR', // Default
                 userId: apiWallet.user_id?.toString(),
                 walletGroupId: apiWallet.wallet_group_id?.toString(),
-                status: apiWallet.status,
+                status: walletStatusValue,
                 cardNumber: apiWallet.metadata?.card_number,
                 cardType: apiWallet.metadata?.card_type,
                 rawData: apiWallet as any,
@@ -351,7 +373,7 @@ export class WeezeventSyncService {
             },
             update: {
                 balance: apiWallet.balance,
-                status: apiWallet.status,
+                status: walletStatusValue,
                 cardNumber: apiWallet.metadata?.card_number,
                 cardType: apiWallet.metadata?.card_type,
                 rawData: apiWallet as any,
@@ -489,6 +511,12 @@ export class WeezeventSyncService {
                     // Support both location formats
                     const locationStr = apiEvent.location || apiEvent.venue || null;
                     
+                    // Extract status as string (API returns object with name/title)
+                    const eventStatus = apiEvent.status as any;
+                    const statusValue = typeof eventStatus === 'object' && eventStatus?.name 
+                        ? eventStatus.name 
+                        : (typeof eventStatus === 'string' ? eventStatus : 'unknown');
+                    
                     const eventData = {
                         name: apiEvent.name || `Event ${apiEvent.id}`,
                         organizationId,
@@ -497,7 +525,7 @@ export class WeezeventSyncService {
                         description: apiEvent.description || apiEvent.name || null,
                         location: locationStr,
                         capacity: apiEvent.capacity || null,
-                        status: apiEvent.status || 'unknown',
+                        status: statusValue,
                         metadata: apiEvent.metadata || null,
                         rawData: apiEvent as any,
                         syncedAt: new Date(),

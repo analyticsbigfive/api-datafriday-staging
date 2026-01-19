@@ -491,6 +491,12 @@ export class WeezeventIncrementalSyncService {
                     }
                 }
 
+                // Extract status as string (API returns object with name/title)
+                const eventStatus = apiEvent.status as any;
+                const statusValue = typeof eventStatus === 'object' && eventStatus?.name 
+                    ? eventStatus.name 
+                    : (typeof eventStatus === 'string' ? eventStatus : 'unknown');
+
                 const eventData = {
                     name: apiEvent.name || `Event ${apiEvent.id}`,
                     organizationId,
@@ -499,7 +505,7 @@ export class WeezeventIncrementalSyncService {
                     description: apiEvent.description || apiEvent.name || null,
                     location: apiEvent.location || apiEvent.venue || null,
                     capacity: apiEvent.capacity || null,
-                    status: apiEvent.status || 'unknown',
+                    status: statusValue,
                     metadata: apiEvent.metadata || null,
                     rawData: apiEvent as any,
                     syncedAt: new Date(),
@@ -564,12 +570,28 @@ export class WeezeventIncrementalSyncService {
                 const weezeventId = apiTransaction.id.toString();
                 const isNew = !existingIds.has(weezeventId);
 
+                // Extract status as string (API may return object with name/title)
+                const transactionStatus = apiTransaction.status as any;
+                const statusValue = typeof transactionStatus === 'object' && transactionStatus?.name 
+                    ? transactionStatus.name 
+                    : (typeof transactionStatus === 'string' ? transactionStatus : 'unknown');
+
+                // Parse transaction date - try multiple sources including rawData
+                const rawTx = apiTransaction as any;
+                const dateStr = rawTx.created || rawTx.updated || rawTx.validated || rawTx.date || rawTx.created_at;
+                
+                if (!dateStr) {
+                    this.logger.warn(`Transaction ${weezeventId} has no date field. Keys: ${Object.keys(rawTx).join(', ')}`);
+                }
+                
+                const transactionDate = dateStr ? new Date(dateStr) : new Date();
+
                 const transactionData = {
                     weezeventId,
                     tenantId,
                     amount: apiTransaction.amount || 0,
-                    status: apiTransaction.status || 'unknown',
-                    transactionDate: new Date(apiTransaction.date || apiTransaction.created_at),
+                    status: statusValue,
+                    transactionDate,
                     eventId: apiTransaction.event_id?.toString(),
                     eventName: apiTransaction.event_name,
                     merchantId: apiTransaction.merchant_id?.toString(),

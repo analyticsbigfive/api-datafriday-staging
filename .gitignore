@@ -41,7 +41,7 @@ lerna-debug.log*
 .env.staging
 .env.production
 .env.*.local
-.env.*.local
+envFiles/
 
 # Prisma
 prisma/migrations/*
@@ -51,6 +51,11 @@ prisma/migrations/*
 docker-compose.override.yml
 
 # Supabase
-docker-compose.override.yml
 supabase/.temp
 supabase/config.toml
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+.cache/

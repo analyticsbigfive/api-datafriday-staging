@@ -1,4 +1,4 @@
-.PHONY: help build up down restart logs clean install dev prod prisma-generate prisma-migrate prisma-studio prisma-seed test organize-docs
+.PHONY: help build up down restart logs clean install dev prod prisma-generate prisma-migrate prisma-studio prisma-seed test organize-docs redis-up bull-board heos-up heos-down
 
 # Charger variables d'environnement depuis envFiles/.env.development
 ifneq (,$(wildcard envFiles/.env.development))
@@ -17,6 +17,63 @@ help: ## Affiche cette aide
 	@echo "$(BLUE)API DataFriday - Commandes disponibles:$(NC)"
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-20s$(NC) %s\n", $$1, $$2}'
+
+# === HEOS ARCHITECTURE ===
+
+redis-up: ## Démarre Redis seul
+	@echo "$(BLUE)🔴 Démarrage Redis...$(NC)"
+	docker-compose up -d redis
+	@echo "$(GREEN)✅ Redis démarré sur port 6379$(NC)"
+
+bull-board: ## Démarre Bull Board (monitoring des queues)
+	@echo "$(BLUE)📊 Démarrage Bull Board...$(NC)"
+	docker-compose --profile monitoring up -d bull-board
+	@echo "$(GREEN)✅ Bull Board disponible sur http://localhost:3001$(NC)"
+
+heos-up: ## Démarre l'architecture HEOS complète (Redis + API + Bull Board)
+	@echo "$(BLUE)🏗️  Démarrage Architecture HEOS...$(NC)"
+	docker-compose --profile monitoring up -d redis bull-board api
+	@echo "$(GREEN)✅ HEOS Architecture démarrée$(NC)"
+	@echo "  - API:        http://localhost:3000/api/v1"
+	@echo "  - Bull Board: http://localhost:3001"
+	@echo "  - Redis:      localhost:6379"
+
+heos-dev: ## Démarre HEOS en mode développement
+	@echo "$(BLUE)🏗️  Démarrage HEOS Development...$(NC)"
+	@$(MAKE) env-dev-init
+	docker-compose --env-file envFiles/.env.development --profile dev --profile monitoring up -d redis bull-board api-dev
+	@echo "$(GREEN)✅ HEOS Dev démarré$(NC)"
+	@echo "  - API (dev):  http://localhost:3000/api/v1"
+	@echo "  - Bull Board: http://localhost:3001"
+	@echo "  - Redis:      localhost:6379"
+
+heos-down: ## Arrête toute l'architecture HEOS
+	@echo "$(YELLOW)🛑 Arrêt HEOS...$(NC)"
+	docker-compose --profile monitoring down
+	@echo "$(GREEN)✅ HEOS arrêté$(NC)"
+
+heos-logs: ## Affiche les logs de tous les services HEOS
+	docker-compose --profile monitoring logs -f redis bull-board api
+
+redis-cli: ## Ouvre un shell Redis CLI
+	@echo "$(BLUE)🔧 Redis CLI...$(NC)"
+	docker-compose exec redis redis-cli
+
+# === TESTS HEOS ===
+
+test-heos: ## Lance les tests unitaires HEOS
+	@echo "$(BLUE)🧪 Tests HEOS Architecture...$(NC)"
+	docker-compose exec api npm test -- --testPathPattern='(redis|queue|orchestrator)' --passWithNoTests
+	@echo "$(GREEN)✅ Tests HEOS terminés$(NC)"
+
+test-heos-watch: ## Lance les tests HEOS en mode watch
+	@echo "$(BLUE)🧪 Tests HEOS (watch mode)...$(NC)"
+	docker-compose exec api npm test -- --testPathPattern='(redis|queue|orchestrator)' --watch
+
+test-heos-coverage: ## Lance les tests HEOS avec couverture
+	@echo "$(BLUE)🧪 Tests HEOS avec couverture...$(NC)"
+	docker-compose exec api npm test -- --testPathPattern='(redis|queue|orchestrator)' --coverage
+	@echo "$(GREEN)✅ Rapport de couverture généré$(NC)"
 
 # === DOCKER ===
 

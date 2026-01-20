@@ -25,7 +25,7 @@ describe('HealthController', () => {
         message: 'API is running',
         timestamp: expect.any(String),
         version: '1.0.0',
-        phase: 'Phase 1 Complete - Core Infrastructure',
+        phase: 'HEOS Architecture - Redis + BullMQ',
       });
     });
 

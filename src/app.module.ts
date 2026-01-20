@@ -10,6 +10,8 @@ import { HealthModule } from './health/health.module';
 import { OnboardingModule } from './features/onboarding/onboarding.module';
 import { EncryptionModule } from './core/encryption/encryption.module';
 import { CacheModule } from './core/cache/cache.module';
+import { RedisModule } from './core/redis/redis.module';
+import { QueueModule } from './core/queue/queue.module';
 import { WeezeventModule } from './features/weezevent/weezevent.module';
 import { OrganizationsModule } from './features/organizations/organizations.module';
 import { IntegrationsModule } from './features/integrations/integrations.module';
@@ -17,6 +19,7 @@ import { MeModule } from './features/me/me.module';
 import { TenantsModule } from './features/tenants/tenants.module';
 import { SpacesModule } from './features/spaces/spaces.module';
 import { UsersModule } from './features/users/users.module';
+import { OrchestratorModule } from './features/orchestrator/orchestrator.module';
 
 @Module({
   imports: [
@@ -27,6 +30,8 @@ import { UsersModule } from './features/users/users.module';
     ScheduleModule.forRoot(),
     EncryptionModule,
     CacheModule,
+    RedisModule.forRoot(),
+    QueueModule,
     PrismaModule,
     AuthModule,
     HealthModule,
@@ -38,6 +43,7 @@ import { UsersModule } from './features/users/users.module';
     TenantsModule,
     SpacesModule,
     UsersModule,
+    OrchestratorModule,
   ],
   controllers: [AppController],
   providers: [AppService],

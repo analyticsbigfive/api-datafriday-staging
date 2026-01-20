@@ -1,7 +1,7 @@
 # Supabase CLI Configuration
 # Documentation: https://supabase.com/docs/guides/cli/config
 
-project_id = "" # Sera défini par environment (dev/staging/prod)
+project_id = "alsgdtewqeldrrquypdy"
 
 [api]
 enabled = true

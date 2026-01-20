@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, UseGuards, Inject, Optional } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtGuard } from '../core/auth/guards/jwt.guard';
 import { RolesGuard } from '../core/auth/guards/roles.guard';
@@ -6,6 +6,8 @@ import { Roles } from '../core/auth/decorators/roles.decorator';
 import { CurrentUser } from '../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../core/auth/decorators/current-tenant.decorator';
 import { UserRole } from '@prisma/client';
+import { RedisService } from '../core/redis/redis.service';
+import { QueueService } from '../core/queue/queue.service';
 
 /**
  * Health check controller to validate infrastructure is working
@@ -13,6 +15,11 @@ import { UserRole } from '@prisma/client';
 @ApiTags('Health')
 @Controller('health')
 export class HealthController {
+  constructor(
+    @Optional() private readonly redisService: RedisService,
+    @Optional() private readonly queueService: QueueService,
+  ) {}
+
   /**
    * Public health check endpoint
    */
@@ -40,7 +47,63 @@ export class HealthController {
       message: 'API is running',
       timestamp: new Date().toISOString(),
       version: '1.0.0',
-      phase: 'Phase 1 Complete - Core Infrastructure',
+      phase: 'HEOS Architecture - Redis + BullMQ',
+    };
+  }
+
+  /**
+   * Detailed health check including Redis and Queues
+   */
+  @Get('detailed')
+  @ApiOperation({
+    summary: 'Health check détaillé avec Redis et Queues',
+    description: 'Vérifie l\'état de tous les services HEOS.',
+  })
+  @ApiResponse({ status: 200, description: 'Status détaillé de tous les services' })
+  async detailedCheck() {
+    const checks: Record<string, any> = {
+      api: { status: 'healthy' },
+      timestamp: new Date().toISOString(),
+    };
+
+    // Check Redis
+    if (this.redisService) {
+      try {
+        const redisOk = await this.redisService.ping();
+        checks.redis = {
+          status: redisOk ? 'healthy' : 'unhealthy',
+          connected: redisOk,
+        };
+      } catch (error) {
+        checks.redis = { status: 'unhealthy', error: error.message };
+      }
+    } else {
+      checks.redis = { status: 'not_configured' };
+    }
+
+    // Check Queues
+    if (this.queueService) {
+      try {
+        const queueStats = await this.queueService.getAllQueueStats();
+        checks.queues = {
+          status: 'healthy',
+          stats: queueStats,
+        };
+      } catch (error) {
+        checks.queues = { status: 'unhealthy', error: error.message };
+      }
+    } else {
+      checks.queues = { status: 'not_configured' };
+    }
+
+    // Overall status
+    const allHealthy = Object.values(checks)
+      .filter((c) => typeof c === 'object' && c.status)
+      .every((c: any) => c.status === 'healthy' || c.status === 'not_configured');
+
+    return {
+      status: allHealthy ? 'healthy' : 'degraded',
+      services: checks,
     };
   }
 

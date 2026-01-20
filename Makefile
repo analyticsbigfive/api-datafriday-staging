@@ -1,4 +1,4 @@
-.PHONY: help build up down restart logs clean install dev prod prisma-generate prisma-migrate prisma-studio prisma-seed test
+.PHONY: help build up down restart logs clean install dev prod prisma-generate prisma-migrate prisma-studio prisma-seed test organize-docs
 
 # Charger variables d'environnement depuis envFiles/.env.development
 ifneq (,$(wildcard envFiles/.env.development))
@@ -388,3 +388,32 @@ quickstart: dev-up ## Démarrage rapide complet (Development)
 	@echo "  make dev-studio   - Interface DB"
 	@echo "  make dev-down     - Arrêter"
 	@echo ""
+
+# === DOCUMENTATION ===
+
+organize-docs: ## Organise les fichiers de documentation
+	@echo "$(BLUE)📚 Organisation de la documentation...$(NC)"
+	@mkdir -p docs/getting-started docs/architecture docs/api docs/weezevent docs/testing
+	@mv docs/SETUP.md docs/getting-started/ 2>/dev/null || true
+	@mv docs/DEVELOPMENT.md docs/getting-started/ 2>/dev/null || true
+	@mv docs/ENVIRONMENTS.md docs/getting-started/ 2>/dev/null || true
+	@mv docs/ARCHITECTURE.md docs/architecture/ 2>/dev/null || true
+	@mv docs/API_ARCHITECTURE.md docs/architecture/ 2>/dev/null || true
+	@mv docs/DATA_SOURCES.md docs/architecture/ 2>/dev/null || true
+	@mv docs/SUPABASE.md docs/architecture/ 2>/dev/null || true
+	@mv docs/DATABASE.md docs/architecture/ 2>/dev/null || true
+	@mv docs/SCALABLE_ARCHITECTURE.md docs/architecture/ 2>/dev/null || true
+	@mv docs/API_REFERENCE.md docs/api/ 2>/dev/null || true
+	@mv docs/API_VERSIONING.md docs/api/ 2>/dev/null || true
+	@mv docs/API_MIGRATION_V1.md docs/api/ 2>/dev/null || true
+	@mv docs/FRONTEND_API_GUIDE.md docs/api/ 2>/dev/null || true
+	@mv docs/SPACES_API_GUIDE.md docs/api/ 2>/dev/null || true
+	@mv docs/AUTH_QUICKSTART.md docs/auth/ 2>/dev/null || true
+	@mv docs/AUTH_TESTING_GUIDE.md docs/auth/ 2>/dev/null || true
+	@mv docs/WEEZEVENT_*.md docs/weezevent/ 2>/dev/null || true
+	@mv docs/SPACES_TESTING_GUIDE.md docs/testing/ 2>/dev/null || true
+	@rm -f docs/INDEX.md 2>/dev/null || true
+	@mv docs/INDEX_RESTRUCTURED.md docs/INDEX.md 2>/dev/null || true
+	@rm -f "docs/figmq bd.txt" 2>/dev/null || true
+	@rm -f "docs/API Reference _ Weezevent.mhtml" 2>/dev/null || true
+	@echo "$(GREEN)✅ Documentation organisée!$(NC)"

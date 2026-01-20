@@ -1,0 +1,38 @@
+# Render Blueprint
+# Documentation: https://render.com/docs/blueprint-spec
+
+services:
+  # API NestJS
+  - type: web
+    name: datafriday-api
+    runtime: node
+    region: frankfurt  # ou oregon
+    plan: free  # ou starter ($7/mois) pour plus de ressources
+    buildCommand: npm ci && npx prisma generate && npm run build
+    startCommand: npm run start:prod
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: DATABASE_URL
+        sync: false  # À configurer manuellement
+      - key: DIRECT_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false  # Upstash Redis URL
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: LOG_LEVEL
+        value: info

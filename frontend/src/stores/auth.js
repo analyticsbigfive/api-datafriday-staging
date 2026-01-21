@@ -57,7 +57,8 @@ export const useAuthStore = defineStore('auth', () => {
       
       if (session) {
         token.value = session.access_token
-        user.value = session.user
+        // 🔒 Sanitize user data - only keep necessary fields
+        user.value = sanitizeUserData(session.user)
         
         // Check if user exists in DB
         await checkDbUser()
@@ -94,7 +95,8 @@ export const useAuthStore = defineStore('auth', () => {
       if (authError) throw authError
 
       token.value = data.session.access_token
-      user.value = data.user
+      // 🔒 Sanitize user data - only keep necessary fields
+      user.value = sanitizeUserData(data.user)
 
       // Check if user exists in DB
       await checkDbUser()
@@ -132,7 +134,8 @@ export const useAuthStore = defineStore('auth', () => {
       }
 
       token.value = data.session.access_token
-      user.value = data.user
+      // 🔒 Sanitize user data - only keep necessary fields
+      user.value = sanitizeUserData(data.user)
 
       return { success: true }
     } catch (e) {
@@ -178,6 +181,22 @@ export const useAuthStore = defineStore('auth', () => {
       needsOnboarding.value = false
     }
   }
+🔒 Sanitize user data to remove sensitive information
+  function sanitizeUserData(userData) {
+    if (!userData) return null
+    
+    return {
+      id: userData.id,
+      email: userData.email,
+      user_metadata: {
+        first_name: userData.user_metadata?.first_name,
+        last_name: userData.user_metadata?.last_name,
+        email: userData.user_metadata?.email,
+      },
+      // Only keep essential fields
+      role: userData.role,
+    }
+  }
 
   // Listen for auth changes
   supabase.auth.onAuthStateChange(async (event, session) => {
@@ -186,6 +205,8 @@ export const useAuthStore = defineStore('auth', () => {
     if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
       if (session) {
         token.value = session.access_token
+        // 🔒 Sanitize user data - only keep necessary fields
+        user.value = sanitizeUserData(session.user)ess_token
         user.value = session.user
         
         // Check DB user when signing in

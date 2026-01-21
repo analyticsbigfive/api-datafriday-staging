@@ -8,8 +8,8 @@ services:
     runtime: node
     region: frankfurt  # ou oregon
     plan: free  # ou starter ($7/mois) pour plus de ressources
-    buildCommand: npm ci && npx prisma generate && npm run build
-    startCommand: npm run start:prod
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: node dist/main
     healthCheckPath: /api/v1/health
     envVars:
       - key: NODE_ENV

@@ -35,19 +35,14 @@ export class HealthController {
       type: 'object',
       properties: {
         status: { type: 'string', example: 'ok' },
-        message: { type: 'string', example: 'API is running' },
         timestamp: { type: 'string', example: '2025-01-01T00:00:00.000Z' },
-        version: { type: 'string', example: '1.0.0' },
       },
     },
   })
   check() {
     return {
       status: 'ok',
-      message: 'API is running',
       timestamp: new Date().toISOString(),
-      version: '1.0.0',
-      phase: 'HEOS Architecture - Redis + BullMQ',
     };
   }
 
@@ -57,13 +52,15 @@ export class HealthController {
   @Get('detailed')
   @ApiOperation({
     summary: 'Health check détaillé avec Redis et Queues',
-    description: 'Vérifie l\'état de tous les services HEOS.',
+    description: 'Vérifie l\'état de tous les services HEOS (informations techniques sensibles).',
   })
   @ApiResponse({ status: 200, description: 'Status détaillé de tous les services' })
   async detailedCheck() {
     const checks: Record<string, any> = {
       api: { status: 'healthy' },
       timestamp: new Date().toISOString(),
+      version: '1.0.0',
+      architecture: 'HEOS - High Efficiency Orchestration System',
     };
 
     // Check Redis

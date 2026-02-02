@@ -16,9 +16,34 @@ export class SpacesService {
     const space = await this.prisma.space.create({
       data: {
         id: `space-${nanoid(10)}`,
+        tenantId,
+        // Basic Information
         name: dto.name,
         image: dto.image,
-        tenantId,
+        // Space Details
+        spaceType: dto.spaceType,
+        spaceTypeOther: dto.spaceTypeOther,
+        maxCapacity: dto.maxCapacity,
+        department: dto.department,
+        homeTeam: dto.homeTeam,
+        // Address
+        addressLine1: dto.addressLine1,
+        addressLine2: dto.addressLine2,
+        city: dto.city,
+        postcode: dto.postcode,
+        country: dto.country,
+        // Contact Information
+        tel: dto.tel,
+        email: dto.email,
+        // Main Contact Person
+        mainContactPerson: dto.mainContactPerson,
+        contactEmail: dto.contactEmail,
+        contactTel: dto.contactTel,
+        // Social Media
+        instagram: dto.instagram,
+        tiktok: dto.tiktok,
+        facebook: dto.facebook,
+        twitter: dto.twitter,
       },
       include: {
         tenant: {
@@ -137,8 +162,33 @@ export class SpacesService {
     const space = await this.prisma.space.update({
       where: { id },
       data: {
+        // Basic Information
         name: dto.name,
         image: dto.image,
+        // Space Details
+        spaceType: dto.spaceType,
+        spaceTypeOther: dto.spaceTypeOther,
+        maxCapacity: dto.maxCapacity,
+        department: dto.department,
+        homeTeam: dto.homeTeam,
+        // Address
+        addressLine1: dto.addressLine1,
+        addressLine2: dto.addressLine2,
+        city: dto.city,
+        postcode: dto.postcode,
+        country: dto.country,
+        // Contact Information
+        tel: dto.tel,
+        email: dto.email,
+        // Main Contact Person
+        mainContactPerson: dto.mainContactPerson,
+        contactEmail: dto.contactEmail,
+        contactTel: dto.contactTel,
+        // Social Media
+        instagram: dto.instagram,
+        tiktok: dto.tiktok,
+        facebook: dto.facebook,
+        twitter: dto.twitter,
       },
       include: {
         tenant: {
@@ -472,5 +522,92 @@ export class SpacesService {
       totalConfigs,
       recentSpaces,
     };
+  }
+
+  /**
+   * Update space image
+   */
+  async updateImage(id: string, tenantId: string, image: string) {
+    // Verify space exists and belongs to tenant
+    await this.findOne(id, tenantId);
+
+    const space = await this.prisma.space.update({
+      where: { id },
+      data: { image },
+      select: {
+        id: true,
+        name: true,
+        image: true,
+        updatedAt: true,
+      },
+    });
+
+    return space;
+  }
+
+  /**
+   * Get configurations for a space
+   */
+  async getConfigurations(spaceId: string, tenantId: string) {
+    // Verify space exists and belongs to tenant
+    await this.findOne(spaceId, tenantId);
+
+    const configurations = await this.prisma.config.findMany({
+      where: {
+        spaceId,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      include: {
+        _count: {
+          select: {
+            floors: true,
+            stations: true,
+          },
+        },
+      },
+    });
+
+    return configurations;
+  }
+
+  /**
+   * Set pinned spaces for a user (replace all)
+   */
+  async setPinnedSpaces(userId: string, tenantId: string, spaceIds: string[]) {
+    // Verify all spaces exist and belong to tenant
+    const validSpaces = await this.prisma.space.findMany({
+      where: {
+        id: { in: spaceIds },
+        tenantId,
+      },
+      select: { id: true },
+    });
+
+    const validSpaceIds = validSpaces.map((s) => s.id);
+
+    // Delete all current pinned spaces for this user in this tenant
+    await this.prisma.userPinnedSpace.deleteMany({
+      where: {
+        userId,
+        space: {
+          tenantId,
+        },
+      },
+    });
+
+    // Create new pinned spaces
+    if (validSpaceIds.length > 0) {
+      await this.prisma.userPinnedSpace.createMany({
+        data: validSpaceIds.map((spaceId) => ({
+          userId,
+          spaceId,
+        })),
+      });
+    }
+
+    // Return updated pinned spaces
+    return this.getPinned(userId, tenantId);
   }
 }

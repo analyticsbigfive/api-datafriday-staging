@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Patch,
   Delete,
   Body,
@@ -256,6 +257,75 @@ export class SpacesController {
     @Body() dto: UpdateSpaceDto,
   ) {
     return this.spacesService.update(id, user.tenantId, dto);
+  }
+
+  /**
+   * Update space image
+   */
+  @Put(':id/image')
+  @Roles('ADMIN', 'MANAGER')
+  @ApiOperation({
+    summary: 'Mettre à jour l\'image d\'un espace',
+    description: 'Met à jour l\'image d\'un espace. Réservé aux ADMIN et MANAGER.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['image'],
+      properties: {
+        image: { type: 'string', description: 'URL ou data URL de l\'image' },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Image mise à jour' })
+  @ApiResponse({ status: 404, description: 'Espace non trouvé' })
+  async updateImage(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body() body: { image: string },
+  ) {
+    return this.spacesService.updateImage(id, user.tenantId, body.image);
+  }
+
+  /**
+   * Get configurations for a space
+   */
+  @Get(':id/configurations')
+  @ApiOperation({
+    summary: 'Obtenir les configurations d\'un espace',
+    description: 'Retourne la liste des configurations associées à un espace.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiResponse({
+    status: 200,
+    description: 'Liste des configurations',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          name: { type: 'string' },
+          spaceId: { type: 'string' },
+          capacity: { type: 'number', nullable: true },
+          data: { type: 'object', nullable: true },
+          createdAt: { type: 'string', format: 'date-time' },
+          updatedAt: { type: 'string', format: 'date-time' },
+          _count: {
+            type: 'object',
+            properties: {
+              floors: { type: 'number' },
+              stations: { type: 'number' },
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Espace non trouvé' })
+  async getConfigurations(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.spacesService.getConfigurations(id, user.tenantId);
   }
 
   /**

@@ -19,7 +19,9 @@ describe('SpacesService', () => {
     userPinnedSpace: {
       findUnique: jest.fn(),
       create: jest.fn(),
+      createMany: jest.fn(),
       delete: jest.fn(),
+      deleteMany: jest.fn(),
       findMany: jest.fn(),
     },
     userSpaceAccess: {
@@ -34,6 +36,7 @@ describe('SpacesService', () => {
     },
     config: {
       count: jest.fn(),
+      findMany: jest.fn(),
     },
   };
 
@@ -365,6 +368,305 @@ describe('SpacesService', () => {
       expect(result.totalSpaces).toBe(5);
       expect(result.totalConfigs).toBe(12);
       expect(result.recentSpaces).toHaveLength(1);
+    });
+  });
+
+  describe('updateImage', () => {
+    it('should update space image', async () => {
+      const spaceId = 'space-123';
+      const tenantId = 'tenant-123';
+      const image = 'data:image/png;base64,iVBORw0KGgo...';
+
+      const mockSpace = {
+        id: spaceId,
+        name: 'Test Space',
+        tenantId,
+      };
+
+      const updatedSpace = {
+        id: spaceId,
+        name: 'Test Space',
+        image,
+        updatedAt: new Date(),
+      };
+
+      mockPrismaService.space.findFirst.mockResolvedValue(mockSpace);
+      mockPrismaService.space.update.mockResolvedValue(updatedSpace);
+
+      const result = await service.updateImage(spaceId, tenantId, image);
+
+      expect(result.image).toBe(image);
+      expect(mockPrismaService.space.update).toHaveBeenCalledWith({
+        where: { id: spaceId },
+        data: { image },
+        select: {
+          id: true,
+          name: true,
+          image: true,
+          updatedAt: true,
+        },
+      });
+    });
+
+    it('should throw NotFoundException if space not found', async () => {
+      const spaceId = 'non-existent';
+      const tenantId = 'tenant-123';
+      const image = 'data:image/png;base64,iVBORw0KGgo...';
+
+      mockPrismaService.space.findFirst.mockResolvedValue(null);
+
+      await expect(service.updateImage(spaceId, tenantId, image)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('getConfigurations', () => {
+    it('should return configurations for a space', async () => {
+      const spaceId = 'space-123';
+      const tenantId = 'tenant-123';
+
+      const mockSpace = {
+        id: spaceId,
+        name: 'Test Space',
+        tenantId,
+      };
+
+      const mockConfigurations = [
+        {
+          id: 'config-1',
+          name: 'Config 1',
+          spaceId,
+          capacity: 1000,
+          data: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          _count: { floors: 3, stations: 5 },
+        },
+        {
+          id: 'config-2',
+          name: 'Config 2',
+          spaceId,
+          capacity: 500,
+          data: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          _count: { floors: 2, stations: 3 },
+        },
+      ];
+
+      mockPrismaService.space.findFirst.mockResolvedValue(mockSpace);
+      mockPrismaService.config.findMany.mockResolvedValue(mockConfigurations);
+
+      const result = await service.getConfigurations(spaceId, tenantId);
+
+      expect(result).toEqual(mockConfigurations);
+      expect(result).toHaveLength(2);
+      expect(mockPrismaService.config.findMany).toHaveBeenCalledWith({
+        where: { spaceId },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          _count: {
+            select: {
+              floors: true,
+              stations: true,
+            },
+          },
+        },
+      });
+    });
+
+    it('should throw NotFoundException if space not found', async () => {
+      const spaceId = 'non-existent';
+      const tenantId = 'tenant-123';
+
+      mockPrismaService.space.findFirst.mockResolvedValue(null);
+
+      await expect(service.getConfigurations(spaceId, tenantId)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('should return empty array if no configurations', async () => {
+      const spaceId = 'space-123';
+      const tenantId = 'tenant-123';
+
+      const mockSpace = {
+        id: spaceId,
+        name: 'Test Space',
+        tenantId,
+      };
+
+      mockPrismaService.space.findFirst.mockResolvedValue(mockSpace);
+      mockPrismaService.config.findMany.mockResolvedValue([]);
+
+      const result = await service.getConfigurations(spaceId, tenantId);
+
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('setPinnedSpaces', () => {
+    it('should set pinned spaces for a user', async () => {
+      const userId = 'user-123';
+      const tenantId = 'tenant-123';
+      const spaceIds = ['space-1', 'space-2'];
+
+      const validSpaces = [
+        { id: 'space-1' },
+        { id: 'space-2' },
+      ];
+
+      const pinnedSpaces = [
+        {
+          id: 'space-1',
+          name: 'Space 1',
+          image: null,
+          _count: { configs: 2 },
+        },
+        {
+          id: 'space-2',
+          name: 'Space 2',
+          image: null,
+          _count: { configs: 1 },
+        },
+      ];
+
+      mockPrismaService.space.findMany
+        .mockResolvedValueOnce(validSpaces) // For validation
+        .mockResolvedValueOnce(pinnedSpaces); // For getPinned
+      mockPrismaService.userPinnedSpace.deleteMany.mockResolvedValue({ count: 0 });
+      mockPrismaService.userPinnedSpace.createMany.mockResolvedValue({ count: 2 });
+      mockPrismaService.userPinnedSpace.findMany.mockResolvedValue(
+        pinnedSpaces.map((s) => ({ space: s })),
+      );
+
+      const result = await service.setPinnedSpaces(userId, tenantId, spaceIds);
+
+      expect(mockPrismaService.userPinnedSpace.deleteMany).toHaveBeenCalled();
+      expect(mockPrismaService.userPinnedSpace.createMany).toHaveBeenCalledWith({
+        data: [
+          { userId, spaceId: 'space-1' },
+          { userId, spaceId: 'space-2' },
+        ],
+      });
+      expect(result).toHaveLength(2);
+    });
+
+    it('should handle empty spaceIds array', async () => {
+      const userId = 'user-123';
+      const tenantId = 'tenant-123';
+      const spaceIds: string[] = [];
+
+      // Reset mocks specifically for this test
+      mockPrismaService.space.findMany.mockReset();
+      mockPrismaService.userPinnedSpace.createMany.mockReset();
+      mockPrismaService.userPinnedSpace.deleteMany.mockReset();
+      mockPrismaService.userPinnedSpace.findMany.mockReset();
+
+      mockPrismaService.space.findMany.mockResolvedValue([]);
+      mockPrismaService.userPinnedSpace.deleteMany.mockResolvedValue({ count: 2 });
+      mockPrismaService.userPinnedSpace.findMany.mockResolvedValue([]);
+
+      const result = await service.setPinnedSpaces(userId, tenantId, spaceIds);
+
+      expect(mockPrismaService.userPinnedSpace.deleteMany).toHaveBeenCalled();
+      expect(mockPrismaService.userPinnedSpace.createMany).not.toHaveBeenCalled();
+      expect(result).toEqual([]);
+    });
+
+    it('should only pin valid spaces from the tenant', async () => {
+      const userId = 'user-123';
+      const tenantId = 'tenant-123';
+      const spaceIds = ['space-1', 'space-invalid', 'space-2'];
+
+      // Only space-1 and space-2 are valid
+      const validSpaces = [
+        { id: 'space-1' },
+        { id: 'space-2' },
+      ];
+
+      mockPrismaService.space.findMany.mockResolvedValueOnce(validSpaces);
+      mockPrismaService.userPinnedSpace.deleteMany.mockResolvedValue({ count: 0 });
+      mockPrismaService.userPinnedSpace.createMany.mockResolvedValue({ count: 2 });
+      mockPrismaService.userPinnedSpace.findMany.mockResolvedValue([
+        { space: { id: 'space-1', name: 'Space 1' } },
+        { space: { id: 'space-2', name: 'Space 2' } },
+      ]);
+
+      await service.setPinnedSpaces(userId, tenantId, spaceIds);
+
+      expect(mockPrismaService.userPinnedSpace.createMany).toHaveBeenCalledWith({
+        data: [
+          { userId, spaceId: 'space-1' },
+          { userId, spaceId: 'space-2' },
+        ],
+      });
+    });
+  });
+
+  describe('create with all fields', () => {
+    it('should create a space with all optional fields', async () => {
+      const tenantId = 'tenant-123';
+      const dto = {
+        name: 'Emirates Stadium',
+        image: 'https://example.com/stadium.jpg',
+        spaceType: 'Stadium',
+        maxCapacity: 60000,
+        department: 75,
+        homeTeam: 'Arsenal FC',
+        addressLine1: 'Hornsey Road',
+        addressLine2: 'Highbury House',
+        city: 'London',
+        postcode: 'N7 7AJ',
+        country: 'United Kingdom',
+        tel: '+44 20 7619 5003',
+        email: 'info@arsenal.com',
+        mainContactPerson: 'John Smith',
+        contactEmail: 'john.smith@arsenal.com',
+        contactTel: '+44 20 1234 5678',
+        instagram: '@arsenal',
+        tiktok: '@arsenal',
+        facebook: '@arsenal',
+        twitter: '@arsenal',
+      };
+
+      const mockSpace = {
+        id: 'space-abc123',
+        ...dto,
+        tenantId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        tenant: {
+          id: tenantId,
+          name: 'Test Tenant',
+          slug: 'test-tenant',
+        },
+      };
+
+      mockPrismaService.space.create.mockResolvedValue(mockSpace);
+
+      const result = await service.create(tenantId, dto);
+
+      expect(result).toEqual(mockSpace);
+      expect(mockPrismaService.space.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          name: dto.name,
+          image: dto.image,
+          spaceType: dto.spaceType,
+          maxCapacity: dto.maxCapacity,
+          department: dto.department,
+          homeTeam: dto.homeTeam,
+          addressLine1: dto.addressLine1,
+          city: dto.city,
+          country: dto.country,
+          tel: dto.tel,
+          email: dto.email,
+          instagram: dto.instagram,
+          tenantId,
+        }),
+        include: expect.any(Object),
+      });
     });
   });
 });

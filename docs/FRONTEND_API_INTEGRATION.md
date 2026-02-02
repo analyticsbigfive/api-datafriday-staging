@@ -1,7 +1,7 @@
 # 📱 Guide d'Intégration Frontend - API DataFriday
 > Documentation pour l'équipe frontend Vue.js
 
-**Base URL:** `https://datafriday-api.onrender.com/api/v1`
+**Base URL:** `http://localhost/api/v1`
 
 ---
 
@@ -188,7 +188,7 @@ import axios from 'axios'
 import store from '@/store'
 
 const api = axios.create({
-  baseURL: 'https://datafriday-api.onrender.com/api/v1',
+  baseURL: 'http://localhost/api/v1',
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json'
@@ -954,9 +954,9 @@ export default {
 
 ### URLs Utiles
 
-- **API Production:** https://datafriday-api.onrender.com/api/v1
-- **Documentation Swagger:** https://datafriday-api.onrender.com/docs
-- **Health Check:** https://datafriday-api.onrender.com/api/v1/health
+- **API Production:** http://localhost/api/v1
+- **Documentation Swagger:** http://localhost/docs
+- **Health Check:** http://localhost/api/v1/health
 
 ---
 

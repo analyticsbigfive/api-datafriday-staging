@@ -25,10 +25,12 @@ import { SpacesService } from './spaces.service';
 import { CreateSpaceDto } from './dto/create-space.dto';
 import { UpdateSpaceDto } from './dto/update-space.dto';
 import { QuerySpaceDto } from './dto/query-space.dto';
+import { CreateConfigDto } from './dto/create-config.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RolesGuard } from '../../core/auth/guards/roles.guard';
 import { Roles } from '../../core/auth/decorators/roles.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
+import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 
 @ApiTags('Spaces')
 @ApiBearerAuth('supabase-jwt')
@@ -329,6 +331,39 @@ export class SpacesController {
   }
 
   /**
+   * Get shop details for a space (granular sales data)
+   */
+  @Get(':id/shop-details')
+  @ApiOperation({
+    summary: 'Obtenir les détails granulaires des ventes par espace',
+    description:
+      'Retourne les données détaillées des ventes F&B, merchandising et autres pour un espace.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiResponse({
+    status: 200,
+    description: 'Détails granulaires des ventes',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          shopId: { type: 'string' },
+          shopName: { type: 'string' },
+          revenue: { type: 'number' },
+          transactionCount: { type: 'number' },
+          eventId: { type: 'string', nullable: true },
+          date: { type: 'string', format: 'date-time' },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Espace non trouvé' })
+  async getShopDetails(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.spacesService.getShopDetails(id, user.tenantId);
+  }
+
+  /**
    * Delete a space
    */
   @Delete(':id')
@@ -472,5 +507,110 @@ export class SpacesController {
   })
   async getSpaceUsers(@Param('id') id: string, @CurrentUser() user: any) {
     return this.spacesService.getSpaceUsers(id, user.tenantId);
+  }
+}
+
+// ==================== CONFIGURATIONS CONTROLLER ====================
+
+@ApiTags('Configurations')
+@ApiBearerAuth('supabase-jwt')
+@Controller('configurations')
+@UseGuards(JwtDatabaseGuard, RolesGuard)
+export class ConfigurationsController {
+  constructor(private readonly spacesService: SpacesService) {}
+
+  /**
+   * Create or update a configuration
+   */
+  @Post()
+  @Roles('ADMIN', 'MANAGER', 'STAFF')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Créer ou mettre à jour une configuration',
+    description:
+      'Crée une nouvelle configuration ou met à jour une configuration existante pour un espace.',
+  })
+  @ApiBody({ type: CreateConfigDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Configuration créée ou mise à jour avec succès',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', example: 'config-1234567890' },
+        name: { type: 'string', example: 'Main Configuration' },
+        spaceId: { type: 'string', example: 'space-abc123' },
+        capacity: { type: 'number', nullable: true, example: 5000 },
+        data: {
+          type: 'object',
+          nullable: true,
+          description: 'Configuration data (floors, forecourt, etc.)',
+        },
+        createdAt: { type: 'string', format: 'date-time' },
+        updatedAt: { type: 'string', format: 'date-time' },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  @ApiResponse({ status: 403, description: 'Accès refusé' })
+  @ApiResponse({ status: 404, description: 'Espace non trouvé' })
+  async saveConfiguration(
+    @Body() dto: CreateConfigDto,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.spacesService.saveConfiguration(dto, tenantId);
+  }
+
+  /**
+   * Get a configuration by ID
+   */
+  @Get(':id')
+  @ApiOperation({
+    summary: 'Obtenir une configuration par ID',
+    description: 'Retourne les détails complets d\'une configuration.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la configuration' })
+  @ApiResponse({
+    status: 200,
+    description: 'Configuration trouvée',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        spaceId: { type: 'string' },
+        capacity: { type: 'number', nullable: true },
+        data: { type: 'object', nullable: true },
+        createdAt: { type: 'string', format: 'date-time' },
+        updatedAt: { type: 'string', format: 'date-time' },
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Configuration non trouvée' })
+  async getConfiguration(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.spacesService.getConfiguration(id, tenantId);
+  }
+
+  /**
+   * Delete a configuration
+   */
+  @Delete(':id')
+  @Roles('ADMIN', 'MANAGER')
+  @ApiOperation({
+    summary: 'Supprimer une configuration',
+    description: 'Supprime définitivement une configuration.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la configuration' })
+  @ApiResponse({ status: 200, description: 'Configuration supprimée' })
+  @ApiResponse({ status: 404, description: 'Configuration non trouvée' })
+  @ApiResponse({ status: 403, description: 'Accès refusé' })
+  async deleteConfiguration(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.spacesService.deleteConfiguration(id, tenantId);
   }
 }

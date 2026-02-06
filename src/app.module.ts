@@ -20,6 +20,7 @@ import { TenantsModule } from './features/tenants/tenants.module';
 import { SpacesModule } from './features/spaces/spaces.module';
 import { UsersModule } from './features/users/users.module';
 import { OrchestratorModule } from './features/orchestrator/orchestrator.module';
+import { SuppliersModule } from './features/suppliers/suppliers.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { OrchestratorModule } from './features/orchestrator/orchestrator.module'
     SpacesModule,
     UsersModule,
     OrchestratorModule,
+    SuppliersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

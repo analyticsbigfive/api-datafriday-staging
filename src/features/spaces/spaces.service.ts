@@ -573,6 +573,69 @@ export class SpacesService {
   }
 
   /**
+   * Get shop details (granular sales data) for a space
+   * TODO: Implement based on your actual sales/shop data structure
+   * For now, returns empty array as placeholder
+   */
+  async getShopDetails(spaceId: string, tenantId: string) {
+    // Verify space exists and belongs to tenant
+    await this.findOne(spaceId, tenantId);
+
+    // TODO: Query your actual shop/sales data tables
+    // Example structure (adapt to your schema):
+    // const shopDetails = await this.prisma.shopSales.findMany({
+    //   where: { spaceId },
+    //   include: {
+    //     shop: true,
+    //     event: true,
+    //   },
+    // });
+
+    // Placeholder: Return empty array until sales tables are implemented
+    return [];
+  }
+
+  /**
+   * Create or update a configuration
+   */
+  async saveConfiguration(dto: any, tenantId: string) {
+    // Verify space exists and belongs to tenant
+    await this.findOne(dto.spaceId, tenantId);
+
+    // Generate ID if not provided
+    const configId = dto.id || `config-${Date.now()}`;
+
+    // Check if configuration already exists
+    const existing = await this.prisma.config.findUnique({
+      where: { id: configId },
+    });
+
+    if (existing) {
+      // Update existing configuration
+      return await this.prisma.config.update({
+        where: { id: configId },
+        data: {
+          name: dto.name,
+          capacity: dto.capacity,
+          data: dto.data,
+          updatedAt: new Date(),
+        },
+      });
+    } else {
+      // Create new configuration
+      return await this.prisma.config.create({
+        data: {
+          id: configId,
+          name: dto.name,
+          spaceId: dto.spaceId,
+          capacity: dto.capacity,
+          data: dto.data,
+        },
+      });
+    }
+  }
+
+  /**
    * Set pinned spaces for a user (replace all)
    */
   async setPinnedSpaces(userId: string, tenantId: string, spaceIds: string[]) {
@@ -609,5 +672,48 @@ export class SpacesService {
 
     // Return updated pinned spaces
     return this.getPinned(userId, tenantId);
+  }
+
+  /**
+   * Get a single configuration by ID
+   */
+  async getConfiguration(configId: string, tenantId: string) {
+    const config = await this.prisma.config.findUnique({
+      where: { id: configId },
+      include: {
+        space: {
+          select: {
+            id: true,
+            name: true,
+            tenantId: true,
+          },
+        },
+      },
+    });
+
+    if (!config) {
+      throw new NotFoundException(`Configuration with ID ${configId} not found`);
+    }
+
+    // Verify the configuration's space belongs to the tenant
+    if (config.space.tenantId !== tenantId) {
+      throw new ForbiddenException('Access denied to this configuration');
+    }
+
+    return config;
+  }
+
+  /**
+   * Delete a configuration
+   */
+  async deleteConfiguration(configId: string, tenantId: string) {
+    // Verify configuration exists and belongs to tenant
+    await this.getConfiguration(configId, tenantId);
+
+    await this.prisma.config.delete({
+      where: { id: configId },
+    });
+
+    return { message: 'Configuration deleted successfully' };
   }
 }

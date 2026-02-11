@@ -193,6 +193,7 @@ export class SpacesController {
     description: 'Retourne les détails complets d\'un espace.',
   })
   @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiQuery({ name: 'light', required: false, type: Boolean, description: 'Mode léger (sans image)' })
   @ApiResponse({
     status: 200,
     description: 'Détails de l\'espace',
@@ -236,8 +237,20 @@ export class SpacesController {
     },
   })
   @ApiResponse({ status: 404, description: 'Espace non trouvé' })
-  async findOne(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.spacesService.findOne(id, user.tenantId);
+  async findOne(
+    @Param('id') id: string, 
+    @CurrentUser() user: any,
+    @Query('light') light?: string,
+  ) {
+    const space = await this.spacesService.findOne(id, user.tenantId);
+    
+    // In light mode, exclude heavy data like images
+    if (light === 'true') {
+      const { image, ...lightSpace } = space;
+      return lightSpace;
+    }
+    
+    return space;
   }
 
   /**

@@ -546,20 +546,27 @@ export class SpacesService {
   }
 
   /**
-   * Get configurations for a space
+   * Get configurations for a space (optimized - no double verification)
    */
   async getConfigurations(spaceId: string, tenantId: string) {
-    // Verify space exists and belongs to tenant
-    await this.findOne(spaceId, tenantId);
-
+    // Direct query with tenant verification in the join
     const configurations = await this.prisma.config.findMany({
       where: {
         spaceId,
+        space: {
+          tenantId, // Verify tenant access directly in query
+        },
       },
       orderBy: {
         createdAt: 'desc',
       },
-      include: {
+      select: {
+        id: true,
+        name: true,
+        capacity: true,
+        createdAt: true,
+        updatedAt: true,
+        // Don't include full data here - it's loaded separately when needed
         _count: {
           select: {
             floors: true,

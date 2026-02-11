@@ -603,7 +603,7 @@ export class SpacesService {
   }
 
   /**
-   * Create or update a configuration
+   * Create or update a configuration with normalized tables
    */
   async saveConfiguration(dto: any, tenantId: string) {
     // Verify space exists and belongs to tenant
@@ -612,26 +612,23 @@ export class SpacesService {
     // Generate ID if not provided
     const configId = dto.id || `config-${Date.now()}`;
 
-    // Check if configuration already exists
-    const existing = await this.prisma.config.findUnique({
-      where: { id: configId },
-    });
+    // Extract floors and elements from data
+    const floors = dto.data?.floors || [];
+    const forecourt = dto.data?.forecourt || null;
 
-    if (existing) {
-      // Update existing configuration
-      return await this.prisma.config.update({
+    // Use a transaction to ensure data consistency
+    return await this.prisma.$transaction(async (tx) => {
+      // 1. Create or update the config
+      const config = await tx.config.upsert({
         where: { id: configId },
-        data: {
+        update: {
           name: dto.name,
           capacity: dto.capacity,
+          // Keep data as backup/cache for now
           data: dto.data,
           updatedAt: new Date(),
         },
-      });
-    } else {
-      // Create new configuration
-      return await this.prisma.config.create({
-        data: {
+        create: {
           id: configId,
           name: dto.name,
           spaceId: dto.spaceId,
@@ -639,7 +636,226 @@ export class SpacesService {
           data: dto.data,
         },
       });
-    }
+
+      // 2. Delete existing floors and their elements (cascade)
+      await tx.floor.deleteMany({
+        where: { configId: configId },
+      });
+
+      // 3. Create floors with their elements
+      for (const floor of floors) {
+        const createdFloor = await tx.floor.create({
+          data: {
+            id: floor.id || `floor-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            configId: configId,
+            name: floor.name,
+            level: floor.level || 0,
+            width: floor.width || 800,
+            height: floor.height || 600,
+            length: floor.length || 100,
+            cornerRadius: floor.cornerRadius || null,
+          },
+        });
+
+        // Create elements for this floor
+        const elements = floor.elements || [];
+        for (const element of elements) {
+          // Map frontend type to enum
+          const elementType = this.mapElementType(element.type);
+          
+          const createdElement = await tx.floorElement.create({
+            data: {
+              id: element.id || `element-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              floorId: createdFloor.id,
+              name: element.name || 'Element',
+              type: elementType,
+              x: element.x || 0,
+              y: element.y || 0,
+              width: element.width || 80,
+              height: element.height || 60,
+              depth: element.depth || element.height || 60,
+              height3d: element.height3d || 25,
+              rotation: element.rotation || 0,
+              image: element.image || null,
+              notes: element.notes || null,
+              capacity: element.capacity || null,
+              cornerRadiusTL: element.cornerRadius?.topLeft || 0,
+              cornerRadiusTR: element.cornerRadius?.topRight || 0,
+              cornerRadiusBL: element.cornerRadius?.bottomLeft || 0,
+              cornerRadiusBR: element.cornerRadius?.bottomRight || 0,
+              shopTypes: element.shopType || [],
+              storageTypes: element.storageType || [],
+              hospitalityTypes: element.hospitalityType || [],
+              accessTypes: element.accessType || [],
+              entertainmentTypes: element.entertainmentType || [],
+              entranceTypes: element.entranceType || [],
+              kitchenTypes: element.kitchenType || [],
+              tags: element.tags || [],
+              attributes: element.attributes || null,
+            },
+          });
+
+          // Create performance data if exists
+          if (element.performance) {
+            await tx.elementPerformance.create({
+              data: {
+                elementId: createdElement.id,
+                revenue: element.performance.revenue || 0,
+                numberOfPOS: element.performance.numberOfPOS || 0,
+                numberOfTransactions: element.performance.numberOfTransactions || 0,
+                transactionsPerMinute: element.performance.transactionsPerMinute || 0,
+                staffCost: element.performance.staffCost || 0,
+                revenuePerEmployee: element.performance.revenuePerEmployee || 0,
+              },
+            });
+          }
+
+          // Create staff positions if exist
+          if (element.staffPositions && element.staffPositions.length > 0) {
+            await tx.elementStaff.createMany({
+              data: element.staffPositions.map((pos: any) => ({
+                elementId: createdElement.id,
+                position: pos.position,
+                count: pos.count || 1,
+                hourlyRate: pos.hourlyRate || null,
+              })),
+            });
+          }
+
+          // Create inventory items if exist
+          if (element.inventoryItems && element.inventoryItems.length > 0) {
+            await tx.elementInventory.createMany({
+              data: element.inventoryItems.map((item: any) => ({
+                elementId: createdElement.id,
+                name: item.name,
+                quantity: item.quantity || 0,
+                unit: item.unit || null,
+                minStock: item.minStock || null,
+                maxStock: item.maxStock || null,
+                isCustom: item.isCustom !== false,
+                menuItemId: item.menuItemId || null,
+              })),
+            });
+          }
+        }
+      }
+
+      // 4. Handle forecourt if exists
+      if (forecourt) {
+        // Delete existing forecourt
+        await tx.forecourt.deleteMany({
+          where: { configId: configId },
+        });
+
+        const createdForecourt = await tx.forecourt.create({
+          data: {
+            id: forecourt.id || `forecourt-${Date.now()}`,
+            configId: configId,
+            name: forecourt.name || 'Parvis',
+            width: forecourt.width || 1000,
+            length: forecourt.length || 500,
+          },
+        });
+
+        // Create forecourt elements
+        const forecourtElements = forecourt.elements || [];
+        for (const element of forecourtElements) {
+          const elementType = this.mapElementType(element.type);
+          
+          const createdElement = await tx.forecourtElement.create({
+            data: {
+              id: element.id || `fc-element-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              forecourtId: createdForecourt.id,
+              name: element.name || 'Element',
+              type: elementType,
+              x: element.x || 0,
+              y: element.y || 0,
+              width: element.width || 80,
+              height: element.height || 60,
+              depth: element.depth || 60,
+              height3d: element.height3d || 25,
+              rotation: element.rotation || 0,
+              image: element.image || null,
+              notes: element.notes || null,
+              capacity: element.capacity || null,
+              cornerRadiusTL: element.cornerRadius?.topLeft || 0,
+              cornerRadiusTR: element.cornerRadius?.topRight || 0,
+              cornerRadiusBL: element.cornerRadius?.bottomLeft || 0,
+              cornerRadiusBR: element.cornerRadius?.bottomRight || 0,
+              entranceTypes: element.entranceType || [],
+              accessTypes: element.accessType || [],
+              tags: element.tags || [],
+              attributes: element.attributes || null,
+            },
+          });
+
+          // Create performance, staff, inventory for forecourt elements
+          if (element.performance) {
+            await tx.forecourtElementPerformance.create({
+              data: {
+                elementId: createdElement.id,
+                revenue: element.performance.revenue || 0,
+                numberOfPOS: element.performance.numberOfPOS || 0,
+                numberOfTransactions: element.performance.numberOfTransactions || 0,
+                transactionsPerMinute: element.performance.transactionsPerMinute || 0,
+                staffCost: element.performance.staffCost || 0,
+                revenuePerEmployee: element.performance.revenuePerEmployee || 0,
+              },
+            });
+          }
+
+          if (element.staffPositions && element.staffPositions.length > 0) {
+            await tx.forecourtElementStaff.createMany({
+              data: element.staffPositions.map((pos: any) => ({
+                elementId: createdElement.id,
+                position: pos.position,
+                count: pos.count || 1,
+              })),
+            });
+          }
+
+          if (element.inventoryItems && element.inventoryItems.length > 0) {
+            await tx.forecourtElementInventory.createMany({
+              data: element.inventoryItems.map((item: any) => ({
+                elementId: createdElement.id,
+                name: item.name,
+                quantity: item.quantity || 0,
+                isCustom: true,
+              })),
+            });
+          }
+        }
+      }
+
+      return config;
+    });
+  }
+
+  /**
+   * Map frontend element type to Prisma ElementType enum
+   */
+  private mapElementType(type: string): any {
+    const typeMap: Record<string, string> = {
+      'fnb-food': 'fnb_food',
+      'fnb-beverages': 'fnb_beverages',
+      'fnb-bar': 'fnb_bar',
+      'fnb-snack': 'fnb_snack',
+      'fnb-icecream': 'fnb_icecream',
+      'shop': 'shop',
+      'storage': 'storage',
+      'hospitality': 'hospitality',
+      'access': 'access',
+      'entertainment': 'entertainment',
+      'entrance': 'entrance',
+      'merchshop': 'merchshop',
+      'kitchen': 'kitchen',
+      'seating': 'seating',
+      'stage': 'stage',
+      'parking': 'parking',
+      'restroom': 'restroom',
+      'office': 'office',
+    };
+    return typeMap[type] || 'other';
   }
 
   /**
@@ -685,6 +901,7 @@ export class SpacesService {
    * Get a single configuration by ID
    */
   async getConfiguration(configId: string, tenantId: string) {
+    // First get config with space for authorization check
     const config = await this.prisma.config.findUnique({
       where: { id: configId },
       include: {
@@ -693,6 +910,29 @@ export class SpacesService {
             id: true,
             name: true,
             tenantId: true,
+          },
+        },
+        floors: {
+          include: {
+            elements: {
+              include: {
+                performance: true,
+                staffPositions: true,
+                inventoryItems: true,
+              },
+            },
+          },
+          orderBy: { level: 'asc' },
+        },
+        forecourt: {
+          include: {
+            elements: {
+              include: {
+                performance: true,
+                staffPositions: true,
+                inventoryItems: true,
+              },
+            },
           },
         },
       },
@@ -707,7 +947,180 @@ export class SpacesService {
       throw new ForbiddenException('Access denied to this configuration');
     }
 
-    return config;
+    // Transform normalized data back to the frontend format
+    const transformedFloors = config.floors.map((floor) => ({
+      id: floor.id,
+      name: floor.name,
+      level: floor.level,
+      width: floor.width,
+      height: floor.height,
+      length: floor.length,
+      cornerRadius: floor.cornerRadius,
+      elements: floor.elements.map((el) => this.transformElement(el)),
+    }));
+
+    const transformedForecourt = config.forecourt
+      ? {
+          id: config.forecourt.id,
+          name: config.forecourt.name,
+          width: config.forecourt.width,
+          length: config.forecourt.length,
+          elements: config.forecourt.elements.map((el) =>
+            this.transformForecourtElement(el),
+          ),
+        }
+      : null;
+
+    // Return config with transformed data for frontend compatibility
+    return {
+      ...config,
+      data: {
+        floors: transformedFloors,
+        forecourt: transformedForecourt,
+      },
+    };
+  }
+
+  /**
+   * Transform a floor element from DB to frontend format
+   */
+  private transformElement(element: any) {
+    return {
+      id: element.id,
+      name: element.name,
+      type: this.reverseMapElementType(element.type),
+      x: element.x,
+      y: element.y,
+      width: element.width,
+      height: element.height,
+      depth: element.depth,
+      height3d: element.height3d,
+      rotation: element.rotation,
+      image: element.image,
+      notes: element.notes,
+      capacity: element.capacity,
+      cornerRadius: {
+        topLeft: element.cornerRadiusTL,
+        topRight: element.cornerRadiusTR,
+        bottomLeft: element.cornerRadiusBL,
+        bottomRight: element.cornerRadiusBR,
+      },
+      shopType: element.shopTypes,
+      storageType: element.storageTypes,
+      hospitalityType: element.hospitalityTypes,
+      accessType: element.accessTypes,
+      entertainmentType: element.entertainmentTypes,
+      entranceType: element.entranceTypes,
+      kitchenType: element.kitchenTypes,
+      tags: element.tags,
+      attributes: element.attributes,
+      performance: element.performance
+        ? {
+            revenue: element.performance.revenue,
+            numberOfPOS: element.performance.numberOfPOS,
+            numberOfTransactions: element.performance.numberOfTransactions,
+            transactionsPerMinute: element.performance.transactionsPerMinute,
+            staffCost: element.performance.staffCost,
+            revenuePerEmployee: element.performance.revenuePerEmployee,
+          }
+        : null,
+      staffPositions: element.staffPositions?.map((s: any) => ({
+        id: s.id,
+        position: s.position,
+        count: s.count,
+        hourlyRate: s.hourlyRate,
+      })) || [],
+      inventoryItems: element.inventoryItems?.map((i: any) => ({
+        id: i.id,
+        name: i.name,
+        quantity: i.quantity,
+        unit: i.unit,
+        minStock: i.minStock,
+        maxStock: i.maxStock,
+        isCustom: i.isCustom,
+        menuItemId: i.menuItemId,
+      })) || [],
+    };
+  }
+
+  /**
+   * Transform a forecourt element from DB to frontend format
+   */
+  private transformForecourtElement(element: any) {
+    return {
+      id: element.id,
+      name: element.name,
+      type: this.reverseMapElementType(element.type),
+      x: element.x,
+      y: element.y,
+      width: element.width,
+      height: element.height,
+      depth: element.depth,
+      height3d: element.height3d,
+      rotation: element.rotation,
+      image: element.image,
+      notes: element.notes,
+      capacity: element.capacity,
+      cornerRadius: {
+        topLeft: element.cornerRadiusTL,
+        topRight: element.cornerRadiusTR,
+        bottomLeft: element.cornerRadiusBL,
+        bottomRight: element.cornerRadiusBR,
+      },
+      entranceType: element.entranceTypes,
+      accessType: element.accessTypes,
+      tags: element.tags,
+      attributes: element.attributes,
+      performance: element.performance
+        ? {
+            revenue: element.performance.revenue,
+            numberOfPOS: element.performance.numberOfPOS,
+            numberOfTransactions: element.performance.numberOfTransactions,
+            transactionsPerMinute: element.performance.transactionsPerMinute,
+            staffCost: element.performance.staffCost,
+            revenuePerEmployee: element.performance.revenuePerEmployee,
+          }
+        : null,
+      staffPositions: element.staffPositions?.map((s: any) => ({
+        id: s.id,
+        position: s.position,
+        count: s.count,
+      })) || [],
+      inventoryItems: element.inventoryItems?.map((i: any) => ({
+        id: i.id,
+        name: i.name,
+        quantity: i.quantity,
+        isCustom: i.isCustom,
+      })) || [],
+    };
+  }
+
+  /**
+   * Reverse map Prisma ElementType enum to frontend type
+   */
+  private reverseMapElementType(type: string): string {
+    const reverseMap: Record<string, string> = {
+      'fnb_food': 'fnb-food',
+      'fnb_beverages': 'fnb-beverages',
+      'fnb_bar': 'fnb-bar',
+      'fnb_snack': 'fnb-snack',
+      'fnb_icecream': 'fnb-icecream',
+      'shop': 'shop',
+      'storage': 'storage',
+      'hospitality': 'hospitality',
+      'access': 'access',
+      'entertainment': 'entertainment',
+      'entrance': 'entrance',
+      'merchshop': 'merchshop',
+      'kitchen': 'kitchen',
+      'seating': 'seating',
+      'stage': 'stage',
+      'parking': 'parking',
+      'restroom': 'restroom',
+      'office': 'office',
+      'other': 'other',
+    };
+    return reverseMap[type] || type;
   }
 
   /**

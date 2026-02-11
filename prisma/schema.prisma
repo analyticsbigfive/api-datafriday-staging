@@ -17,6 +17,19 @@ enum ElementType {
   shop
   merchshop
   entrance
+  storage
+  kitchen
+  fnb_food
+  fnb_beverages
+  fnb_bar
+  fnb_snack
+  fnb_icecream
+  seating
+  stage
+  parking
+  restroom
+  office
+  other
 }
 
 enum GoodType {
@@ -124,63 +137,63 @@ enum UserRole {
 // ==================== MULTI-TENANT ====================
 
 model Tenant {
-  id            String      @id @default(cuid())
-  name          String
-  slug          String      @unique
-  domain        String?     @unique
-  logo          String?
-  plan          TenantPlan  @default(FREE)
-  status        TenantStatus @default(ACTIVE)
-  
+  id     String       @id @default(cuid())
+  name   String
+  slug   String       @unique
+  domain String?      @unique
+  logo   String?
+  plan   TenantPlan   @default(FREE)
+  status TenantStatus @default(ACTIVE)
+
   // Invitation System
-  invitationCode    String?     @unique  // Code for joining this tenant
-  invitationEnabled Boolean     @default(true)  // Allow new members to join
-  
+  invitationCode    String? @unique // Code for joining this tenant
+  invitationEnabled Boolean @default(true) // Allow new members to join
+
   // Business Information
-  organizationType  String?     // Restaurant, Hotel, Bar, Event, etc.
-  siret             String?
-  address           String?
-  city              String?
-  postalCode        String?
-  country           String?     @default("France")
-  email             String?
-  phone             String?
-  
+  organizationType String? // Restaurant, Hotel, Bar, Event, etc.
+  siret            String?
+  address          String?
+  city             String?
+  postalCode       String?
+  country          String? @default("France")
+  email            String?
+  phone            String?
+
   // Additional Info
   numberOfEmployees Int?
   numberOfSpaces    Int?
-  paymentMethod     String?     // Card, Transfer, Direct Debit, etc.
-  
-  metadata      Json?
-  
+  paymentMethod     String? // Card, Transfer, Direct Debit, etc.
+
+  metadata Json?
+
   // Weezevent Integration
-  weezeventClientId        String?
-  weezeventClientSecret    String?  // Encrypted
-  weezeventOrganizationId  String?  // Weezevent Organization ID
-  weezeventEnabled         Boolean  @default(false)
-  
+  weezeventClientId       String?
+  weezeventClientSecret   String? // Encrypted
+  weezeventOrganizationId String? // Weezevent Organization ID
+  weezeventEnabled        Boolean @default(false)
+
   // Weezevent Webhook
-  weezeventWebhookSecret    String?  // Secret for signature validation
-  weezeventWebhookEnabled   Boolean  @default(false)
-  
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  weezeventWebhookSecret  String? // Secret for signature validation
+  weezeventWebhookEnabled Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  users         User[]          // Keep for backward compatibility
-  userTenants   UserTenant[]    // New many-to-many relation
-  spaces        Space[]
-  suppliers     Supplier[]
-  
+  users       User[] // Keep for backward compatibility
+  userTenants UserTenant[] // New many-to-many relation
+  spaces      Space[]
+  suppliers   Supplier[]
+
   // Weezevent Relations
-  weezeventEvents       WeezeventEvent[]
-  weezeventMerchants    WeezeventMerchant[]
-  weezeventLocations    WeezeventLocation[]
-  weezeventProducts     WeezeventProduct[]
-  weezeventUsers        WeezeventUser[]
-  weezeventWallets      WeezeventWallet[]
-  weezeventTransactions WeezeventTransaction[]
-  weezeventWebhookEvents    WeezeventWebhookEvent[]
+  weezeventEvents        WeezeventEvent[]
+  weezeventMerchants     WeezeventMerchant[]
+  weezeventLocations     WeezeventLocation[]
+  weezeventProducts      WeezeventProduct[]
+  weezeventUsers         WeezeventUser[]
+  weezeventWallets       WeezeventWallet[]
+  weezeventTransactions  WeezeventTransaction[]
+  weezeventWebhookEvents WeezeventWebhookEvent[]
 
   @@index([slug])
   @@index([status])
@@ -205,23 +218,23 @@ enum TenantStatus {
 // ==================== USER & AUTH ====================
 
 model User {
-  id            String      @id @default(cuid())
-  email         String
-  firstName     String
-  lastName      String
-  fullName      String?
-  
-  role          UserRole    @default(VIEWER)
-  avatar        String?
-  tenantId      String      // Keep for backward compatibility
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  id        String  @id @default(cuid())
+  email     String
+  firstName String
+  lastName  String
+  fullName  String?
+
+  role      UserRole @default(VIEWER)
+  avatar    String?
+  tenantId  String // Keep for backward compatibility
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userTenants   UserTenant[]    // New many-to-many relation
-  pinnedSpaces  UserPinnedSpace[]
-  spaceAccess   UserSpaceAccess[]
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userTenants  UserTenant[] // New many-to-many relation
+  pinnedSpaces UserPinnedSpace[]
+  spaceAccess  UserSpaceAccess[]
 
   @@unique([email, tenantId])
   @@index([tenantId])
@@ -238,8 +251,8 @@ model UserTenant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([userId, tenantId])
   @@index([userId])
@@ -248,13 +261,13 @@ model UserTenant {
 }
 
 model UserPinnedSpace {
-  id        String   @id @default(cuid())
-  userId    String
-  spaceId   String
-  pinnedAt  DateTime @default(now())
+  id       String   @id @default(cuid())
+  userId   String
+  spaceId  String
+  pinnedAt DateTime @default(now())
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  space     Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
 
   @@unique([userId, spaceId])
   @@index([userId])
@@ -267,8 +280,8 @@ model UserSpaceAccess {
   role      UserRole @default(VIEWER)
   grantedAt DateTime @default(now())
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  space     Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
 
   @@unique([userId, spaceId])
   @@index([userId])
@@ -278,12 +291,12 @@ model UserSpaceAccess {
 // ==================== SPACE & CONFIG ====================
 
 model Space {
-  id                String   @id
-  name              String
-  image             String?  @db.Text
-  tenantId          String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id        String   @id
+  name      String
+  image     String?  @db.Text
+  tenantId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Contact Info
   tel               String?
@@ -293,36 +306,36 @@ model Space {
   mainContactPerson String?
 
   // Address
-  addressLine1      String?
-  addressLine2      String?
-  city              String?
-  postcode          String?
-  department        Int?
-  country           String?
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  postcode     String?
+  department   Int?
+  country      String?
 
   // Space Details
-  spaceType         String?           // Stadium, Arena, etc.
-  spaceTypeOther    String?
-  maxCapacity       Int?
-  homeTeam          String?
+  spaceType      String? // Stadium, Arena, etc.
+  spaceTypeOther String?
+  maxCapacity    Int?
+  homeTeam       String?
 
   // Social Media
-  facebook          String?
-  instagram         String?
-  twitter           String?
-  tiktok            String?
+  facebook  String?
+  instagram String?
+  twitter   String?
+  tiktok    String?
 
   // Metrics (calculated/cached)
-  avgEvent          Float?
-  avgTransaction    Float?
-  perCapita         Float?
-  cachedMetrics     Json?             // Cache des métriques calculées
+  avgEvent       Float?
+  avgTransaction Float?
+  perCapita      Float?
+  cachedMetrics  Json? // Cache des métriques calculées
 
   // Relations
-  tenant          Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  configs         Config[]
-  pinnedByUsers   UserPinnedSpace[]
-  userAccess      UserSpaceAccess[]
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  configs       Config[]
+  pinnedByUsers UserPinnedSpace[]
+  userAccess    UserSpaceAccess[]
 
   @@index([tenantId])
   @@index([name])
@@ -350,7 +363,7 @@ model Config {
 // ==================== FLOOR & ELEMENTS ====================
 
 model Floor {
-  id           String  @id
+  id           String @id
   configId     String
   name         String
   level        Int
@@ -359,35 +372,114 @@ model Floor {
   length       Float
   cornerRadius Json?
 
-  config       Config         @relation(fields: [configId], references: [id], onDelete: Cascade)
-  elements     FloorElement[]
+  config   Config         @relation(fields: [configId], references: [id], onDelete: Cascade)
+  elements FloorElement[]
 
   @@index([configId])
   @@index([level])
 }
 
 model FloorElement {
-  id         String      @id
-  floorId    String
-  name       String
-  type       ElementType
-  x          Float
-  y          Float
-  depth      Float?
-  width      Float?
-  height     Float?
-  attributes Json?       // Stocke accessType[], hospitalityType[], etc.
+  id       String      @id
+  floorId  String
+  name     String
+  type     ElementType
+  x        Float
+  y        Float
+  depth    Float?
+  width    Float?
+  height   Float?
+  height3d Float? // Hauteur 3D en mètres
+  rotation Float?      @default(0)
+  image    String?     @db.Text
+  notes    String?
+  capacity Int?
+
+  // Corner radius pour forme arrondie
+  cornerRadiusTL Float? @default(0) // Top Left
+  cornerRadiusTR Float? @default(0) // Top Right
+  cornerRadiusBL Float? @default(0) // Bottom Left
+  cornerRadiusBR Float? @default(0) // Bottom Right
+
+  // Type-specific attributes (arrays stockés en JSON)
+  shopTypes          String[] // ['food', 'beverages', 'beer', ...]
+  storageTypes       String[] // ['dry', 'cold', 'belowzero', ...]
+  hospitalityTypes   String[] // ['lodges', 'salon', ...]
+  accessTypes        String[] // ['lift', 'staircase', ...]
+  entertainmentTypes String[] // ['sportground', 'stage', ...]
+  entranceTypes      String[] // ['public', 'vip', 'staff', ...]
+  kitchenTypes       String[] // ['fb', 'hospitality', 'storage', ...]
+
+  attributes Json? // Autres attributs flexibles
   tags       String[]
 
-  floor      Floor       @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  // Relations
+  floor          Floor               @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  performance    ElementPerformance?
+  staffPositions ElementStaff[]
+  inventoryItems ElementInventory[]
 
   @@index([floorId])
   @@index([type])
 }
 
+// ==================== ELEMENT PERFORMANCE ====================
+
+model ElementPerformance {
+  id                    String   @id @default(cuid())
+  elementId             String   @unique
+  revenue               Float?   @default(0)
+  numberOfPOS           Int?     @default(0)
+  numberOfTransactions  Float?   @default(0)
+  transactionsPerMinute Float?   @default(0)
+  staffCost             Float?   @default(0)
+  revenuePerEmployee    Float?   @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  element FloorElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+}
+
+// ==================== ELEMENT STAFF ====================
+
+model ElementStaff {
+  id         String   @id @default(cuid())
+  elementId  String
+  position   String // "Cashier", "Cook", "Security", etc.
+  count      Int      @default(1)
+  hourlyRate Float?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  element FloorElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+
+  @@index([elementId])
+}
+
+// ==================== ELEMENT INVENTORY ====================
+
+model ElementInventory {
+  id         String   @id @default(cuid())
+  elementId  String
+  name       String
+  quantity   Float    @default(0)
+  unit       String? // "units", "kg", "liters", etc.
+  minStock   Float? // Niveau minimum d'alerte
+  maxStock   Float? // Capacité maximum
+  isCustom   Boolean  @default(true) // true = item personnalisé, false = lié à menu
+  menuItemId String? // Référence optionnelle à un item du menu
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  element FloorElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+
+  @@index([elementId])
+  @@index([name])
+}
+
 model Forecourt {
-  id       String  @id
-  configId String  @unique
+  id       String @id
+  configId String @unique
   name     String
   width    Float
   length   Float
@@ -406,30 +498,104 @@ model ForecourtElement {
   depth       Float?
   width       Float?
   height      Float?
-  attributes  Json?       // Stocke entranceType[], etc.
-  tags        String[]
+  height3d    Float? // Hauteur 3D en mètres
+  rotation    Float?      @default(0)
+  image       String?     @db.Text
+  notes       String?
+  capacity    Int?
 
-  forecourt   Forecourt   @relation(fields: [forecourtId], references: [id], onDelete: Cascade)
+  // Corner radius
+  cornerRadiusTL Float? @default(0)
+  cornerRadiusTR Float? @default(0)
+  cornerRadiusBL Float? @default(0)
+  cornerRadiusBR Float? @default(0)
+
+  // Type-specific attributes
+  entranceTypes String[] // ['public', 'vip', 'staff', ...]
+  accessTypes   String[]
+
+  attributes Json? // Autres attributs flexibles
+  tags       String[]
+
+  // Relations
+  forecourt      Forecourt                    @relation(fields: [forecourtId], references: [id], onDelete: Cascade)
+  performance    ForecourtElementPerformance?
+  staffPositions ForecourtElementStaff[]
+  inventoryItems ForecourtElementInventory[]
 
   @@index([forecourtId])
   @@index([type])
 }
 
+// ==================== FORECOURT ELEMENT PERFORMANCE ====================
+
+model ForecourtElementPerformance {
+  id                    String   @id @default(cuid())
+  elementId             String   @unique
+  revenue               Float?   @default(0)
+  numberOfPOS           Int?     @default(0)
+  numberOfTransactions  Float?   @default(0)
+  transactionsPerMinute Float?   @default(0)
+  staffCost             Float?   @default(0)
+  revenuePerEmployee    Float?   @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  element ForecourtElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+}
+
+// ==================== FORECOURT ELEMENT STAFF ====================
+
+model ForecourtElementStaff {
+  id         String   @id @default(cuid())
+  elementId  String
+  position   String
+  count      Int      @default(1)
+  hourlyRate Float?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  element ForecourtElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+
+  @@index([elementId])
+}
+
+// ==================== FORECOURT ELEMENT INVENTORY ====================
+
+model ForecourtElementInventory {
+  id         String   @id @default(cuid())
+  elementId  String
+  name       String
+  quantity   Float    @default(0)
+  unit       String?
+  minStock   Float?
+  maxStock   Float?
+  isCustom   Boolean  @default(true)
+  menuItemId String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  element ForecourtElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+
+  @@index([elementId])
+  @@index([name])
+}
+
 // ==================== SUPPLIER & MARKET PRICES ====================
 
 model Supplier {
-  id           String        @id
-  name         String
-  email        String?
-  tel          String?
-  city         String?
-  address      String?
-  postcode     String?
-  picture      String?
-  sites        String[]      // Array of spaceIds
-  tenantId     String
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id        String   @id
+  name      String
+  email     String?
+  tel       String?
+  city      String?
+  address   String?
+  postcode  String?
+  picture   String?
+  sites     String[] // Array of spaceIds
+  tenantId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
   tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -440,27 +606,27 @@ model Supplier {
 }
 
 model MarketPrice {
-  id               String      @id
+  id               String   @id
   unit             String
   image            String?
-  price            Decimal     @db.Decimal(10, 2)
+  price            Decimal  @db.Decimal(10, 2)
   goodType         GoodType
   itemName         String
-  supplier         String?     // Nom du fournisseur
-  supplierId       String?     // ID du fournisseur
-  pricePerUnit     Decimal?    @db.Decimal(10, 4)
+  supplier         String? // Nom du fournisseur
+  supplierId       String? // ID du fournisseur
+  pricePerUnit     Decimal? @db.Decimal(10, 4)
   packedUnits      Int?
   numberOfUnits    Int?
   unitsPerPurchase Int?
   packingWidth     Float?
   packingHeight    Float?
   packingLength    Float?
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  supplierRel      Supplier?   @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  ingredients      Ingredient[]
-  packagings       Packaging[]
+  supplierRel Supplier?    @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  ingredients Ingredient[]
+  packagings  Packaging[]
 
   @@index([supplierId])
   @@index([goodType])
@@ -470,249 +636,249 @@ model MarketPrice {
 // ==================== WEEZEVENT SYNC ====================
 
 model WeezeventEvent {
-  id                String   @id @default(cuid())
-  weezeventId       String   @unique
-  tenantId          String
-  
+  id          String @id @default(cuid())
+  weezeventId String @unique
+  tenantId    String
+
   // Event data
-  name              String
-  organizationId    String
-  startDate         DateTime?
-  endDate           DateTime?
-  description       String?
-  location          String?
-  capacity          Int?
-  status            String?
-  
+  name           String
+  organizationId String
+  startDate      DateTime?
+  endDate        DateTime?
+  description    String?
+  location       String?
+  capacity       Int?
+  status         String?
+
   // Metadata
-  metadata          Json?
-  rawData           Json
-  
+  metadata Json?
+  rawData  Json
+
   // Audit
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  syncedAt          DateTime @default(now())
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
   // Relations
-  tenant            Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  transactions      WeezeventTransaction[]
-  locations         WeezeventLocation[]
-  
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  transactions WeezeventTransaction[]
+  locations    WeezeventLocation[]
+
   @@index([tenantId])
   @@index([weezeventId])
   @@index([startDate])
 }
 
 model WeezeventMerchant {
-  id                String   @id @default(cuid())
-  weezeventId       String   @unique
-  tenantId          String
-  
+  id          String @id @default(cuid())
+  weezeventId String @unique
+  tenantId    String
+
   // Merchant data
-  name              String
-  organizationId    String
-  description       String?
-  email             String?
-  phone             String?
-  address           Json?
-  
+  name           String
+  organizationId String
+  description    String?
+  email          String?
+  phone          String?
+  address        Json?
+
   // Metadata
-  metadata          Json?
-  rawData           Json
-  
+  metadata Json?
+  rawData  Json
+
   // Audit
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  syncedAt          DateTime @default(now())
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
   // Relations
-  tenant            Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  transactions      WeezeventTransaction[]
-  
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  transactions WeezeventTransaction[]
+
   @@index([tenantId])
   @@index([weezeventId])
 }
 
 model WeezeventLocation {
-  id                String   @id @default(cuid())
-  weezeventId       String   @unique
-  tenantId          String
-  eventId           String?
-  
+  id          String  @id @default(cuid())
+  weezeventId String  @unique
+  tenantId    String
+  eventId     String?
+
   // Location data
-  name              String
-  type              String?
-  capacity          Int?
-  coordinates       Json?
-  
+  name        String
+  type        String?
+  capacity    Int?
+  coordinates Json?
+
   // Metadata
-  metadata          Json?
-  rawData           Json
-  
+  metadata Json?
+  rawData  Json
+
   // Audit
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  syncedAt          DateTime @default(now())
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
   // Relations
-  tenant            Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  event             WeezeventEvent?          @relation(fields: [eventId], references: [id])
-  transactions      WeezeventTransaction[]
-  
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  event        WeezeventEvent?        @relation(fields: [eventId], references: [id])
+  transactions WeezeventTransaction[]
+
   @@index([tenantId])
   @@index([weezeventId])
   @@index([eventId])
 }
 
 model WeezeventProduct {
-  id                String   @id @default(cuid())
-  weezeventId       String   @unique
-  tenantId          String
-  
+  id          String @id @default(cuid())
+  weezeventId String @unique
+  tenantId    String
+
   // Product data
-  name              String
-  description       String?
-  category          String?
-  basePrice         Decimal?  @db.Decimal(10, 2)
-  vatRate           Decimal?  @db.Decimal(5, 2)
-  image             String?
-  allergens         String[]
-  
+  name        String
+  description String?
+  category    String?
+  basePrice   Decimal? @db.Decimal(10, 2)
+  vatRate     Decimal? @db.Decimal(5, 2)
+  image       String?
+  allergens   String[]
+
   // Composition
-  isCompound        Boolean  @default(false)
-  components        Json?
-  variants          Json?
-  
+  isCompound Boolean @default(false)
+  components Json?
+  variants   Json?
+
   // Metadata
-  metadata          Json?
-  rawData           Json
-  
+  metadata Json?
+  rawData  Json
+
   // Audit
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  syncedAt          DateTime @default(now())
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
   // Relations
-  tenant            Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  transactionItems  WeezeventTransactionItem[]
-  
+  tenant           Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  transactionItems WeezeventTransactionItem[]
+
   @@index([tenantId])
   @@index([weezeventId])
   @@index([category])
 }
 
 model WeezeventUser {
-  id                String   @id @default(cuid())
-  weezeventId       String   @unique
-  tenantId          String
-  
+  id          String @id @default(cuid())
+  weezeventId String @unique
+  tenantId    String
+
   // User data (Client)
-  email             String?
-  firstName         String?
-  lastName          String?
-  phone             String?
-  birthdate         DateTime?
-  address           Json?
-  
+  email     String?
+  firstName String?
+  lastName  String?
+  phone     String?
+  birthdate DateTime?
+  address   Json?
+
   // Wallet
-  walletId          String?
-  
+  walletId String?
+
   // GDPR
-  gdprConsent       Boolean  @default(false)
-  marketingConsent  Boolean  @default(false)
-  
+  gdprConsent      Boolean @default(false)
+  marketingConsent Boolean @default(false)
+
   // Metadata
-  metadata          Json?
-  rawData           Json
-  
+  metadata Json?
+  rawData  Json
+
   // Audit
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  syncedAt          DateTime @default(now())
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
   // Relations
-  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  wallet            WeezeventWallet?  @relation(fields: [walletId], references: [id])
-  
+  tenant Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  wallet WeezeventWallet? @relation(fields: [walletId], references: [id])
+
   @@index([tenantId])
   @@index([weezeventId])
   @@index([email])
 }
 
 model WeezeventWallet {
-  id                String   @id @default(cuid())
-  weezeventId       String   @unique
-  tenantId          String
-  
+  id          String @id @default(cuid())
+  weezeventId String @unique
+  tenantId    String
+
   // Wallet data
-  balance           Decimal  @db.Decimal(10, 2)
-  currency          String
-  userId            String?
-  walletGroupId     String?
-  status            String
-  
+  balance       Decimal @db.Decimal(10, 2)
+  currency      String
+  userId        String?
+  walletGroupId String?
+  status        String
+
   // Card info
-  cardNumber        String?
-  cardType          String?
-  
+  cardNumber String?
+  cardType   String?
+
   // Metadata
-  metadata          Json?
-  rawData           Json
-  
+  metadata Json?
+  rawData  Json
+
   // Audit
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  syncedAt          DateTime @default(now())
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
   // Relations
-  tenant            Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  users             WeezeventUser[]
+  tenant             Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users              WeezeventUser[]
   sellerTransactions WeezeventTransaction[] @relation("SellerWallet")
-  
+
   @@index([tenantId])
   @@index([weezeventId])
   @@index([userId])
 }
 
 model WeezeventTransaction {
-  id                String   @id @default(cuid())
-  weezeventId       String   @unique
-  tenantId          String
-  
+  id          String @id @default(cuid())
+  weezeventId String @unique
+  tenantId    String
+
   // Transaction data
-  amount            Decimal  @db.Decimal(10, 2)
-  status            String
-  transactionDate   DateTime
-  
+  amount          Decimal  @db.Decimal(10, 2)
+  status          String
+  transactionDate DateTime
+
   // Event and merchant info
-  eventId           String?
-  eventName         String?
-  merchantId        String?
-  merchantName      String?
-  locationId        String?
-  locationName      String?
-  
+  eventId      String?
+  eventName    String?
+  merchantId   String?
+  merchantName String?
+  locationId   String?
+  locationName String?
+
   // Seller info
-  sellerId          String?
-  sellerWalletId    String?
-  
+  sellerId       String?
+  sellerWalletId String?
+
   // Metadata
-  metadata          Json?
-  rawData           Json
-  
+  metadata Json?
+  rawData  Json
+
   // Audit
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  syncedAt          DateTime @default(now())
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
   // Relations
-  tenant            Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  event             WeezeventEvent?             @relation(fields: [eventId], references: [id])
-  merchant          WeezeventMerchant?          @relation(fields: [merchantId], references: [id])
-  location          WeezeventLocation?          @relation(fields: [locationId], references: [id])
-  sellerWallet      WeezeventWallet?            @relation("SellerWallet", fields: [sellerWalletId], references: [id])
-  items             WeezeventTransactionItem[]
-  
+  tenant       Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  event        WeezeventEvent?            @relation(fields: [eventId], references: [id])
+  merchant     WeezeventMerchant?         @relation(fields: [merchantId], references: [id])
+  location     WeezeventLocation?         @relation(fields: [locationId], references: [id])
+  sellerWallet WeezeventWallet?           @relation("SellerWallet", fields: [sellerWalletId], references: [id])
+  items        WeezeventTransactionItem[]
+
   @@index([tenantId])
   @@index([weezeventId])
   @@index([eventId])
@@ -732,28 +898,28 @@ model WeezeventTransaction {
 
 // Track sync state per tenant/type for incremental sync
 model WeezeventSyncState {
-  id                  String   @id @default(cuid())
-  tenantId            String
-  syncType            String   // 'events', 'transactions', 'products', 'wallets', 'users'
-  
+  id       String @id @default(cuid())
+  tenantId String
+  syncType String // 'events', 'transactions', 'products', 'wallets', 'users'
+
   // Cursor-based sync (most efficient)
-  lastSyncedAt        DateTime?           // Last successful sync time
-  lastCursor          String?             // API cursor for pagination
-  lastWeezeventId     String?             // Last processed Weezevent ID
-  lastUpdatedAt       DateTime?           // Last 'updated_at' from API
-  
+  lastSyncedAt    DateTime? // Last successful sync time
+  lastCursor      String? // API cursor for pagination
+  lastWeezeventId String? // Last processed Weezevent ID
+  lastUpdatedAt   DateTime? // Last 'updated_at' from API
+
   // Stats
-  totalSynced         Int      @default(0)
-  lastSyncCount       Int      @default(0)
-  lastSyncDuration    Int?                // Duration in ms
-  lastError           String?
-  consecutiveErrors   Int      @default(0)
-  
+  totalSynced       Int     @default(0)
+  lastSyncCount     Int     @default(0)
+  lastSyncDuration  Int? // Duration in ms
+  lastError         String?
+  consecutiveErrors Int     @default(0)
+
   // Checkpoints for large syncs
-  checkpoint          Json?               // Store progress for resumable syncs
-  
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  checkpoint Json? // Store progress for resumable syncs
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([tenantId, syncType])
   @@index([tenantId])
@@ -764,28 +930,28 @@ model WeezeventSyncState {
 // ==================== WEEZEVENT WEBHOOK ====================
 
 model WeezeventWebhookEvent {
-  id            String   @id @default(cuid())
-  tenantId      String
-  
+  id       String @id @default(cuid())
+  tenantId String
+
   // Webhook data
-  eventType     String   // transaction, refill, transfer, wallet
-  method        String   // create, update, delete
-  payload       Json     // Full webhook body
-  signature     String?  // X-Weezevent-Signature header
-  
+  eventType String // transaction, refill, transfer, wallet
+  method    String // create, update, delete
+  payload   Json // Full webhook body
+  signature String? // X-Weezevent-Signature header
+
   // Processing
-  processed     Boolean  @default(false)
-  processedAt   DateTime?
-  error         String?
-  retryCount    Int      @default(0)
-  
+  processed   Boolean   @default(false)
+  processedAt DateTime?
+  error       String?
+  retryCount  Int       @default(0)
+
   // Audit
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
   @@index([tenantId])
   @@index([eventType])
   @@index([processed])
@@ -793,30 +959,30 @@ model WeezeventWebhookEvent {
 }
 
 model WeezeventTransactionItem {
-  id                String   @id @default(cuid())
-  transactionId     String
-  weezeventItemId   String?
-  
+  id              String  @id @default(cuid())
+  transactionId   String
+  weezeventItemId String?
+
   // Item data
-  productId         String?
-  productName       String?
-  compoundId        String?
-  quantity          Int
-  unitPrice         Decimal  @db.Decimal(10, 2)
-  vat               Decimal  @db.Decimal(5, 2)
-  reduction         Decimal  @db.Decimal(5, 2) @default(0)
-  
+  productId   String?
+  productName String?
+  compoundId  String?
+  quantity    Int
+  unitPrice   Decimal @db.Decimal(10, 2)
+  vat         Decimal @db.Decimal(5, 2)
+  reduction   Decimal @default(0) @db.Decimal(5, 2)
+
   // Metadata
-  rawData           Json
-  
+  rawData Json
+
   // Audit
-  createdAt         DateTime @default(now())
-  
+  createdAt DateTime @default(now())
+
   // Relations
-  transaction       WeezeventTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  product           WeezeventProduct?    @relation(fields: [productId], references: [id])
-  payments          WeezeventPayment[]
-  
+  transaction WeezeventTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  product     WeezeventProduct?    @relation(fields: [productId], references: [id])
+  payments    WeezeventPayment[]
+
   @@index([transactionId])
   @@index([productId])
   @@index([weezeventItemId])
@@ -825,27 +991,27 @@ model WeezeventTransactionItem {
 }
 
 model WeezeventPayment {
-  id                String   @id @default(cuid())
-  itemId            String
+  id                 String  @id @default(cuid())
+  itemId             String
   weezeventPaymentId String?
-  
+
   // Payment data
-  walletId          String?
-  amount            Decimal  @db.Decimal(10, 2)
-  amountVat         Decimal  @db.Decimal(10, 2)
-  currencyId        String?
-  quantity          Int
-  paymentMethodId   String?
-  
+  walletId        String?
+  amount          Decimal @db.Decimal(10, 2)
+  amountVat       Decimal @db.Decimal(10, 2)
+  currencyId      String?
+  quantity        Int
+  paymentMethodId String?
+
   // Metadata
-  rawData           Json
-  
+  rawData Json
+
   // Audit
-  createdAt         DateTime @default(now())
-  
+  createdAt DateTime @default(now())
+
   // Relations
-  item              WeezeventTransactionItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  
+  item WeezeventTransactionItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
   @@index([itemId])
   @@index([walletId])
 }
@@ -853,24 +1019,24 @@ model WeezeventPayment {
 // ==================== INGREDIENTS & PACKAGING ====================
 
 model Ingredient {
-  id                          String              @id
-  name                        String
-  active                      Boolean             @default(true)
-  supplier                    String?
-  recipeUnit                  String
-  storageType                 StorageType?
-  purchaseUnit                String
-  marketPriceId               String?
-  costPerRecipeUnit           Decimal?            @db.Decimal(10, 4)
-  ingredientCategory          IngredientCategory?
-  costPerPurchaseUnit         Decimal?            @db.Decimal(10, 4)
-  purchaseUnitsPerRecipeUnit  Float?
-  createdAt                   DateTime            @default(now())
-  updatedAt                   DateTime            @updatedAt
+  id                         String              @id
+  name                       String
+  active                     Boolean             @default(true)
+  supplier                   String?
+  recipeUnit                 String
+  storageType                StorageType?
+  purchaseUnit               String
+  marketPriceId              String?
+  costPerRecipeUnit          Decimal?            @db.Decimal(10, 4)
+  ingredientCategory         IngredientCategory?
+  costPerPurchaseUnit        Decimal?            @db.Decimal(10, 4)
+  purchaseUnitsPerRecipeUnit Float?
+  createdAt                  DateTime            @default(now())
+  updatedAt                  DateTime            @updatedAt
 
-  marketPrice                 MarketPrice?        @relation(fields: [marketPriceId], references: [id], onDelete: SetNull)
-  componentIngredients        ComponentIngredient[]
-  menuItemIngredients         MenuItemIngredient[]
+  marketPrice          MarketPrice?          @relation(fields: [marketPriceId], references: [id], onDelete: SetNull)
+  componentIngredients ComponentIngredient[]
+  menuItemIngredients  MenuItemIngredient[]
 
   @@index([name])
   @@index([active])
@@ -878,23 +1044,23 @@ model Ingredient {
 }
 
 model Packaging {
-  id                          String              @id
-  name                        String
-  active                      Boolean             @default(true)
-  supplier                    String?
-  recipeUnit                  String
-  storageType                 StorageType?
-  purchaseUnit                String
-  marketPriceId               String?
-  costPerRecipeUnit           Decimal?            @db.Decimal(10, 4)
-  ingredientCategory          String?
-  costPerPurchaseUnit         Decimal?            @db.Decimal(10, 4)
-  purchaseUnitsPerRecipeUnit  Float?
-  createdAt                   DateTime            @default(now())
-  updatedAt                   DateTime            @updatedAt
+  id                         String       @id
+  name                       String
+  active                     Boolean      @default(true)
+  supplier                   String?
+  recipeUnit                 String
+  storageType                StorageType?
+  purchaseUnit               String
+  marketPriceId              String?
+  costPerRecipeUnit          Decimal?     @db.Decimal(10, 4)
+  ingredientCategory         String?
+  costPerPurchaseUnit        Decimal?     @db.Decimal(10, 4)
+  purchaseUnitsPerRecipeUnit Float?
+  createdAt                  DateTime     @default(now())
+  updatedAt                  DateTime     @updatedAt
 
-  marketPrice                 MarketPrice?        @relation(fields: [marketPriceId], references: [id], onDelete: SetNull)
-  menuItemPackagings          MenuItemPackaging[]
+  marketPrice        MarketPrice?        @relation(fields: [marketPriceId], references: [id], onDelete: SetNull)
+  menuItemPackagings MenuItemPackaging[]
 
   @@index([name])
   @@index([active])
@@ -903,40 +1069,40 @@ model Packaging {
 // ==================== MENU COMPONENTS ====================
 
 model MenuComponent {
-  id                   String            @id
-  name                 String
-  unit                 String
-  category             String            // Flexible pour "Food", "Sauce", etc.
-  unitCost             Decimal?          @db.Decimal(10, 4)
-  allergens            String[]
-  description          String?
-  storageType          StorageType?
-  subComponents        Json?             // Pour stocker les subComponents JSON de Figma
-  componentCategory    String?           // "Veg", "Sauce", etc.
-  numberOfUnitsRecipe  Int?              // Nombre d'unités par recette
-  createdAt            DateTime          @default(now())
-  updatedAt            DateTime          @updatedAt
+  id                  String       @id
+  name                String
+  unit                String
+  category            String // Flexible pour "Food", "Sauce", etc.
+  unitCost            Decimal?     @db.Decimal(10, 4)
+  allergens           String[]
+  description         String?
+  storageType         StorageType?
+  subComponents       Json? // Pour stocker les subComponents JSON de Figma
+  componentCategory   String? // "Veg", "Sauce", etc.
+  numberOfUnitsRecipe Int? // Nombre d'unités par recette
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
 
-  ingredients   ComponentIngredient[]
-  children      ComponentComponent[]  @relation("ParentToChild")
-  parents       ComponentComponent[]  @relation("ChildToParent")
-  usedIn        MenuItemComponent[]
+  ingredients ComponentIngredient[]
+  children    ComponentComponent[]  @relation("ParentToChild")
+  parents     ComponentComponent[]  @relation("ChildToParent")
+  usedIn      MenuItemComponent[]
 
   @@index([name])
   @@index([category])
 }
 
 model ComponentIngredient {
-  id           String        @id @default(cuid())
+  id           String   @id @default(cuid())
   componentId  String
   ingredientId String
   quantity     Float
   unit         String?
-  unitCost     Decimal?      @db.Decimal(10, 4)
-  cost         Decimal?      @db.Decimal(10, 4)
+  unitCost     Decimal? @db.Decimal(10, 4)
+  cost         Decimal? @db.Decimal(10, 4)
 
-  component    MenuComponent @relation(fields: [componentId], references: [id], onDelete: Cascade)
-  ingredient   Ingredient    @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  component  MenuComponent @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  ingredient Ingredient    @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
 
   @@unique([componentId, ingredientId])
   @@index([componentId])
@@ -944,15 +1110,15 @@ model ComponentIngredient {
 }
 
 model ComponentComponent {
-  id        String        @id @default(cuid())
-  parentId  String
-  childId   String
-  quantity  Float
-  unit      String?
-  cost      Decimal?      @db.Decimal(10, 4)
+  id       String   @id @default(cuid())
+  parentId String
+  childId  String
+  quantity Float
+  unit     String?
+  cost     Decimal? @db.Decimal(10, 4)
 
-  parent    MenuComponent @relation("ParentToChild", fields: [parentId], references: [id], onDelete: Cascade)
-  child     MenuComponent @relation("ChildToParent", fields: [childId], references: [id], onDelete: Cascade)
+  parent MenuComponent @relation("ParentToChild", fields: [parentId], references: [id], onDelete: Cascade)
+  child  MenuComponent @relation("ChildToParent", fields: [childId], references: [id], onDelete: Cascade)
 
   @@unique([parentId, childId])
   @@index([parentId])
@@ -965,14 +1131,14 @@ model ComponentComponent {
 
 // Types dynamiques de produits (Beverage, Food, Combo, Glasses, Ticket/Bracelets...)
 model ProductType {
-  id          String   @id
-  name        String
-  tenantId    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id
+  name      String
+  tenantId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  categories  ProductCategory[]
-  menuItems   MenuItem[]
+  categories ProductCategory[]
+  menuItems  MenuItem[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -981,15 +1147,15 @@ model ProductType {
 
 // Catégories dynamiques de produits (Beer, Soft Drink, Main, Desert...)
 model ProductCategory {
-  id          String   @id
-  name        String
-  typeId      String
-  tenantId    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id
+  name      String
+  typeId    String
+  tenantId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  type        ProductType @relation(fields: [typeId], references: [id], onDelete: Cascade)
-  menuItems   MenuItem[]
+  type      ProductType @relation(fields: [typeId], references: [id], onDelete: Cascade)
+  menuItems MenuItem[]
 
   @@unique([tenantId, typeId, name])
   @@index([tenantId])
@@ -1000,33 +1166,33 @@ model ProductCategory {
 // ==================== MENU ITEMS ====================
 
 model MenuItem {
-  id                    String            @id
-  name                  String
-  type                  String            // Legacy field - kept for compatibility
-  typeId                String?           // FK to ProductType
-  category              MenuItemCategory  // Legacy enum - kept for compatibility
-  categoryId            String?           // FK to ProductCategory
-  diet                  Diet[]
-  allergens             String[]
-  picture               String?
-  basePrice             Decimal           @db.Decimal(10, 2)
-  totalCost             Decimal?          @db.Decimal(12, 4)
-  margin                Float?
-  description           String?
-  storageType           StorageType[]
-  readyForSale          String?           // "Yes", "No" ou null
-  comboItem             String?           // "Yes", "No" ou null
-  numberOfPiecesRecipe  Int?
-  componentsData        Json?             // Pour stocker les components JSON de Figma
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
+  id                   String           @id
+  name                 String
+  type                 String // Legacy field - kept for compatibility
+  typeId               String? // FK to ProductType
+  category             MenuItemCategory // Legacy enum - kept for compatibility
+  categoryId           String? // FK to ProductCategory
+  diet                 Diet[]
+  allergens            String[]
+  picture              String?
+  basePrice            Decimal          @db.Decimal(10, 2)
+  totalCost            Decimal?         @db.Decimal(12, 4)
+  margin               Float?
+  description          String?
+  storageType          StorageType[]
+  readyForSale         String? // "Yes", "No" ou null
+  comboItem            String? // "Yes", "No" ou null
+  numberOfPiecesRecipe Int?
+  componentsData       Json? // Pour stocker les components JSON de Figma
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
 
-  productType           ProductType?      @relation(fields: [typeId], references: [id])
-  productCategory       ProductCategory?  @relation(fields: [categoryId], references: [id])
-  components            MenuItemComponent[]
-  ingredients           MenuItemIngredient[]
-  packagings            MenuItemPackaging[]
-  menuAssignments       MenuAssignment[]
+  productType     ProductType?         @relation(fields: [typeId], references: [id])
+  productCategory ProductCategory?     @relation(fields: [categoryId], references: [id])
+  components      MenuItemComponent[]
+  ingredients     MenuItemIngredient[]
+  packagings      MenuItemPackaging[]
+  menuAssignments MenuAssignment[]
 
   @@index([name])
   @@index([category])
@@ -1036,16 +1202,16 @@ model MenuItem {
 }
 
 model MenuItemComponent {
-  id            String        @id @default(cuid())
+  id            String       @id @default(cuid())
   menuItemId    String
   componentId   String
   numberOfUnits Float
-  unitCost      Decimal?      @db.Decimal(10, 4)
-  totalCost     Decimal?      @db.Decimal(12, 4)
+  unitCost      Decimal?     @db.Decimal(10, 4)
+  totalCost     Decimal?     @db.Decimal(12, 4)
   storageType   StorageType?
 
-  menuItem      MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
-  component     MenuComponent @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  menuItem  MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  component MenuComponent @relation(fields: [componentId], references: [id], onDelete: Cascade)
 
   @@unique([menuItemId, componentId])
   @@index([menuItemId])
@@ -1053,16 +1219,16 @@ model MenuItemComponent {
 }
 
 model MenuItemIngredient {
-  id            String      @id @default(cuid())
+  id            String       @id @default(cuid())
   menuItemId    String
   ingredientId  String
   numberOfUnits Float
-  unitCost      Decimal?    @db.Decimal(10, 4)
-  totalCost     Decimal?    @db.Decimal(12, 4)
+  unitCost      Decimal?     @db.Decimal(10, 4)
+  totalCost     Decimal?     @db.Decimal(12, 4)
   storageType   StorageType?
 
-  menuItem      MenuItem    @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
-  ingredient    Ingredient  @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  menuItem   MenuItem   @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
 
   @@unique([menuItemId, ingredientId])
   @@index([menuItemId])
@@ -1070,16 +1236,16 @@ model MenuItemIngredient {
 }
 
 model MenuItemPackaging {
-  id            String      @id @default(cuid())
+  id            String       @id @default(cuid())
   menuItemId    String
   packagingId   String
   numberOfUnits Float
-  unitCost      Decimal?    @db.Decimal(10, 4)
-  totalCost     Decimal?    @db.Decimal(12, 4)
+  unitCost      Decimal?     @db.Decimal(10, 4)
+  totalCost     Decimal?     @db.Decimal(12, 4)
   storageType   StorageType?
 
-  menuItem      MenuItem    @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
-  packaging     Packaging   @relation(fields: [packagingId], references: [id], onDelete: Cascade)
+  menuItem  MenuItem  @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  packaging Packaging @relation(fields: [packagingId], references: [id], onDelete: Cascade)
 
   @@unique([menuItemId, packagingId])
   @@index([menuItemId])
@@ -1091,12 +1257,12 @@ model MenuItemPackaging {
 model Station {
   id        String   @id // Garder les IDs comme "1761836020929"
   configId  String
-  name      String?  // Nom optionnel
+  name      String? // Nom optionnel
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  config    Config           @relation(fields: [configId], references: [id], onDelete: Cascade)
-  menus     MenuAssignment[]
+  config Config           @relation(fields: [configId], references: [id], onDelete: Cascade)
+  menus  MenuAssignment[]
 
   @@index([configId])
 }
@@ -1109,8 +1275,8 @@ model MenuAssignment {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  station    Station  @relation(fields: [stationId], references: [id], onDelete: Cascade)
-  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  station  Station  @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
 
   @@unique([stationId, menuItemId])
   @@index([stationId])
@@ -1133,14 +1299,14 @@ model CsvMapping {
 
 // Types d'événements (Concert, Sport Match, Conference...)
 model EventType {
-  id          String          @id @default(uuid())
-  name        String
-  tenantId    String?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  id        String   @id @default(uuid())
+  name      String
+  tenantId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  categories  EventCategory[]
-  events      Event[]
+  categories EventCategory[]
+  events     Event[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -1149,12 +1315,12 @@ model EventType {
 
 // Catégories d'événements (Show, Ligue 1, Festival...)
 model EventCategory {
-  id          String    @id @default(uuid())
+  id          String   @id @default(uuid())
   name        String
   eventTypeId String
   tenantId    String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   eventType     EventType          @relation(fields: [eventTypeId], references: [id], onDelete: Cascade)
   subcategories EventSubcategory[]
@@ -1168,15 +1334,15 @@ model EventCategory {
 
 // Sous-catégories d'événements (Communautaire, International, Régional...)
 model EventSubcategory {
-  id              String        @id @default(uuid())
+  id              String   @id @default(uuid())
   name            String
   eventCategoryId String
   tenantId        String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  eventCategory   EventCategory @relation(fields: [eventCategoryId], references: [id], onDelete: Cascade)
-  events          Event[]
+  eventCategory EventCategory @relation(fields: [eventCategoryId], references: [id], onDelete: Cascade)
+  events        Event[]
 
   @@unique([tenantId, eventCategoryId, name])
   @@index([tenantId])
@@ -1186,41 +1352,41 @@ model EventSubcategory {
 
 // Événements planifiés
 model Event {
-  id                  String          @id @default(uuid())
-  name                String
-  eventDate           DateTime
-  spaceId             String?
-  configurationId     String?
-  eventTypeId         String?
-  eventCategoryId     String?
-  eventSubcategoryId  String?
-  tenantId            String?
-  
+  id                 String   @id @default(uuid())
+  name               String
+  eventDate          DateTime
+  spaceId            String?
+  configurationId    String?
+  eventTypeId        String?
+  eventCategoryId    String?
+  eventSubcategoryId String?
+  tenantId           String?
+
   // Event details
-  location            String?
-  spaceName           String?
-  sessions            String?         // "Open/Show" info
-  numberOfSessions    Int?
-  hasOpeningAct       Boolean?
-  hasIntermission     Boolean?
-  
+  location         String?
+  spaceName        String?
+  sessions         String? // "Open/Show" info
+  numberOfSessions Int?
+  hasOpeningAct    Boolean?
+  hasIntermission  Boolean?
+
   // Revenue tracking (calculated)
-  revenue             Decimal?        @db.Decimal(12, 2)
-  transactionCount    Int?
-  avgSpendPerTx       Decimal?        @db.Decimal(10, 2)
-  perCapita           Decimal?        @db.Decimal(10, 2)
-  
+  revenue          Decimal? @db.Decimal(12, 2)
+  transactionCount Int?
+  avgSpendPerTx    Decimal? @db.Decimal(10, 2)
+  perCapita        Decimal? @db.Decimal(10, 2)
+
   // Status
-  status              String?         // "success", "pending", etc.
-  calculatedAt        DateTime?
-  
-  createdAt           DateTime        @default(now())
-  updatedAt           DateTime        @updatedAt
+  status       String? // "success", "pending", etc.
+  calculatedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  eventType           EventType?         @relation(fields: [eventTypeId], references: [id])
-  eventCategory       EventCategory?     @relation(fields: [eventCategoryId], references: [id])
-  eventSubcategory    EventSubcategory?  @relation(fields: [eventSubcategoryId], references: [id])
+  eventType        EventType?        @relation(fields: [eventTypeId], references: [id])
+  eventCategory    EventCategory?    @relation(fields: [eventCategoryId], references: [id])
+  eventSubcategory EventSubcategory? @relation(fields: [eventSubcategoryId], references: [id])
 
   @@index([tenantId])
   @@index([spaceId])

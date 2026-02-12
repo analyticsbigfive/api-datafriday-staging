@@ -660,8 +660,9 @@ export class SpacesService {
         // Create elements for this floor
         const elements = floor.elements || [];
         for (const element of elements) {
-          // Map frontend type to enum
+          // Map frontend type to enum, but store original in attributes
           const elementType = this.mapElementType(element.type);
+          const originalType = element.type; // Keep the original like 'fnb-food'
           
           const createdElement = await tx.floorElement.create({
             data: {
@@ -691,7 +692,8 @@ export class SpacesService {
               entranceTypes: element.entranceType || [],
               kitchenTypes: element.kitchenType || [],
               tags: element.tags || [],
-              attributes: element.attributes || null,
+              // Store original type and other attributes
+              attributes: { ...element.attributes, originalType },
             },
           });
 
@@ -761,6 +763,7 @@ export class SpacesService {
         const forecourtElements = forecourt.elements || [];
         for (const element of forecourtElements) {
           const elementType = this.mapElementType(element.type);
+          const originalType = element.type; // Keep the original type
           
           const createdElement = await tx.forecourtElement.create({
             data: {
@@ -785,7 +788,8 @@ export class SpacesService {
               entranceTypes: element.entranceType || [],
               accessTypes: element.accessType || [],
               tags: element.tags || [],
-              attributes: element.attributes || null,
+              // Store original type in attributes
+              attributes: { ...element.attributes, originalType },
             },
           });
 
@@ -833,14 +837,14 @@ export class SpacesService {
 
   /**
    * Map frontend element type to Prisma ElementType enum
+   * Frontend uses composite types like 'fnb-food', 'merch-temporary'
+   * We map to the closest enum value or 'other' as fallback
    */
   private mapElementType(type: string): any {
-    const typeMap: Record<string, string> = {
-      'fnb-food': 'fnb_food',
-      'fnb-beverages': 'fnb_beverages',
-      'fnb-bar': 'fnb_bar',
-      'fnb-snack': 'fnb_snack',
-      'fnb-icecream': 'fnb_icecream',
+    if (!type) return 'other';
+    
+    // Direct mappings
+    const directMap: Record<string, string> = {
       'shop': 'shop',
       'storage': 'storage',
       'hospitality': 'hospitality',
@@ -854,8 +858,64 @@ export class SpacesService {
       'parking': 'parking',
       'restroom': 'restroom',
       'office': 'office',
+      'other': 'other',
     };
-    return typeMap[type] || 'other';
+    
+    if (directMap[type]) return directMap[type];
+    
+    // F&B types
+    if (type.startsWith('fnb-')) {
+      const subType = type.replace('fnb-', '');
+      const fnbMap: Record<string, string> = {
+        'food': 'fnb_food',
+        'beverages': 'fnb_beverages',
+        'bar': 'fnb_bar',
+        'snack': 'fnb_snack',
+        'icecream': 'fnb_icecream',
+        'beer': 'fnb_bar',
+        'gppremium': 'fnb_food',
+        'temporary': 'fnb_food',
+        'drinkee': 'fnb_beverages',
+      };
+      return fnbMap[subType] || 'fnb_food';
+    }
+    
+    // Merch types
+    if (type.startsWith('merch-')) {
+      return 'merchshop';
+    }
+    
+    // Storage types
+    if (type.startsWith('storage-')) {
+      return 'storage';
+    }
+    
+    // Hospitality types
+    if (type.startsWith('hospitality-')) {
+      return 'hospitality';
+    }
+    
+    // Access types
+    if (type.startsWith('access-')) {
+      return 'access';
+    }
+    
+    // Entertainment types  
+    if (type.startsWith('entertainment-')) {
+      return 'entertainment';
+    }
+    
+    // Entrance types
+    if (type.startsWith('entrance-')) {
+      return 'entrance';
+    }
+    
+    // Kitchen types
+    if (type.startsWith('kitchen-')) {
+      return 'kitchen';
+    }
+    
+    return 'other';
   }
 
   /**
@@ -947,29 +1007,46 @@ export class SpacesService {
       throw new ForbiddenException('Access denied to this configuration');
     }
 
-    // Transform normalized data back to the frontend format
-    const transformedFloors = config.floors.map((floor) => ({
-      id: floor.id,
-      name: floor.name,
-      level: floor.level,
-      width: floor.width,
-      height: floor.height,
-      length: floor.length,
-      cornerRadius: floor.cornerRadius,
-      elements: floor.elements.map((el) => this.transformElement(el)),
-    }));
-
-    const transformedForecourt = config.forecourt
-      ? {
-          id: config.forecourt.id,
-          name: config.forecourt.name,
-          width: config.forecourt.width,
-          length: config.forecourt.length,
-          elements: config.forecourt.elements.map((el) =>
-            this.transformForecourtElement(el),
-          ),
-        }
-      : null;
+    // Check if we have properly migrated normalized data
+    // We check if elements have originalType in attributes (new format)
+    const hasProperlyMigratedData = config.floors.some(f => 
+      f.elements && f.elements.length > 0 && 
+      f.elements.some(el => (el.attributes as any)?.originalType)
+    );
+    const jsonData = config.data as any;
+    
+    let transformedFloors: any[];
+    let transformedForecourt: any;
+    
+    if (hasProperlyMigratedData) {
+      // Use normalized tables data (properly migrated with originalType)
+      transformedFloors = config.floors.map((floor) => ({
+        id: floor.id,
+        name: floor.name,
+        level: floor.level,
+        width: floor.width,
+        height: floor.height,
+        length: floor.length,
+        cornerRadius: floor.cornerRadius,
+        elements: floor.elements.map((el) => this.transformElement(el)),
+      }));
+      
+      transformedForecourt = config.forecourt
+        ? {
+            id: config.forecourt.id,
+            name: config.forecourt.name,
+            width: config.forecourt.width,
+            length: config.forecourt.length,
+            elements: config.forecourt.elements.map((el) =>
+              this.transformForecourtElement(el),
+            ),
+          }
+        : null;
+    } else {
+      // Fallback to JSON data (legacy or not properly migrated)
+      transformedFloors = jsonData?.floors || [];
+      transformedForecourt = jsonData?.forecourt || null;
+    }
 
     // Return config with transformed data for frontend compatibility
     return {
@@ -985,10 +1062,14 @@ export class SpacesService {
    * Transform a floor element from DB to frontend format
    */
   private transformElement(element: any) {
+    // Use originalType from attributes if available, otherwise reverse map from enum
+    const attrs = element.attributes as any;
+    const originalType = attrs?.originalType || this.reverseMapElementType(element.type);
+    
     return {
       id: element.id,
       name: element.name,
-      type: this.reverseMapElementType(element.type),
+      type: originalType, // Return original frontend type
       x: element.x,
       y: element.y,
       width: element.width,
@@ -1047,10 +1128,14 @@ export class SpacesService {
    * Transform a forecourt element from DB to frontend format
    */
   private transformForecourtElement(element: any) {
+    // Use originalType from attributes if available
+    const attrs = element.attributes as any;
+    const originalType = attrs?.originalType || this.reverseMapElementType(element.type);
+    
     return {
       id: element.id,
       name: element.name,
-      type: this.reverseMapElementType(element.type),
+      type: originalType, // Return original frontend type
       x: element.x,
       y: element.y,
       width: element.width,

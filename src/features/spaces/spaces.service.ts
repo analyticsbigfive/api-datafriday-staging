@@ -959,40 +959,25 @@ export class SpacesService {
 
   /**
    * Get a single configuration by ID
+   * Optimized: Uses JSON blob for fast display, normalized tables for queries
    */
   async getConfiguration(configId: string, tenantId: string) {
-    // First get config with space for authorization check
+    // Fast query - only get config with JSON data
     const config = await this.prisma.config.findUnique({
       where: { id: configId },
-      include: {
+      select: {
+        id: true,
+        name: true,
+        spaceId: true,
+        capacity: true,
+        data: true,
+        createdAt: true,
+        updatedAt: true,
         space: {
           select: {
             id: true,
             name: true,
             tenantId: true,
-          },
-        },
-        floors: {
-          include: {
-            elements: {
-              include: {
-                performance: true,
-                staffPositions: true,
-                inventoryItems: true,
-              },
-            },
-          },
-          orderBy: { level: 'asc' },
-        },
-        forecourt: {
-          include: {
-            elements: {
-              include: {
-                performance: true,
-                staffPositions: true,
-                inventoryItems: true,
-              },
-            },
           },
         },
       },
@@ -1007,53 +992,22 @@ export class SpacesService {
       throw new ForbiddenException('Access denied to this configuration');
     }
 
-    // Check if we have properly migrated normalized data
-    // We check if elements have originalType in attributes (new format)
-    const hasProperlyMigratedData = config.floors.some(f => 
-      f.elements && f.elements.length > 0 && 
-      f.elements.some(el => (el.attributes as any)?.originalType)
-    );
+    // Use JSON data directly for fast loading
+    // JSON is always kept in sync during save operations
     const jsonData = config.data as any;
-    
-    let transformedFloors: any[];
-    let transformedForecourt: any;
-    
-    if (hasProperlyMigratedData) {
-      // Use normalized tables data (properly migrated with originalType)
-      transformedFloors = config.floors.map((floor) => ({
-        id: floor.id,
-        name: floor.name,
-        level: floor.level,
-        width: floor.width,
-        height: floor.height,
-        length: floor.length,
-        cornerRadius: floor.cornerRadius,
-        elements: floor.elements.map((el) => this.transformElement(el)),
-      }));
-      
-      transformedForecourt = config.forecourt
-        ? {
-            id: config.forecourt.id,
-            name: config.forecourt.name,
-            width: config.forecourt.width,
-            length: config.forecourt.length,
-            elements: config.forecourt.elements.map((el) =>
-              this.transformForecourtElement(el),
-            ),
-          }
-        : null;
-    } else {
-      // Fallback to JSON data (legacy or not properly migrated)
-      transformedFloors = jsonData?.floors || [];
-      transformedForecourt = jsonData?.forecourt || null;
-    }
 
-    // Return config with transformed data for frontend compatibility
+    // Return config with JSON data for frontend
     return {
-      ...config,
+      id: config.id,
+      name: config.name,
+      spaceId: config.spaceId,
+      capacity: config.capacity,
+      createdAt: config.createdAt,
+      updatedAt: config.updatedAt,
+      space: config.space,
       data: {
-        floors: transformedFloors,
-        forecourt: transformedForecourt,
+        floors: jsonData?.floors || [],
+        forecourt: jsonData?.forecourt || null,
       },
     };
   }
@@ -1095,16 +1049,14 @@ export class SpacesService {
       kitchenType: element.kitchenTypes,
       tags: element.tags,
       attributes: element.attributes,
+      // Light performance - only revenue for quick display
       performance: element.performance
         ? {
             revenue: element.performance.revenue,
-            numberOfPOS: element.performance.numberOfPOS,
-            numberOfTransactions: element.performance.numberOfTransactions,
-            transactionsPerMinute: element.performance.transactionsPerMinute,
-            staffCost: element.performance.staffCost,
-            revenuePerEmployee: element.performance.revenuePerEmployee,
+            // Other fields loaded on-demand via getElementDetails
           }
         : null,
+      // Staff and inventory loaded on-demand
       staffPositions: element.staffPositions?.map((s: any) => ({
         id: s.id,
         position: s.position,

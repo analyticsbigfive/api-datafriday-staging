@@ -15,6 +15,10 @@ export class SuppliersService {
         email: createSupplierDto.email,
         tel: createSupplierDto.phone,
         address: createSupplierDto.address,
+        contactName: createSupplierDto.contactName,
+        sites: createSupplierDto.spaceIds || [],
+        configurationIds: createSupplierDto.configurationIds || [],
+        sectors: createSupplierDto.sectors || [],
         tenant: {
           connect: { id: tenantId },
         },
@@ -50,6 +54,10 @@ export class SuppliersService {
     if (updateSupplierDto.email !== undefined) updateData.email = updateSupplierDto.email;
     if (updateSupplierDto.phone !== undefined) updateData.tel = updateSupplierDto.phone;
     if (updateSupplierDto.address !== undefined) updateData.address = updateSupplierDto.address;
+    if (updateSupplierDto.contactName !== undefined) updateData.contactName = updateSupplierDto.contactName;
+    if (updateSupplierDto.spaceIds !== undefined) updateData.sites = updateSupplierDto.spaceIds;
+    if (updateSupplierDto.configurationIds !== undefined) updateData.configurationIds = updateSupplierDto.configurationIds;
+    if (updateSupplierDto.sectors !== undefined) updateData.sectors = updateSupplierDto.sectors;
 
     return this.prisma.supplier.update({
       where: { id },

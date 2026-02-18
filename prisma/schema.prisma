@@ -593,6 +593,9 @@ model Supplier {
   postcode  String?
   picture   String?
   sites     String[] // Array of spaceIds
+  contactName String?
+  configurationIds String[] @default([])
+  sectors   String[] @default([])
   tenantId  String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -21,6 +21,7 @@ import { SpacesModule } from './features/spaces/spaces.module';
 import { UsersModule } from './features/users/users.module';
 import { OrchestratorModule } from './features/orchestrator/orchestrator.module';
 import { SuppliersModule } from './features/suppliers/suppliers.module';
+import { MarketPricesModule } from './features/market-prices/market-prices.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { SuppliersModule } from './features/suppliers/suppliers.module';
     UsersModule,
     OrchestratorModule,
     SuppliersModule,
+    MarketPricesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

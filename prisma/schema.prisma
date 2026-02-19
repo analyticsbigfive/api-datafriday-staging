@@ -584,21 +584,21 @@ model ForecourtElementInventory {
 // ==================== SUPPLIER & MARKET PRICES ====================
 
 model Supplier {
-  id        String   @id
-  name      String
-  email     String?
-  tel       String?
-  city      String?
-  address   String?
-  postcode  String?
-  picture   String?
-  sites     String[] // Array of spaceIds
-  contactName String?
+  id               String   @id
+  name             String
+  email            String?
+  tel              String?
+  city             String?
+  address          String?
+  postcode         String?
+  picture          String?
+  sites            String[] // Array of spaceIds
+  contactName      String?
   configurationIds String[] @default([])
-  sectors   String[] @default([])
-  tenantId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  sectors          String[] @default([])
+  tenantId         String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   // Relations
   tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -609,23 +609,27 @@ model Supplier {
 }
 
 model MarketPrice {
-  id               String   @id
-  unit             String
-  image            String?
-  price            Decimal  @db.Decimal(10, 2)
-  goodType         GoodType
-  itemName         String
-  supplier         String? // Nom du fournisseur
-  supplierId       String? // ID du fournisseur
-  pricePerUnit     Decimal? @db.Decimal(10, 4)
-  packedUnits      Int?
-  numberOfUnits    Int?
-  unitsPerPurchase Int?
-  packingWidth     Float?
-  packingHeight    Float?
-  packingLength    Float?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                     String   @id
+  unit                   String
+  image                  String?
+  price                  Decimal  @db.Decimal(10, 2)
+  goodType               GoodType
+  itemName               String
+  category               String?
+  supplierItem           String?
+  recipeUnit             String?
+  purchaseUnitConversion Float?
+  supplier               String? // Nom du fournisseur
+  supplierId             String? // ID du fournisseur
+  pricePerUnit           Decimal? @db.Decimal(10, 4)
+  packedUnits            Int?
+  numberOfUnits          Int?
+  unitsPerPurchase       Int?
+  packingWidth           Float?
+  packingHeight          Float?
+  packingLength          Float?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   supplierRel Supplier?    @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   ingredients Ingredient[]
@@ -634,6 +638,7 @@ model MarketPrice {
   @@index([supplierId])
   @@index([goodType])
   @@index([itemName])
+  @@index([category])
 }
 
 // ==================== WEEZEVENT SYNC ====================

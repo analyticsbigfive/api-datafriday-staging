@@ -21,6 +21,21 @@ export class CreateSupplierDto {
   @IsOptional()
   address?: string;
 
+  @ApiProperty({ description: 'Ville', required: false })
+  @IsString()
+  @IsOptional()
+  city?: string;
+
+  @ApiProperty({ description: 'Code postal', required: false })
+  @IsString()
+  @IsOptional()
+  postcode?: string;
+
+  @ApiProperty({ description: 'Image URL', required: false })
+  @IsString()
+  @IsOptional()
+  picture?: string;
+
   @ApiProperty({ description: 'Contact name', required: false })
   @IsString()
   @IsOptional()

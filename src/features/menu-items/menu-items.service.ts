@@ -67,7 +67,28 @@ export class MenuItemsService {
     packagings: {
       include: { packaging: true },
     },
+    menuAssignments: {
+      include: {
+        station: {
+          include: { config: true },
+        },
+      },
+    },
   };
+
+  private serializeItem(item: any) {
+    const spaceIds: string[] = [];
+    if (item.menuAssignments?.length) {
+      for (const assignment of item.menuAssignments) {
+        const spaceId = assignment.station?.config?.spaceId;
+        if (spaceId && !spaceIds.includes(spaceId)) {
+          spaceIds.push(spaceId);
+        }
+      }
+    }
+    const { menuAssignments, ...rest } = item;
+    return { ...rest, spaceIds };
+  }
 
   async create(dto: CreateMenuItemDto) {
     this.logger.log(`Creating menu item "${dto.name}"`);
@@ -97,7 +118,7 @@ export class MenuItemsService {
         include: this.includeRelations,
       });
       this.logger.log(`Menu item created: ${item.id}`);
-      return item;
+      return this.serializeItem(item);
     } catch (error) {
       this.logger.error(`Failed to create menu item: ${error.message}`, error.stack);
       throw error;
@@ -112,7 +133,7 @@ export class MenuItemsService {
         include: this.includeRelations,
       });
       this.logger.log(`Found ${items.length} menu items`);
-      return items;
+      return items.map(i => this.serializeItem(i));
     } catch (error) {
       this.logger.error(`Failed to fetch menu items: ${error.message}`, error.stack);
       throw error;
@@ -129,7 +150,7 @@ export class MenuItemsService {
       this.logger.warn(`Menu item ${id} not found`);
       throw new NotFoundException(`Menu item with ID ${id} not found`);
     }
-    return item;
+    return this.serializeItem(item);
   }
 
   async update(id: string, dto: UpdateMenuItemDto) {
@@ -162,7 +183,7 @@ export class MenuItemsService {
         include: this.includeRelations,
       });
       this.logger.log(`Menu item ${id} updated`);
-      return item;
+      return this.serializeItem(item);
     } catch (error) {
       this.logger.error(`Failed to update menu item ${id}: ${error.message}`, error.stack);
       throw error;

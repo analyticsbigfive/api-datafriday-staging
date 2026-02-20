@@ -23,6 +23,7 @@ import { OrchestratorModule } from './features/orchestrator/orchestrator.module'
 import { SuppliersModule } from './features/suppliers/suppliers.module';
 import { MarketPricesModule } from './features/market-prices/market-prices.module';
 import { MenuComponentsModule } from './features/menu-components/menu-components.module';
+import { MenuItemsModule } from './features/menu-items/menu-items.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { MenuComponentsModule } from './features/menu-components/menu-components
     SuppliersModule,
     MarketPricesModule,
     MenuComponentsModule,
+    MenuItemsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

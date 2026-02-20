@@ -22,6 +22,7 @@ import { UsersModule } from './features/users/users.module';
 import { OrchestratorModule } from './features/orchestrator/orchestrator.module';
 import { SuppliersModule } from './features/suppliers/suppliers.module';
 import { MarketPricesModule } from './features/market-prices/market-prices.module';
+import { MenuComponentsModule } from './features/menu-components/menu-components.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { MarketPricesModule } from './features/market-prices/market-prices.modul
     OrchestratorModule,
     SuppliersModule,
     MarketPricesModule,
+    MenuComponentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

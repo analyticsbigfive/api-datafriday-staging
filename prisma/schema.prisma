@@ -192,6 +192,8 @@ model Tenant {
   packagings     Packaging[]
   marketPrices   MarketPrice[]
   csvMappings    CsvMapping[]
+  menus          Menu[]
+  auditLogs      AuditLog[]
 
   // Weezevent Relations
   weezeventEvents        WeezeventEvent[]
@@ -344,6 +346,7 @@ model Space {
   configs       Config[]
   pinnedByUsers UserPinnedSpace[]
   userAccess    UserSpaceAccess[]
+  menus         Menu[]
 
   @@index([tenantId])
   @@index([name])
@@ -1449,4 +1452,47 @@ model Event {
   @@index([eventTypeId])
   @@index([eventCategoryId])
   @@index([eventSubcategoryId])
+}
+
+// ==================== AUDIT TRAIL ====================
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  action    String   // CREATE, UPDATE, DELETE, RESTORE
+  entity    String   // MenuItem, MenuComponent, etc.
+  entityId  String
+  changes   Json?    // { before: {...}, after: {...} }
+  metadata  Json?    // Extra context (IP, user-agent, etc.)
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, entity, createdAt])
+  @@index([tenantId, entityId])
+  @@index([userId])
+}
+
+// ==================== MENU (dédié) ====================
+
+model Menu {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  spaceId     String
+  configId    String
+  isActive    Boolean  @default(true)
+  tenantId    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+
+  space       Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([spaceId, configId, name])
+  @@index([tenantId])
+  @@index([spaceId])
+  @@index([configId])
 }

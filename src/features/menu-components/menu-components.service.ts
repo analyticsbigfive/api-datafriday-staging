@@ -54,13 +54,13 @@ export class MenuComponentsService {
       const skip = (page - 1) * limit;
       const [components, total] = await Promise.all([
         this.prisma.menuComponent.findMany({
-          where: { tenantId },
+          where: { tenantId, deletedAt: null },
           orderBy: { name: 'asc' },
           include: this.includeRelations,
           skip,
           take: limit,
         }),
-        this.prisma.menuComponent.count({ where: { tenantId } }),
+        this.prisma.menuComponent.count({ where: { tenantId, deletedAt: null } }),
       ]);
       this.logger.log(`Found ${components.length}/${total} menu components`);
       return {
@@ -76,7 +76,7 @@ export class MenuComponentsService {
   async findOne(id: string, tenantId: string) {
     this.logger.log(`Fetching menu component ${id} for tenant ${tenantId}`);
     const component = await this.prisma.menuComponent.findFirst({
-      where: { id, tenantId },
+      where: { id, tenantId, deletedAt: null },
       include: this.includeRelations,
     });
 
@@ -123,8 +123,8 @@ export class MenuComponentsService {
     await this.findOne(id, tenantId);
 
     try {
-      const result = await this.prisma.menuComponent.delete({ where: { id } });
-      this.logger.log(`Menu component ${id} deleted`);
+      const result = await this.prisma.menuComponent.update({ where: { id }, data: { deletedAt: new Date() } });
+      this.logger.log(`Menu component ${id} soft-deleted`);
       return result;
     } catch (error) {
       this.logger.error(`Failed to delete menu component ${id}: ${error.message}`, error.stack);

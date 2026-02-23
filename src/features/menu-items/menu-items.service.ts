@@ -130,13 +130,13 @@ export class MenuItemsService {
       const skip = (page - 1) * limit;
       const [items, total] = await Promise.all([
         this.prisma.menuItem.findMany({
-          where: { tenantId },
+          where: { tenantId, deletedAt: null },
           orderBy: { name: 'asc' },
           include: this.includeRelations,
           skip,
           take: limit,
         }),
-        this.prisma.menuItem.count({ where: { tenantId } }),
+        this.prisma.menuItem.count({ where: { tenantId, deletedAt: null } }),
       ]);
       this.logger.log(`Found ${items.length}/${total} menu items`);
       return {
@@ -152,7 +152,7 @@ export class MenuItemsService {
   async findOne(id: string, tenantId: string) {
     this.logger.log(`Fetching menu item ${id} for tenant ${tenantId}`);
     const item = await this.prisma.menuItem.findFirst({
-      where: { id, tenantId },
+      where: { id, tenantId, deletedAt: null },
       include: this.includeRelations,
     });
     if (!item) {
@@ -200,11 +200,11 @@ export class MenuItemsService {
   }
 
   async remove(id: string, tenantId: string) {
-    this.logger.log(`Deleting menu item ${id} for tenant ${tenantId}`);
+    this.logger.log(`Soft-deleting menu item ${id} for tenant ${tenantId}`);
     await this.findOne(id, tenantId);
     try {
-      const result = await this.prisma.menuItem.delete({ where: { id } });
-      this.logger.log(`Menu item ${id} deleted`);
+      const result = await this.prisma.menuItem.update({ where: { id }, data: { deletedAt: new Date() } });
+      this.logger.log(`Menu item ${id} soft-deleted`);
       return result;
     } catch (error) {
       this.logger.error(`Failed to delete menu item ${id}: ${error.message}`, error.stack);
@@ -216,7 +216,7 @@ export class MenuItemsService {
     this.logger.log(`Refreshing menu item costs for tenant ${tenantId}...`);
     try {
       const items = await this.prisma.menuItem.findMany({
-        where: { tenantId },
+        where: { tenantId, deletedAt: null },
         include: {
           components: { include: { component: true } },
           ingredients: { include: { ingredient: true } },

@@ -25,6 +25,9 @@ import { MarketPricesModule } from './features/market-prices/market-prices.modul
 import { MenuComponentsModule } from './features/menu-components/menu-components.module';
 import { MenuItemsModule } from './features/menu-items/menu-items.module';
 import { SpaceMenusModule } from './features/space-menus/space-menus.module';
+import { IngredientsModule } from './features/ingredients/ingredients.module';
+import { PackagingModule } from './features/packaging/packaging.module';
+import { AuditModule } from './core/audit/audit.module';
 
 @Module({
   imports: [
@@ -38,6 +41,7 @@ import { SpaceMenusModule } from './features/space-menus/space-menus.module';
     RedisModule.forRoot(),
     QueueModule,
     PrismaModule,
+    AuditModule,
     AuthModule,
     HealthModule,
     OnboardingModule,
@@ -54,6 +58,8 @@ import { SpaceMenusModule } from './features/space-menus/space-menus.module';
     MenuComponentsModule,
     MenuItemsModule,
     SpaceMenusModule,
+    IngredientsModule,
+    PackagingModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -185,6 +185,14 @@ model Tenant {
   spaces      Space[]
   suppliers   Supplier[]
 
+  // Menu domain relations (ajoutées pour isolation multi-tenant)
+  menuItems      MenuItem[]
+  menuComponents MenuComponent[]
+  ingredients    Ingredient[]
+  packagings     Packaging[]
+  marketPrices   MarketPrice[]
+  csvMappings    CsvMapping[]
+
   // Weezevent Relations
   weezeventEvents        WeezeventEvent[]
   weezeventMerchants     WeezeventMerchant[]
@@ -584,7 +592,7 @@ model ForecourtElementInventory {
 // ==================== SUPPLIER & MARKET PRICES ====================
 
 model Supplier {
-  id               String   @id
+  id               String   @id @default(cuid())
   name             String
   email            String?
   tel              String?
@@ -609,7 +617,7 @@ model Supplier {
 }
 
 model MarketPrice {
-  id                     String   @id
+  id                     String   @id @default(cuid())
   unit                   String
   image                  String?
   price                  Decimal  @db.Decimal(10, 2)
@@ -628,13 +636,17 @@ model MarketPrice {
   packingWidth           Float?
   packingHeight          Float?
   packingLength          Float?
+  tenantId               String
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
+  deletedAt              DateTime?
 
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   supplierRel Supplier?    @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   ingredients Ingredient[]
   packagings  Packaging[]
 
+  @@index([tenantId])
   @@index([supplierId])
   @@index([goodType])
   @@index([itemName])
@@ -1027,7 +1039,7 @@ model WeezeventPayment {
 // ==================== INGREDIENTS & PACKAGING ====================
 
 model Ingredient {
-  id                         String              @id
+  id                         String              @id @default(cuid())
   name                       String
   active                     Boolean             @default(true)
   supplier                   String?
@@ -1039,20 +1051,24 @@ model Ingredient {
   ingredientCategory         IngredientCategory?
   costPerPurchaseUnit        Decimal?            @db.Decimal(10, 4)
   purchaseUnitsPerRecipeUnit Float?
+  tenantId                   String
   createdAt                  DateTime            @default(now())
   updatedAt                  DateTime            @updatedAt
+  deletedAt                  DateTime?
 
+  tenant               Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   marketPrice          MarketPrice?          @relation(fields: [marketPriceId], references: [id], onDelete: SetNull)
   componentIngredients ComponentIngredient[]
   menuItemIngredients  MenuItemIngredient[]
 
+  @@index([tenantId])
   @@index([name])
   @@index([active])
   @@index([ingredientCategory])
 }
 
 model Packaging {
-  id                         String       @id
+  id                         String       @id @default(cuid())
   name                       String
   active                     Boolean      @default(true)
   supplier                   String?
@@ -1064,12 +1080,16 @@ model Packaging {
   ingredientCategory         String?
   costPerPurchaseUnit        Decimal?     @db.Decimal(10, 4)
   purchaseUnitsPerRecipeUnit Float?
+  tenantId                   String
   createdAt                  DateTime     @default(now())
   updatedAt                  DateTime     @updatedAt
+  deletedAt                  DateTime?
 
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   marketPrice        MarketPrice?        @relation(fields: [marketPriceId], references: [id], onDelete: SetNull)
   menuItemPackagings MenuItemPackaging[]
 
+  @@index([tenantId])
   @@index([name])
   @@index([active])
 }
@@ -1077,7 +1097,7 @@ model Packaging {
 // ==================== MENU COMPONENTS ====================
 
 model MenuComponent {
-  id                  String       @id
+  id                  String       @id @default(cuid())
   name                String
   unit                String
   category            String // Flexible pour "Food", "Sauce", etc.
@@ -1088,14 +1108,18 @@ model MenuComponent {
   subComponents       Json? // Pour stocker les subComponents JSON de Figma
   componentCategory   String? // "Veg", "Sauce", etc.
   numberOfUnitsRecipe Int? // Nombre d'unités par recette
+  tenantId            String
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
+  deletedAt           DateTime?
 
+  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   ingredients ComponentIngredient[]
   children    ComponentComponent[]  @relation("ParentToChild")
   parents     ComponentComponent[]  @relation("ChildToParent")
   usedIn      MenuItemComponent[]
 
+  @@index([tenantId])
   @@index([name])
   @@index([category])
 }
@@ -1139,7 +1163,7 @@ model ComponentComponent {
 
 // Types dynamiques de produits (Beverage, Food, Combo, Glasses, Ticket/Bracelets...)
 model ProductType {
-  id        String   @id
+  id        String   @id @default(cuid())
   name      String
   tenantId  String?
   createdAt DateTime @default(now())
@@ -1155,7 +1179,7 @@ model ProductType {
 
 // Catégories dynamiques de produits (Beer, Soft Drink, Main, Desert...)
 model ProductCategory {
-  id        String   @id
+  id        String   @id @default(cuid())
   name      String
   typeId    String
   tenantId  String?
@@ -1174,7 +1198,7 @@ model ProductCategory {
 // ==================== MENU ITEMS ====================
 
 model MenuItem {
-  id                   String           @id
+  id                   String           @id @default(cuid())
   name                 String
   type                 String // Legacy field - kept for compatibility
   typeId               String? // FK to ProductType
@@ -1192,9 +1216,12 @@ model MenuItem {
   comboItem            String? // "Yes", "No" ou null
   numberOfPiecesRecipe Int?
   componentsData       Json? // Pour stocker les components JSON de Figma
+  tenantId             String
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
+  deletedAt            DateTime?
 
+  tenant          Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   productType     ProductType?         @relation(fields: [typeId], references: [id])
   productCategory ProductCategory?     @relation(fields: [categoryId], references: [id])
   components      MenuItemComponent[]
@@ -1202,6 +1229,7 @@ model MenuItem {
   packagings      MenuItemPackaging[]
   menuAssignments MenuAssignment[]
 
+  @@index([tenantId])
   @@index([name])
   @@index([category])
   @@index([typeId])
@@ -1312,9 +1340,13 @@ model CsvMapping {
   id          String   @id @default(cuid())
   mappingType String
   mapping     Json
+  tenantId    String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
   @@index([mappingType])
 }
 

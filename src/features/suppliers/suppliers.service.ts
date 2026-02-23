@@ -14,7 +14,6 @@ export class SuppliersService {
     try {
       const supplier = await this.prisma.supplier.create({
         data: {
-          id: `sup_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
           name: createSupplierDto.name,
           email: createSupplierDto.email,
           tel: createSupplierDto.phone,

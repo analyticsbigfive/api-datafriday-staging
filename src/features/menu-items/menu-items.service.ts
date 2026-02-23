@@ -90,13 +90,12 @@ export class MenuItemsService {
     return { ...rest, spaceIds };
   }
 
-  async create(dto: CreateMenuItemDto) {
-    this.logger.log(`Creating menu item "${dto.name}"`);
+  async create(dto: CreateMenuItemDto, tenantId: string) {
+    this.logger.log(`Creating menu item "${dto.name}" for tenant ${tenantId}`);
     try {
-      const id = `item_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const item = await this.prisma.menuItem.create({
         data: {
-          id,
+          tenantId,
           name: dto.name,
           type: dto.type,
           typeId: dto.typeId,
@@ -125,37 +124,47 @@ export class MenuItemsService {
     }
   }
 
-  async findAll() {
-    this.logger.log('Fetching all menu items');
+  async findAll(tenantId: string, page = 1, limit = 100) {
+    this.logger.log(`Fetching menu items for tenant ${tenantId} (page=${page}, limit=${limit})`);
     try {
-      const items = await this.prisma.menuItem.findMany({
-        orderBy: { name: 'asc' },
-        include: this.includeRelations,
-      });
-      this.logger.log(`Found ${items.length} menu items`);
-      return items.map(i => this.serializeItem(i));
+      const skip = (page - 1) * limit;
+      const [items, total] = await Promise.all([
+        this.prisma.menuItem.findMany({
+          where: { tenantId },
+          orderBy: { name: 'asc' },
+          include: this.includeRelations,
+          skip,
+          take: limit,
+        }),
+        this.prisma.menuItem.count({ where: { tenantId } }),
+      ]);
+      this.logger.log(`Found ${items.length}/${total} menu items`);
+      return {
+        data: items.map(i => this.serializeItem(i)),
+        meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      };
     } catch (error) {
       this.logger.error(`Failed to fetch menu items: ${error.message}`, error.stack);
       throw error;
     }
   }
 
-  async findOne(id: string) {
-    this.logger.log(`Fetching menu item ${id}`);
-    const item = await this.prisma.menuItem.findUnique({
-      where: { id },
+  async findOne(id: string, tenantId: string) {
+    this.logger.log(`Fetching menu item ${id} for tenant ${tenantId}`);
+    const item = await this.prisma.menuItem.findFirst({
+      where: { id, tenantId },
       include: this.includeRelations,
     });
     if (!item) {
-      this.logger.warn(`Menu item ${id} not found`);
+      this.logger.warn(`Menu item ${id} not found for tenant ${tenantId}`);
       throw new NotFoundException(`Menu item with ID ${id} not found`);
     }
     return this.serializeItem(item);
   }
 
-  async update(id: string, dto: UpdateMenuItemDto) {
-    this.logger.log(`Updating menu item ${id}`);
-    await this.findOne(id);
+  async update(id: string, dto: UpdateMenuItemDto, tenantId: string) {
+    this.logger.log(`Updating menu item ${id} for tenant ${tenantId}`);
+    await this.findOne(id, tenantId);
 
     const updateData: any = {};
     if (dto.name !== undefined) updateData.name = dto.name;
@@ -190,9 +199,9 @@ export class MenuItemsService {
     }
   }
 
-  async remove(id: string) {
-    this.logger.log(`Deleting menu item ${id}`);
-    await this.findOne(id);
+  async remove(id: string, tenantId: string) {
+    this.logger.log(`Deleting menu item ${id} for tenant ${tenantId}`);
+    await this.findOne(id, tenantId);
     try {
       const result = await this.prisma.menuItem.delete({ where: { id } });
       this.logger.log(`Menu item ${id} deleted`);
@@ -203,10 +212,11 @@ export class MenuItemsService {
     }
   }
 
-  async refreshCosts() {
-    this.logger.log('Refreshing menu item costs...');
+  async refreshCosts(tenantId: string) {
+    this.logger.log(`Refreshing menu item costs for tenant ${tenantId}...`);
     try {
       const items = await this.prisma.menuItem.findMany({
+        where: { tenantId },
         include: {
           components: { include: { component: true } },
           ingredients: { include: { ingredient: true } },
@@ -214,17 +224,19 @@ export class MenuItemsService {
         },
       });
 
-      let updated = 0;
+      // Calculate costs in memory, then batch update in a single transaction
+      const updates: { id: string; totalCost: number; margin: number | null }[] = [];
+
       for (const item of items) {
         let totalCost = 0;
 
-        for (const mic of item.components) {
+        for (const mic of (item as any).components || []) {
           totalCost += Number(mic.totalCost || 0);
         }
-        for (const mii of item.ingredients) {
+        for (const mii of (item as any).ingredients || []) {
           totalCost += Number(mii.totalCost || 0);
         }
-        for (const mip of item.packagings) {
+        for (const mip of (item as any).packagings || []) {
           totalCost += Number(mip.totalCost || 0);
         }
 
@@ -232,17 +244,24 @@ export class MenuItemsService {
           const margin = Number(item.basePrice) > 0
             ? ((Number(item.basePrice) - totalCost) / Number(item.basePrice)) * 100
             : null;
-
-          await this.prisma.menuItem.update({
-            where: { id: item.id },
-            data: { totalCost, margin },
-          });
-          updated++;
+          updates.push({ id: item.id, totalCost, margin });
         }
       }
 
-      this.logger.log(`Refreshed costs for ${updated} menu items`);
-      return { updated, total: items.length };
+      // Batch update in a single transaction (much faster than N individual updates)
+      if (updates.length > 0) {
+        await this.prisma.$transaction(
+          updates.map(u =>
+            this.prisma.menuItem.update({
+              where: { id: u.id },
+              data: { totalCost: u.totalCost, margin: u.margin },
+            }),
+          ),
+        );
+      }
+
+      this.logger.log(`Refreshed costs for ${updates.length} menu items`);
+      return { updated: updates.length, total: items.length };
     } catch (error) {
       this.logger.error(`Failed to refresh costs: ${error.message}`, error.stack);
       throw error;
@@ -255,8 +274,7 @@ export class MenuItemsService {
   }
 
   async createProductType(name: string, tenantId?: string) {
-    const id = `type_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    return this.prisma.productType.create({ data: { id, name, tenantId }, include: { categories: true } });
+    return this.prisma.productType.create({ data: { name, tenantId }, include: { categories: true } });
   }
 
   async getProductCategories(typeId?: string) {
@@ -268,7 +286,6 @@ export class MenuItemsService {
   }
 
   async createProductCategory(name: string, typeId: string, tenantId?: string) {
-    const id = `cat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    return this.prisma.productCategory.create({ data: { id, name, typeId, tenantId }, include: { type: true } });
+    return this.prisma.productCategory.create({ data: { name, typeId, tenantId }, include: { type: true } });
   }
 }

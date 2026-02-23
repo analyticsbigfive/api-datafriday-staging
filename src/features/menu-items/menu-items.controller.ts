@@ -16,6 +16,7 @@ import { MenuItemsService } from './menu-items.service';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
+import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 
 @ApiTags('Menu Items')
 @ApiBearerAuth()
@@ -29,49 +30,54 @@ export class MenuItemsController {
   @Post()
   @ApiOperation({ summary: 'Créer un article de menu' })
   @ApiResponse({ status: 201, description: 'Article créé' })
-  create(@Body() dto: CreateMenuItemDto, @CurrentUser() user: any) {
-    this.logger.log(`POST /menu-items - User: ${user?.id}, Tenant: ${user?.tenantId}`);
-    return this.menuItemsService.create(dto);
+  create(@Body() dto: CreateMenuItemDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+    this.logger.log(`POST /menu-items - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.menuItemsService.create(dto, tenantId);
   }
 
   @Get()
   @ApiOperation({ summary: 'Lister tous les articles de menu' })
   @ApiResponse({ status: 200, description: 'Liste des articles' })
-  findAll(@CurrentUser() user: any) {
-    this.logger.log(`GET /menu-items - User: ${user?.id}, Tenant: ${user?.tenantId}`);
-    return this.menuItemsService.findAll();
+  findAll(
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    this.logger.log(`GET /menu-items - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.menuItemsService.findAll(tenantId, page ? +page : 1, limit ? +limit : 100);
   }
 
   @Post('refresh-costs')
   @ApiOperation({ summary: 'Recalculer les coûts des articles' })
   @ApiResponse({ status: 200, description: 'Coûts recalculés' })
-  refreshCosts(@CurrentUser() user: any) {
-    this.logger.log(`POST /menu-items/refresh-costs - User: ${user?.id}`);
-    return this.menuItemsService.refreshCosts();
+  refreshCosts(@CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+    this.logger.log(`POST /menu-items/refresh-costs - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.menuItemsService.refreshCosts(tenantId);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Obtenir un article par ID' })
   @ApiResponse({ status: 200, description: 'Détails de l\'article' })
-  findOne(@Param('id') id: string, @CurrentUser() user: any) {
-    this.logger.log(`GET /menu-items/${id} - User: ${user?.id}`);
-    return this.menuItemsService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+    this.logger.log(`GET /menu-items/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.menuItemsService.findOne(id, tenantId);
   }
 
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour un article' })
   @ApiResponse({ status: 200, description: 'Article mis à jour' })
-  update(@Param('id') id: string, @Body() dto: UpdateMenuItemDto, @CurrentUser() user: any) {
-    this.logger.log(`PATCH /menu-items/${id} - User: ${user?.id}`);
-    return this.menuItemsService.update(id, dto);
+  update(@Param('id') id: string, @Body() dto: UpdateMenuItemDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+    this.logger.log(`PATCH /menu-items/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.menuItemsService.update(id, dto, tenantId);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer un article' })
   @ApiResponse({ status: 200, description: 'Article supprimé' })
-  remove(@Param('id') id: string, @CurrentUser() user: any) {
-    this.logger.log(`DELETE /menu-items/${id} - User: ${user?.id}`);
-    return this.menuItemsService.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+    this.logger.log(`DELETE /menu-items/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.menuItemsService.remove(id, tenantId);
   }
 }
 

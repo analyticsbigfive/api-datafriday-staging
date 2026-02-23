@@ -21,13 +21,12 @@ export class MenuComponentsService {
     },
   };
 
-  async create(dto: CreateMenuComponentDto) {
-    this.logger.log(`Creating menu component "${dto.name}"`);
+  async create(dto: CreateMenuComponentDto, tenantId: string) {
+    this.logger.log(`Creating menu component "${dto.name}" for tenant ${tenantId}`);
     try {
-      const id = `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const component = await this.prisma.menuComponent.create({
         data: {
-          id,
+          tenantId,
           name: dto.name,
           unit: dto.unit,
           category: dto.category,
@@ -49,39 +48,49 @@ export class MenuComponentsService {
     }
   }
 
-  async findAll() {
-    this.logger.log('Fetching all menu components');
+  async findAll(tenantId: string, page = 1, limit = 100) {
+    this.logger.log(`Fetching menu components for tenant ${tenantId} (page=${page}, limit=${limit})`);
     try {
-      const components = await this.prisma.menuComponent.findMany({
-        orderBy: { name: 'asc' },
-        include: this.includeRelations,
-      });
-      this.logger.log(`Found ${components.length} menu components`);
-      return components;
+      const skip = (page - 1) * limit;
+      const [components, total] = await Promise.all([
+        this.prisma.menuComponent.findMany({
+          where: { tenantId },
+          orderBy: { name: 'asc' },
+          include: this.includeRelations,
+          skip,
+          take: limit,
+        }),
+        this.prisma.menuComponent.count({ where: { tenantId } }),
+      ]);
+      this.logger.log(`Found ${components.length}/${total} menu components`);
+      return {
+        data: components,
+        meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      };
     } catch (error) {
       this.logger.error(`Failed to fetch menu components: ${error.message}`, error.stack);
       throw error;
     }
   }
 
-  async findOne(id: string) {
-    this.logger.log(`Fetching menu component ${id}`);
-    const component = await this.prisma.menuComponent.findUnique({
-      where: { id },
+  async findOne(id: string, tenantId: string) {
+    this.logger.log(`Fetching menu component ${id} for tenant ${tenantId}`);
+    const component = await this.prisma.menuComponent.findFirst({
+      where: { id, tenantId },
       include: this.includeRelations,
     });
 
     if (!component) {
-      this.logger.warn(`Menu component ${id} not found`);
+      this.logger.warn(`Menu component ${id} not found for tenant ${tenantId}`);
       throw new NotFoundException(`Menu component with ID ${id} not found`);
     }
 
     return component;
   }
 
-  async update(id: string, dto: UpdateMenuComponentDto) {
-    this.logger.log(`Updating menu component ${id}`);
-    await this.findOne(id);
+  async update(id: string, dto: UpdateMenuComponentDto, tenantId: string) {
+    this.logger.log(`Updating menu component ${id} for tenant ${tenantId}`);
+    await this.findOne(id, tenantId);
 
     const updateData: any = {};
     if (dto.name !== undefined) updateData.name = dto.name;
@@ -109,9 +118,9 @@ export class MenuComponentsService {
     }
   }
 
-  async remove(id: string) {
-    this.logger.log(`Deleting menu component ${id}`);
-    await this.findOne(id);
+  async remove(id: string, tenantId: string) {
+    this.logger.log(`Deleting menu component ${id} for tenant ${tenantId}`);
+    await this.findOne(id, tenantId);
 
     try {
       const result = await this.prisma.menuComponent.delete({ where: { id } });
@@ -123,11 +132,12 @@ export class MenuComponentsService {
     }
   }
 
-  async repair() {
-    this.logger.log('Repairing menu components...');
+  async repair(tenantId: string) {
+    this.logger.log(`Repairing menu components for tenant ${tenantId}...`);
     try {
       // Recalculate unit costs from subComponents
       const components = await this.prisma.menuComponent.findMany({
+        where: { tenantId },
         include: this.includeRelations,
       });
 

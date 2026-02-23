@@ -10,12 +10,11 @@ export class MarketPricesService {
   constructor(private prisma: PrismaService) {}
 
   async create(dto: CreateMarketPriceDto, tenantId: string) {
-    this.logger.log(`Creating market price "${dto.itemName}" for tenant via supplier`);
+    this.logger.log(`Creating market price "${dto.itemName}" for tenant ${tenantId}`);
     try {
-      const id = `mp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const price = await this.prisma.marketPrice.create({
         data: {
-          id,
+          tenantId,
           itemName: dto.itemName,
           unit: dto.unit,
           price: dto.price,
@@ -45,39 +44,49 @@ export class MarketPricesService {
     }
   }
 
-  async findAll() {
-    this.logger.log('Fetching all market prices');
+  async findAll(tenantId: string, page = 1, limit = 200) {
+    this.logger.log(`Fetching market prices for tenant ${tenantId} (page=${page}, limit=${limit})`);
     try {
-      const prices = await this.prisma.marketPrice.findMany({
-        orderBy: { itemName: 'asc' },
-        include: { supplierRel: true },
-      });
-      this.logger.log(`Found ${prices.length} market prices`);
-      return prices;
+      const skip = (page - 1) * limit;
+      const [prices, total] = await Promise.all([
+        this.prisma.marketPrice.findMany({
+          where: { tenantId },
+          orderBy: { itemName: 'asc' },
+          include: { supplierRel: true },
+          skip,
+          take: limit,
+        }),
+        this.prisma.marketPrice.count({ where: { tenantId } }),
+      ]);
+      this.logger.log(`Found ${prices.length}/${total} market prices`);
+      return {
+        data: prices,
+        meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      };
     } catch (error) {
       this.logger.error(`Failed to fetch market prices: ${error.message}`, error.stack);
       throw error;
     }
   }
 
-  async findOne(id: string) {
-    this.logger.log(`Fetching market price ${id}`);
-    const price = await this.prisma.marketPrice.findUnique({
-      where: { id },
+  async findOne(id: string, tenantId: string) {
+    this.logger.log(`Fetching market price ${id} for tenant ${tenantId}`);
+    const price = await this.prisma.marketPrice.findFirst({
+      where: { id, tenantId },
       include: { supplierRel: true },
     });
 
     if (!price) {
-      this.logger.warn(`Market price ${id} not found`);
+      this.logger.warn(`Market price ${id} not found for tenant ${tenantId}`);
       throw new NotFoundException(`Market price with ID ${id} not found`);
     }
 
     return price;
   }
 
-  async update(id: string, dto: UpdateMarketPriceDto) {
-    this.logger.log(`Updating market price ${id}`);
-    await this.findOne(id);
+  async update(id: string, dto: UpdateMarketPriceDto, tenantId: string) {
+    this.logger.log(`Updating market price ${id} for tenant ${tenantId}`);
+    await this.findOne(id, tenantId);
 
     const updateData: any = {};
     if (dto.itemName !== undefined) updateData.itemName = dto.itemName;
@@ -113,9 +122,9 @@ export class MarketPricesService {
     }
   }
 
-  async remove(id: string) {
-    this.logger.log(`Deleting market price ${id}`);
-    await this.findOne(id);
+  async remove(id: string, tenantId: string) {
+    this.logger.log(`Deleting market price ${id} for tenant ${tenantId}`);
+    await this.findOne(id, tenantId);
 
     try {
       const result = await this.prisma.marketPrice.delete({ where: { id } });
@@ -127,11 +136,11 @@ export class MarketPricesService {
     }
   }
 
-  async removeByItemName(itemName: string) {
-    this.logger.log(`Deleting all market prices with itemName "${itemName}"`);
+  async removeByItemName(itemName: string, tenantId: string) {
+    this.logger.log(`Deleting all market prices with itemName "${itemName}" for tenant ${tenantId}`);
     try {
       const result = await this.prisma.marketPrice.deleteMany({
-        where: { itemName },
+        where: { itemName, tenantId },
       });
       this.logger.log(`Deleted ${result.count} market prices for itemName "${itemName}"`);
       return result;
@@ -141,15 +150,14 @@ export class MarketPricesService {
     }
   }
 
-  async bulkCreate(items: CreateMarketPriceDto[]) {
-    this.logger.log(`Bulk creating ${items.length} market prices`);
+  async bulkCreate(items: CreateMarketPriceDto[], tenantId: string) {
+    this.logger.log(`Bulk creating ${items.length} market prices for tenant ${tenantId}`);
     try {
       const results = [];
       for (const dto of items) {
-        const id = `mp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         const price = await this.prisma.marketPrice.create({
           data: {
-            id,
+            tenantId,
             itemName: dto.itemName,
             unit: dto.unit,
             price: dto.price,
@@ -180,10 +188,11 @@ export class MarketPricesService {
     }
   }
 
-  async deduplicate() {
-    this.logger.log('Deduplicating market prices');
+  async deduplicate(tenantId: string) {
+    this.logger.log(`Deduplicating market prices for tenant ${tenantId}`);
     try {
       const allPrices = await this.prisma.marketPrice.findMany({
+        where: { tenantId },
         orderBy: { createdAt: 'desc' },
       });
 

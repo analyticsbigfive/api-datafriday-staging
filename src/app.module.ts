@@ -24,6 +24,7 @@ import { SuppliersModule } from './features/suppliers/suppliers.module';
 import { MarketPricesModule } from './features/market-prices/market-prices.module';
 import { MenuComponentsModule } from './features/menu-components/menu-components.module';
 import { MenuItemsModule } from './features/menu-items/menu-items.module';
+import { SpaceMenusModule } from './features/space-menus/space-menus.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { MenuItemsModule } from './features/menu-items/menu-items.module';
     MarketPricesModule,
     MenuComponentsModule,
     MenuItemsModule,
+    SpaceMenusModule,
   ],
   controllers: [AppController],
   providers: [AppService],

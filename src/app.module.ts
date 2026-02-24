@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
-import { RouterModule } from '@nestjs/core';
+import { RouterModule, APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './core/database/prisma.module';
@@ -27,7 +28,11 @@ import { MenuItemsModule } from './features/menu-items/menu-items.module';
 import { SpaceMenusModule } from './features/space-menus/space-menus.module';
 import { IngredientsModule } from './features/ingredients/ingredients.module';
 import { PackagingModule } from './features/packaging/packaging.module';
+import { EventsModule } from './features/events/events.module';
+import { AnalyseModule } from './features/analyse/analyse.module';
 import { AuditModule } from './core/audit/audit.module';
+import { WebhooksModule } from './core/webhooks/webhooks.module';
+import { TenantThrottlerGuard } from './core/throttle/tenant-throttler.guard';
 
 @Module({
   imports: [
@@ -35,6 +40,11 @@ import { AuditModule } from './core/audit/audit.module';
       isGlobal: true,
       envFilePath: 'envFiles/.env.development',
     }),
+    ThrottlerModule.forRoot([
+      { name: 'short', ttl: 1000, limit: 20 },   // 20 req/s per tenant
+      { name: 'medium', ttl: 60000, limit: 300 }, // 300 req/min per tenant
+      { name: 'long', ttl: 3600000, limit: 5000 }, // 5000 req/h per tenant
+    ]),
     ScheduleModule.forRoot(),
     EncryptionModule,
     CacheModule,
@@ -42,6 +52,7 @@ import { AuditModule } from './core/audit/audit.module';
     QueueModule,
     PrismaModule,
     AuditModule,
+    WebhooksModule,
     AuthModule,
     HealthModule,
     OnboardingModule,
@@ -60,8 +71,13 @@ import { AuditModule } from './core/audit/audit.module';
     SpaceMenusModule,
     IngredientsModule,
     PackagingModule,
+    EventsModule,
+    AnalyseModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    { provide: APP_GUARD, useClass: TenantThrottlerGuard },
+  ],
 })
 export class AppModule { }

@@ -670,7 +670,7 @@ export class SpacesService {
           const elementType = this.mapElementType(element.type);
           const originalType = element.type; // Keep the original like 'fnb-food'
           
-          const createdElement = await tx.floorElement.create({
+          const createdElement = await tx.spaceElement.create({
             data: {
               ...(element.id ? { id: element.id } : {}),
               floorId: createdFloor.id,
@@ -771,7 +771,7 @@ export class SpacesService {
           const elementType = this.mapElementType(element.type);
           const originalType = element.type; // Keep the original type
           
-          const createdElement = await tx.forecourtElement.create({
+          const createdElement = await tx.spaceElement.create({
             data: {
               ...(element.id ? { id: element.id } : {}),
               forecourtId: createdForecourt.id,
@@ -791,17 +791,21 @@ export class SpacesService {
               cornerRadiusTR: element.cornerRadius?.topRight || 0,
               cornerRadiusBL: element.cornerRadius?.bottomLeft || 0,
               cornerRadiusBR: element.cornerRadius?.bottomRight || 0,
-              entranceTypes: element.entranceType || [],
+              shopTypes: element.shopType || [],
+              storageTypes: element.storageType || [],
+              hospitalityTypes: element.hospitalityType || [],
               accessTypes: element.accessType || [],
+              entertainmentTypes: element.entertainmentType || [],
+              entranceTypes: element.entranceType || [],
+              kitchenTypes: element.kitchenType || [],
               tags: element.tags || [],
-              // Store original type in attributes
               attributes: { ...element.attributes, originalType },
             } as any,
           });
 
           // Create performance, staff, inventory for forecourt elements
           if (element.performance) {
-            await tx.forecourtElementPerformance.create({
+            await tx.elementPerformance.create({
               data: {
                 elementId: createdElement.id,
                 revenue: element.performance.revenue || 0,
@@ -815,22 +819,27 @@ export class SpacesService {
           }
 
           if (element.staffPositions && element.staffPositions.length > 0) {
-            await tx.forecourtElementStaff.createMany({
+            await tx.elementStaff.createMany({
               data: element.staffPositions.map((pos: any) => ({
                 elementId: createdElement.id,
                 position: pos.position,
                 count: pos.count || 1,
+                hourlyRate: pos.hourlyRate || null,
               })),
             });
           }
 
           if (element.inventoryItems && element.inventoryItems.length > 0) {
-            await tx.forecourtElementInventory.createMany({
+            await tx.elementInventory.createMany({
               data: element.inventoryItems.map((item: any) => ({
                 elementId: createdElement.id,
                 name: item.name,
                 quantity: item.quantity || 0,
-                isCustom: true,
+                unit: item.unit || null,
+                minStock: item.minStock || null,
+                maxStock: item.maxStock || null,
+                isCustom: item.isCustom !== false,
+                menuItemId: item.menuItemId || null,
               })),
             });
           }
@@ -1078,62 +1087,6 @@ export class SpacesService {
         maxStock: i.maxStock,
         isCustom: i.isCustom,
         menuItemId: i.menuItemId,
-      })) || [],
-    };
-  }
-
-  /**
-   * Transform a forecourt element from DB to frontend format
-   */
-  private transformForecourtElement(element: any) {
-    // Use originalType from attributes if available
-    const attrs = element.attributes as any;
-    const originalType = attrs?.originalType || this.reverseMapElementType(element.type);
-    
-    return {
-      id: element.id,
-      name: element.name,
-      type: originalType, // Return original frontend type
-      x: element.x,
-      y: element.y,
-      width: element.width,
-      height: element.height,
-      depth: element.depth,
-      height3d: element.height3d,
-      rotation: element.rotation,
-      image: element.image,
-      notes: element.notes,
-      capacity: element.capacity,
-      cornerRadius: {
-        topLeft: element.cornerRadiusTL,
-        topRight: element.cornerRadiusTR,
-        bottomLeft: element.cornerRadiusBL,
-        bottomRight: element.cornerRadiusBR,
-      },
-      entranceType: element.entranceTypes,
-      accessType: element.accessTypes,
-      tags: element.tags,
-      attributes: element.attributes,
-      performance: element.performance
-        ? {
-            revenue: element.performance.revenue,
-            numberOfPOS: element.performance.numberOfPOS,
-            numberOfTransactions: element.performance.numberOfTransactions,
-            transactionsPerMinute: element.performance.transactionsPerMinute,
-            staffCost: element.performance.staffCost,
-            revenuePerEmployee: element.performance.revenuePerEmployee,
-          }
-        : null,
-      staffPositions: element.staffPositions?.map((s: any) => ({
-        id: s.id,
-        position: s.position,
-        count: s.count,
-      })) || [],
-      inventoryItems: element.inventoryItems?.map((i: any) => ({
-        id: i.id,
-        name: i.name,
-        quantity: i.quantity,
-        isCustom: i.isCustom,
       })) || [],
     };
   }

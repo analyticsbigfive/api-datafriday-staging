@@ -1,32 +1,8 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { RedisService } from '../../core/redis/redis.service';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
-
-// Mapping des valeurs frontend libres → enum MenuItemCategory Prisma
-function mapCategory(cat: string): string {
-  if (!cat) return 'Beverage';
-  const map: Record<string, string> = {
-    drinks: 'Beverage',
-    beverage: 'Beverage',
-    Beverage: 'Beverage',
-    food: 'Main',
-    Food: 'Main',
-    Main: 'Main',
-    Starter: 'Starter',
-    starter: 'Starter',
-    Dessert: 'Dessert',
-    dessert: 'Dessert',
-    Side: 'Side',
-    side: 'Side',
-    Snack: 'Snack',
-    snack: 'Snack',
-    merch: 'Snack',
-    other: 'Snack',
-    Other: 'Snack',
-  };
-  return map[cat] ?? 'Snack';
-}
 
 // Mapping des valeurs diet frontend → enum Diet Prisma
 function mapDiet(diet: string[]): string[] {
@@ -53,7 +29,18 @@ function mapDiet(diet: string[]): string[] {
 export class MenuItemsService {
   private readonly logger = new Logger(MenuItemsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private redis: RedisService,
+  ) {}
+
+  private cacheKey(tenantId: string, suffix = 'list') {
+    return `menu-items:${tenantId}:${suffix}`;
+  }
+
+  private async invalidateCache(tenantId: string) {
+    await this.redis.deletePattern(`datafriday:menu-items:${tenantId}:*`);
+  }
 
   private readonly includeRelations = {
     productType: true,
@@ -97,9 +84,7 @@ export class MenuItemsService {
         data: {
           tenantId,
           name: dto.name,
-          type: dto.type,
           typeId: dto.typeId,
-          category: mapCategory(dto.category) as any,
           categoryId: dto.categoryId,
           basePrice: dto.basePrice,
           totalCost: dto.totalCost,
@@ -113,10 +98,11 @@ export class MenuItemsService {
           comboItem: dto.comboItem,
           numberOfPiecesRecipe: dto.numberOfPiecesRecipe,
           componentsData: dto.componentsData,
-        },
+        } as any,
         include: this.includeRelations,
       });
       this.logger.log(`Menu item created: ${item.id}`);
+      await this.invalidateCache(tenantId);
       return this.serializeItem(item);
     } catch (error) {
       this.logger.error(`Failed to create menu item: ${error.message}`, error.stack);
@@ -127,22 +113,25 @@ export class MenuItemsService {
   async findAll(tenantId: string, page = 1, limit = 100) {
     this.logger.log(`Fetching menu items for tenant ${tenantId} (page=${page}, limit=${limit})`);
     try {
-      const skip = (page - 1) * limit;
-      const [items, total] = await Promise.all([
-        this.prisma.menuItem.findMany({
-          where: { tenantId, deletedAt: null },
-          orderBy: { name: 'asc' },
-          include: this.includeRelations,
-          skip,
-          take: limit,
-        }),
-        this.prisma.menuItem.count({ where: { tenantId, deletedAt: null } }),
-      ]);
-      this.logger.log(`Found ${items.length}/${total} menu items`);
-      return {
-        data: items.map(i => this.serializeItem(i)),
-        meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
-      };
+      const cacheKey = this.cacheKey(tenantId, `list:${page}:${limit}`);
+      return this.redis.getOrSet(cacheKey, async () => {
+        const skip = (page - 1) * limit;
+        const [items, total] = await Promise.all([
+          this.prisma.menuItem.findMany({
+            where: { tenantId, deletedAt: null },
+            orderBy: { name: 'asc' },
+            include: this.includeRelations,
+            skip,
+            take: limit,
+          }),
+          this.prisma.menuItem.count({ where: { tenantId, deletedAt: null } }),
+        ]);
+        this.logger.log(`Found ${items.length}/${total} menu items`);
+        return {
+          data: items.map(i => this.serializeItem(i)),
+          meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+        };
+      }, { ttl: 60 });
     } catch (error) {
       this.logger.error(`Failed to fetch menu items: ${error.message}`, error.stack);
       throw error;
@@ -168,9 +157,7 @@ export class MenuItemsService {
 
     const updateData: any = {};
     if (dto.name !== undefined) updateData.name = dto.name;
-    if (dto.type !== undefined) updateData.type = dto.type;
     if (dto.typeId !== undefined) updateData.typeId = dto.typeId;
-    if (dto.category !== undefined) updateData.category = mapCategory(dto.category) as any;
     if (dto.categoryId !== undefined) updateData.categoryId = dto.categoryId;
     if (dto.basePrice !== undefined) updateData.basePrice = dto.basePrice;
     if (dto.totalCost !== undefined) updateData.totalCost = dto.totalCost;
@@ -192,6 +179,7 @@ export class MenuItemsService {
         include: this.includeRelations,
       });
       this.logger.log(`Menu item ${id} updated`);
+      await this.invalidateCache(tenantId);
       return this.serializeItem(item);
     } catch (error) {
       this.logger.error(`Failed to update menu item ${id}: ${error.message}`, error.stack);
@@ -205,6 +193,7 @@ export class MenuItemsService {
     try {
       const result = await this.prisma.menuItem.update({ where: { id }, data: { deletedAt: new Date() } });
       this.logger.log(`Menu item ${id} soft-deleted`);
+      await this.invalidateCache(tenantId);
       return result;
     } catch (error) {
       this.logger.error(`Failed to delete menu item ${id}: ${error.message}`, error.stack);
@@ -261,6 +250,7 @@ export class MenuItemsService {
       }
 
       this.logger.log(`Refreshed costs for ${updates.length} menu items`);
+      await this.invalidateCache(tenantId);
       return { updated: updates.length, total: items.length };
     } catch (error) {
       this.logger.error(`Failed to refresh costs: ${error.message}`, error.stack);

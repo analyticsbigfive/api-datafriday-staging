@@ -53,14 +53,6 @@ enum Diet {
   Kosher
 }
 
-enum MenuItemCategory {
-  Starter
-  Main
-  Dessert
-  Side
-  Beverage
-  Snack
-}
 
 enum ComponentCategory {
   Sauce
@@ -194,6 +186,7 @@ model Tenant {
   csvMappings    CsvMapping[]
   menus          Menu[]
   auditLogs      AuditLog[]
+  webhooks       Webhook[]
 
   // Weezevent Relations
   weezeventEvents        WeezeventEvent[]
@@ -384,53 +377,60 @@ model Floor {
   cornerRadius Json?
 
   config   Config         @relation(fields: [configId], references: [id], onDelete: Cascade)
-  elements FloorElement[]
+  elements SpaceElement[]
 
   @@index([configId])
   @@index([level])
 }
 
-model FloorElement {
-  id       String      @id @default(cuid())
-  floorId  String
-  name     String
-  type     ElementType
-  x        Float
-  y        Float
-  depth    Float?
-  width    Float?
-  height   Float?
-  height3d Float? // Hauteur 3D en mètres
-  rotation Float?      @default(0)
-  image    String?     @db.Text
-  notes    String?
-  capacity Int?
+// ==================== UNIFIED SPACE ELEMENT ====================
+// Polymorphic: belongs to either a Floor or a Forecourt (one must be set)
+
+model SpaceElement {
+  id          String      @id @default(cuid())
+  floorId     String?     // FK to Floor (if element is inside a floor)
+  forecourtId String?     // FK to Forecourt (if element is in forecourt)
+  name        String
+  type        ElementType
+  x           Float
+  y           Float
+  depth       Float?
+  width       Float?
+  height      Float?
+  height3d    Float?      // Hauteur 3D en mètres
+  rotation    Float?      @default(0)
+  image       String?     @db.Text
+  notes       String?
+  capacity    Int?
 
   // Corner radius pour forme arrondie
-  cornerRadiusTL Float? @default(0) // Top Left
-  cornerRadiusTR Float? @default(0) // Top Right
-  cornerRadiusBL Float? @default(0) // Bottom Left
-  cornerRadiusBR Float? @default(0) // Bottom Right
+  cornerRadiusTL Float? @default(0)
+  cornerRadiusTR Float? @default(0)
+  cornerRadiusBL Float? @default(0)
+  cornerRadiusBR Float? @default(0)
 
   // Type-specific attributes (arrays stockés en JSON)
-  shopTypes          String[] // ['food', 'beverages', 'beer', ...]
-  storageTypes       String[] // ['dry', 'cold', 'belowzero', ...]
-  hospitalityTypes   String[] // ['lodges', 'salon', ...]
-  accessTypes        String[] // ['lift', 'staircase', ...]
-  entertainmentTypes String[] // ['sportground', 'stage', ...]
-  entranceTypes      String[] // ['public', 'vip', 'staff', ...]
-  kitchenTypes       String[] // ['fb', 'hospitality', 'storage', ...]
+  shopTypes          String[]
+  storageTypes       String[]
+  hospitalityTypes   String[]
+  accessTypes        String[]
+  entertainmentTypes String[]
+  entranceTypes      String[]
+  kitchenTypes       String[]
 
-  attributes Json? // Autres attributs flexibles
+  attributes Json?
   tags       String[]
 
   // Relations
-  floor          Floor               @relation(fields: [floorId], references: [id], onDelete: Cascade)
-  performance    ElementPerformance?
-  staffPositions ElementStaff[]
-  inventoryItems ElementInventory[]
+  floor          Floor?               @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  forecourt      Forecourt?           @relation(fields: [forecourtId], references: [id], onDelete: Cascade)
+  performance     ElementPerformance?
+  staffPositions  ElementStaff[]
+  inventoryItems  ElementInventory[]
+  menuAssignments MenuAssignment[]
 
   @@index([floorId])
+  @@index([forecourtId])
   @@index([type])
 }
 
@@ -448,7 +448,7 @@ model ElementPerformance {
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
-  element FloorElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+  element SpaceElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
 }
 
 // ==================== ELEMENT STAFF ====================
@@ -456,13 +456,13 @@ model ElementPerformance {
 model ElementStaff {
   id         String   @id @default(cuid())
   elementId  String
-  position   String // "Cashier", "Cook", "Security", etc.
+  position   String   // "Cashier", "Cook", "Security", etc.
   count      Int      @default(1)
   hourlyRate Float?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  element FloorElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+  element SpaceElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
 
   @@index([elementId])
 }
@@ -474,15 +474,15 @@ model ElementInventory {
   elementId  String
   name       String
   quantity   Float    @default(0)
-  unit       String? // "units", "kg", "liters", etc.
-  minStock   Float? // Niveau minimum d'alerte
-  maxStock   Float? // Capacité maximum
-  isCustom   Boolean  @default(true) // true = item personnalisé, false = lié à menu
-  menuItemId String? // Référence optionnelle à un item du menu
+  unit       String?  // "units", "kg", "liters", etc.
+  minStock   Float?   // Niveau minimum d'alerte
+  maxStock   Float?   // Capacité maximum
+  isCustom   Boolean  @default(true)
+  menuItemId String?  // Référence optionnelle à un item du menu
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  element FloorElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+  element SpaceElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
 
   @@index([elementId])
   @@index([name])
@@ -495,101 +495,8 @@ model Forecourt {
   width    Float
   length   Float
 
-  config   Config             @relation(fields: [configId], references: [id], onDelete: Cascade)
-  elements ForecourtElement[]
-}
-
-model ForecourtElement {
-  id          String      @id @default(cuid())
-  forecourtId String
-  name        String
-  type        ElementType
-  x           Float
-  y           Float
-  depth       Float?
-  width       Float?
-  height      Float?
-  height3d    Float? // Hauteur 3D en mètres
-  rotation    Float?      @default(0)
-  image       String?     @db.Text
-  notes       String?
-  capacity    Int?
-
-  // Corner radius
-  cornerRadiusTL Float? @default(0)
-  cornerRadiusTR Float? @default(0)
-  cornerRadiusBL Float? @default(0)
-  cornerRadiusBR Float? @default(0)
-
-  // Type-specific attributes
-  entranceTypes String[] // ['public', 'vip', 'staff', ...]
-  accessTypes   String[]
-
-  attributes Json? // Autres attributs flexibles
-  tags       String[]
-
-  // Relations
-  forecourt      Forecourt                    @relation(fields: [forecourtId], references: [id], onDelete: Cascade)
-  performance    ForecourtElementPerformance?
-  staffPositions ForecourtElementStaff[]
-  inventoryItems ForecourtElementInventory[]
-
-  @@index([forecourtId])
-  @@index([type])
-}
-
-// ==================== FORECOURT ELEMENT PERFORMANCE ====================
-
-model ForecourtElementPerformance {
-  id                    String   @id @default(cuid())
-  elementId             String   @unique
-  revenue               Float?   @default(0)
-  numberOfPOS           Int?     @default(0)
-  numberOfTransactions  Float?   @default(0)
-  transactionsPerMinute Float?   @default(0)
-  staffCost             Float?   @default(0)
-  revenuePerEmployee    Float?   @default(0)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-
-  element ForecourtElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
-}
-
-// ==================== FORECOURT ELEMENT STAFF ====================
-
-model ForecourtElementStaff {
-  id         String   @id @default(cuid())
-  elementId  String
-  position   String
-  count      Int      @default(1)
-  hourlyRate Float?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  element ForecourtElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
-
-  @@index([elementId])
-}
-
-// ==================== FORECOURT ELEMENT INVENTORY ====================
-
-model ForecourtElementInventory {
-  id         String   @id @default(cuid())
-  elementId  String
-  name       String
-  quantity   Float    @default(0)
-  unit       String?
-  minStock   Float?
-  maxStock   Float?
-  isCustom   Boolean  @default(true)
-  menuItemId String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  element ForecourtElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
-
-  @@index([elementId])
-  @@index([name])
+  config   Config         @relation(fields: [configId], references: [id], onDelete: Cascade)
+  elements SpaceElement[]
 }
 
 // ==================== SUPPLIER & MARKET PRICES ====================
@@ -1201,32 +1108,30 @@ model ProductCategory {
 // ==================== MENU ITEMS ====================
 
 model MenuItem {
-  id                   String           @id @default(cuid())
+  id                   String        @id @default(cuid())
   name                 String
-  type                 String // Legacy field - kept for compatibility
-  typeId               String? // FK to ProductType
-  category             MenuItemCategory // Legacy enum - kept for compatibility
-  categoryId           String? // FK to ProductCategory
+  typeId               String        // FK to ProductType (required)
+  categoryId           String        // FK to ProductCategory (required)
   diet                 Diet[]
   allergens            String[]
   picture              String?
-  basePrice            Decimal          @db.Decimal(10, 2)
-  totalCost            Decimal?         @db.Decimal(12, 4)
+  basePrice            Decimal       @db.Decimal(10, 2)
+  totalCost            Decimal?      @db.Decimal(12, 4)
   margin               Float?
   description          String?
   storageType          StorageType[]
-  readyForSale         String? // "Yes", "No" ou null
-  comboItem            String? // "Yes", "No" ou null
+  readyForSale         String?       // "Yes", "No" ou null
+  comboItem            String?       // "Yes", "No" ou null
   numberOfPiecesRecipe Int?
-  componentsData       Json? // Pour stocker les components JSON de Figma
+  componentsData       Json?         // Pour stocker les components JSON de Figma
   tenantId             String
-  createdAt            DateTime         @default(now())
-  updatedAt            DateTime         @updatedAt
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
   deletedAt            DateTime?
 
-  tenant          Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  productType     ProductType?         @relation(fields: [typeId], references: [id])
-  productCategory ProductCategory?     @relation(fields: [categoryId], references: [id])
+  tenant          Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productType     ProductType         @relation(fields: [typeId], references: [id])
+  productCategory ProductCategory     @relation(fields: [categoryId], references: [id])
   components      MenuItemComponent[]
   ingredients     MenuItemIngredient[]
   packagings      MenuItemPackaging[]
@@ -1234,7 +1139,6 @@ model MenuItem {
 
   @@index([tenantId])
   @@index([name])
-  @@index([category])
   @@index([typeId])
   @@index([categoryId])
   @@index([readyForSale])
@@ -1308,33 +1212,59 @@ model Station {
 
 model MenuAssignment {
   id         String   @id @default(cuid())
-  stationId  String
+  stationId  String?  // Optional: assignment to a station
+  elementId  String?  // Optional: assignment to a space element
   menuItemId String
   enabled    Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  station  Station  @relation(fields: [stationId], references: [id], onDelete: Cascade)
-  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  station  Station?      @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  element  SpaceElement? @relation(fields: [elementId], references: [id], onDelete: Cascade)
+  menuItem MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
 
   @@unique([stationId, menuItemId])
+  @@unique([elementId, menuItemId])
   @@index([stationId])
+  @@index([elementId])
   @@index([menuItemId])
 }
 
-// ==================== SPACE MENU CONFIGURATIONS ====================
+// ==================== OUTBOUND WEBHOOKS ====================
 
-model SpaceMenuConfig {
+model Webhook {
   id        String   @id @default(cuid())
-  spaceId   String
-  configId  String
-  menuItems Json     // { [elementId]: { [menuItemId]: boolean } }
+  tenantId  String
+  url       String   // Target URL
+  secret    String?  // HMAC signing secret
+  events    String[] // e.g. ["menu_item.created", "menu_item.updated"]
+  active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([spaceId, configId])
-  @@index([spaceId])
-  @@index([configId])
+  tenant Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  logs   WebhookLog[]
+
+  @@index([tenantId])
+  @@index([active])
+}
+
+model WebhookLog {
+  id         String   @id @default(cuid())
+  webhookId  String
+  event      String   // e.g. "menu_item.created"
+  payload    Json
+  status     Int      // HTTP status code of the response
+  response   String?  // Response body (truncated)
+  duration   Int?     // Response time in ms
+  success    Boolean
+  createdAt  DateTime @default(now())
+
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId])
+  @@index([event])
+  @@index([createdAt])
 }
 
 // ==================== CSV MAPPINGS ====================

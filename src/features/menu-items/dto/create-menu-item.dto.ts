@@ -14,23 +14,13 @@ export class CreateMenuItemDto {
   @IsString()
   name: string;
 
-  @ApiProperty({ description: 'Type (legacy field: Beverage, Food, Combo, Glasses, Ticket, Merch, Other)' })
+  @ApiProperty({ description: 'ID du ProductType' })
   @IsString()
-  type: string;
+  typeId: string;
 
-  @ApiPropertyOptional({ description: 'ID du ProductType (dynamique)' })
-  @IsOptional()
+  @ApiProperty({ description: 'ID du ProductCategory' })
   @IsString()
-  typeId?: string;
-
-  @ApiProperty({ description: 'Catégorie (legacy enum: drinks, food, merch, other)' })
-  @IsString()
-  category: string;
-
-  @ApiPropertyOptional({ description: 'ID du ProductCategory (dynamique)' })
-  @IsOptional()
-  @IsString()
-  categoryId?: string;
+  categoryId: string;
 
   @ApiProperty({ description: 'Prix de vente de base' })
   @IsNumber()

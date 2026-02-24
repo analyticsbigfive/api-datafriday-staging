@@ -3,7 +3,6 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { CreateSpaceDto } from './dto/create-space.dto';
 import { UpdateSpaceDto } from './dto/update-space.dto';
 import { QuerySpaceDto } from './dto/query-space.dto';
-import { nanoid } from 'nanoid';
 
 @Injectable()
 export class SpacesService {
@@ -15,7 +14,6 @@ export class SpacesService {
   async create(tenantId: string, dto: CreateSpaceDto) {
     const space = await this.prisma.space.create({
       data: {
-        id: `space-${nanoid(10)}`,
         tenantId,
         // Basic Information
         name: dto.name,
@@ -609,9 +607,6 @@ export class SpacesService {
     // Verify space exists and belongs to tenant
     await this.findOne(dto.spaceId, tenantId);
 
-    // Generate ID if not provided
-    const configId = dto.id || `config-${Date.now()}`;
-
     // Extract floors and elements from data
     const floors = dto.data?.floors || [];
     const forecourt = dto.data?.forecourt || null;
@@ -619,42 +614,53 @@ export class SpacesService {
     // Use a transaction to ensure data consistency
     return await this.prisma.$transaction(async (tx) => {
       // 1. Create or update the config
-      const config = await tx.config.upsert({
-        where: { id: configId },
-        update: {
-          name: dto.name,
-          capacity: dto.capacity,
-          // Keep data as backup/cache for now
-          data: dto.data,
-          updatedAt: new Date(),
-        },
-        create: {
-          id: configId,
-          name: dto.name,
-          spaceId: dto.spaceId,
-          capacity: dto.capacity,
-          data: dto.data,
-        },
-      });
+      let config;
+      if (dto.id) {
+        config = await tx.config.upsert({
+          where: { id: dto.id },
+          update: {
+            name: dto.name,
+            capacity: dto.capacity,
+            data: dto.data,
+            updatedAt: new Date(),
+          },
+          create: {
+            id: dto.id,
+            name: dto.name,
+            spaceId: dto.spaceId,
+            capacity: dto.capacity,
+            data: dto.data,
+          },
+        });
+      } else {
+        config = await tx.config.create({
+          data: {
+            name: dto.name,
+            spaceId: dto.spaceId,
+            capacity: dto.capacity,
+            data: dto.data,
+          } as any,
+        });
+      }
 
       // 2. Delete existing floors and their elements (cascade)
       await tx.floor.deleteMany({
-        where: { configId: configId },
+        where: { configId: config.id },
       });
 
       // 3. Create floors with their elements
       for (const floor of floors) {
         const createdFloor = await tx.floor.create({
           data: {
-            id: floor.id || `floor-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            configId: configId,
+            ...(floor.id ? { id: floor.id } : {}),
+            configId: config.id,
             name: floor.name,
             level: floor.level || 0,
             width: floor.width || 800,
             height: floor.height || 600,
             length: floor.length || 100,
             cornerRadius: floor.cornerRadius || null,
-          },
+          } as any,
         });
 
         // Create elements for this floor
@@ -666,7 +672,7 @@ export class SpacesService {
           
           const createdElement = await tx.floorElement.create({
             data: {
-              id: element.id || `element-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              ...(element.id ? { id: element.id } : {}),
               floorId: createdFloor.id,
               name: element.name || 'Element',
               type: elementType,
@@ -694,7 +700,7 @@ export class SpacesService {
               tags: element.tags || [],
               // Store original type and other attributes
               attributes: { ...element.attributes, originalType },
-            },
+            } as any,
           });
 
           // Create performance data if exists
@@ -746,17 +752,17 @@ export class SpacesService {
       if (forecourt) {
         // Delete existing forecourt
         await tx.forecourt.deleteMany({
-          where: { configId: configId },
+          where: { configId: config.id },
         });
 
         const createdForecourt = await tx.forecourt.create({
           data: {
-            id: forecourt.id || `forecourt-${Date.now()}`,
-            configId: configId,
+            ...(forecourt.id ? { id: forecourt.id } : {}),
+            configId: config.id,
             name: forecourt.name || 'Parvis',
             width: forecourt.width || 1000,
             length: forecourt.length || 500,
-          },
+          } as any,
         });
 
         // Create forecourt elements
@@ -767,7 +773,7 @@ export class SpacesService {
           
           const createdElement = await tx.forecourtElement.create({
             data: {
-              id: element.id || `fc-element-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              ...(element.id ? { id: element.id } : {}),
               forecourtId: createdForecourt.id,
               name: element.name || 'Element',
               type: elementType,
@@ -790,7 +796,7 @@ export class SpacesService {
               tags: element.tags || [],
               // Store original type in attributes
               attributes: { ...element.attributes, originalType },
-            },
+            } as any,
           });
 
           // Create performance, staff, inventory for forecourt elements

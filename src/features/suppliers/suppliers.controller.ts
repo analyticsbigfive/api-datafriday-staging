@@ -6,6 +6,7 @@ import {
   Patch,
   Param,
   Delete,
+  Query,
   UseGuards,
   Logger,
 } from '@nestjs/common';
@@ -36,9 +37,17 @@ export class SuppliersController {
   @Get()
   @ApiOperation({ summary: 'Lister tous les fournisseurs' })
   @ApiResponse({ status: 200, description: 'Liste des fournisseurs' })
-  findAll(@CurrentUser() user: any) {
+  findAll(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @CurrentUser() user?: any,
+  ) {
     this.logger.log(`GET /suppliers - User: ${user?.id}, Tenant: ${user?.tenantId}`);
-    return this.suppliersService.findAll(user.tenantId);
+    return this.suppliersService.findAll(
+      user.tenantId,
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 100,
+    );
   }
 
   @Get(':id')

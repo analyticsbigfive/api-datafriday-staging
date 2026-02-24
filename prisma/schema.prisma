@@ -301,7 +301,7 @@ model UserSpaceAccess {
 // ==================== SPACE & CONFIG ====================
 
 model Space {
-  id        String   @id
+  id        String   @id @default(cuid())
   name      String
   image     String?  @db.Text
   tenantId  String
@@ -355,7 +355,7 @@ model Space {
 }
 
 model Config {
-  id        String   @id
+  id        String   @id @default(cuid())
   name      String
   spaceId   String
   capacity  Int?
@@ -374,7 +374,7 @@ model Config {
 // ==================== FLOOR & ELEMENTS ====================
 
 model Floor {
-  id           String @id
+  id           String @id @default(cuid())
   configId     String
   name         String
   level        Int
@@ -391,7 +391,7 @@ model Floor {
 }
 
 model FloorElement {
-  id       String      @id
+  id       String      @id @default(cuid())
   floorId  String
   name     String
   type     ElementType
@@ -489,7 +489,7 @@ model ElementInventory {
 }
 
 model Forecourt {
-  id       String @id
+  id       String @id @default(cuid())
   configId String @unique
   name     String
   width    Float
@@ -500,7 +500,7 @@ model Forecourt {
 }
 
 model ForecourtElement {
-  id          String      @id
+  id          String      @id @default(cuid())
   forecourtId String
   name        String
   type        ElementType

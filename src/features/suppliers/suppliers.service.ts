@@ -38,15 +38,24 @@ export class SuppliersService {
     }
   }
 
-  async findAll(tenantId: string) {
-    this.logger.log(`Fetching all suppliers for tenant ${tenantId}`);
+  async findAll(tenantId: string, page = 1, limit = 100) {
+    this.logger.log(`Fetching suppliers for tenant ${tenantId} (page=${page}, limit=${limit})`);
     try {
-      const suppliers = await this.prisma.supplier.findMany({
-        where: { tenantId },
-        orderBy: { name: 'asc' },
-      });
-      this.logger.log(`Found ${suppliers.length} suppliers`);
-      return suppliers;
+      const skip = (page - 1) * limit;
+      const [suppliers, total] = await this.prisma.$transaction([
+        this.prisma.supplier.findMany({
+          where: { tenantId },
+          orderBy: { name: 'asc' },
+          skip,
+          take: limit,
+        }),
+        this.prisma.supplier.count({ where: { tenantId } }),
+      ]);
+      this.logger.log(`Found ${suppliers.length} suppliers (total: ${total})`);
+      return {
+        data: suppliers,
+        meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      };
     } catch (error) {
       this.logger.error(`Failed to fetch suppliers: ${error.message}`, error.stack);
       throw error;

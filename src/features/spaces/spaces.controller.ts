@@ -11,6 +11,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -129,6 +130,9 @@ export class SpacesController {
     },
   })
   async findAll(@CurrentUser() user: any, @Query() query: QuerySpaceDto) {
+    if (!user.tenantId) {
+      throw new ForbiddenException('Organisation requise. Veuillez compléter l\'onboarding.');
+    }
     return this.spacesService.findAll(user.tenantId, query);
   }
 

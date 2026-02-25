@@ -6,6 +6,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -57,6 +58,9 @@ export class PinnedSpacesController {
     },
   })
   async getPinnedSpaces(@CurrentUser() user: any) {
+    if (!user.tenantId) {
+      throw new ForbiddenException('Organisation requise. Veuillez compléter l\'onboarding.');
+    }
     return this.spacesService.getPinned(user.id, user.tenantId);
   }
 
@@ -109,6 +113,9 @@ export class PinnedSpacesController {
     @CurrentUser() user: any,
     @Body() body: { spaceIds: string[] },
   ) {
+    if (!user.tenantId) {
+      throw new ForbiddenException('Organisation requise. Veuillez compléter l\'onboarding.');
+    }
     return this.spacesService.setPinnedSpaces(user.id, user.tenantId, body.spaceIds || []);
   }
 }

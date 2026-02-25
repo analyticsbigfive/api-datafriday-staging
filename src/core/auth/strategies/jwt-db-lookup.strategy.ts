@@ -41,7 +41,8 @@ export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
     }
 
     // 🔍 Lookup dans la DB pour récupérer user + tenant
-    const user = await this.prisma.user.findUnique({
+    // Upsert: créer l'user s'il n'existe pas encore (première connexion Supabase)
+    let user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       include: {
         tenant: {
@@ -56,11 +57,22 @@ export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
     });
 
     if (!user) {
-      throw new UnauthorizedException('User not found in database');
+      // User authentifié Supabase mais pas encore en DB (onboarding non complété)
+      // On retourne un user partiel depuis le JWT — les endpoints nécessitant un tenant
+      // retourneront une erreur métier appropriée (403/404), pas un 401 cryptique
+      return {
+        id: payload.sub,
+        email: payload.email,
+        firstName: null,
+        fullName: null,
+        role: null,
+        tenantId: null,
+        tenant: null,
+      };
     }
 
-    // Vérifier si le tenant est actif
-    if (user.tenant.status === 'SUSPENDED') {
+    // Vérifier si le tenant est actif (seulement si l'user a un tenant)
+    if (user.tenant && user.tenant.status === 'SUSPENDED') {
       throw new UnauthorizedException('Organization is suspended');
     }
 
@@ -69,7 +81,7 @@ export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
       id: user.id,
       email: user.email,
       firstName: user.firstName,
-      fullName: user.fullName,
+      fullName: (user as any).fullName,
       role: user.role,
       tenantId: user.tenantId,
       tenant: user.tenant,

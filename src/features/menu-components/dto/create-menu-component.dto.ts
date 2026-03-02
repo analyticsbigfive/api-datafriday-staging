@@ -6,6 +6,7 @@ import {
   IsInt,
   IsArray,
   IsEnum,
+  ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -31,6 +32,72 @@ export enum StorageType {
   Freezer = 'Freezer',
   Material = 'Material',
   NA = 'NA',
+}
+
+export class MenuComponentIngredientLineDto {
+  @ApiProperty({ description: "ID de l'ingrédient" })
+  @IsString()
+  ingredientId: string;
+
+  @ApiProperty({ description: 'Quantité utilisée' })
+  @IsNumber()
+  @Type(() => Number)
+  quantity: number;
+
+  @ApiPropertyOptional({ description: 'Unité (optionnelle)' })
+  @IsOptional()
+  @IsString()
+  unit?: string;
+
+  @ApiPropertyOptional({ description: 'Coût unitaire (optionnel, peut être recalculé)' })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  unitCost?: number;
+
+  @ApiPropertyOptional({ description: 'Coût total de la ligne (optionnel, peut être recalculé)' })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  cost?: number;
+}
+
+export class MenuComponentChildLineDto {
+  @ApiProperty({ description: 'ID du sous-composant (child MenuComponent)' })
+  @IsString()
+  childId: string;
+
+  @ApiProperty({ description: 'Quantité utilisée' })
+  @IsNumber()
+  @Type(() => Number)
+  quantity: number;
+
+  @ApiPropertyOptional({ description: 'Unité (optionnelle)' })
+  @IsOptional()
+  @IsString()
+  unit?: string;
+
+  @ApiPropertyOptional({ description: 'Coût total de la ligne (optionnel, peut être recalculé)' })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  cost?: number;
+}
+
+export class ReplaceMenuComponentIngredientsDto {
+  @ApiProperty({ description: "Liste complète des lignes d'ingrédients", type: [MenuComponentIngredientLineDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MenuComponentIngredientLineDto)
+  ingredients: MenuComponentIngredientLineDto[];
+}
+
+export class ReplaceMenuComponentChildrenDto {
+  @ApiProperty({ description: 'Liste complète des sous-composants (children)', type: [MenuComponentChildLineDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MenuComponentChildLineDto)
+  children: MenuComponentChildLineDto[];
 }
 
 export class CreateMenuComponentDto {
@@ -71,6 +138,20 @@ export class CreateMenuComponentDto {
   @ApiPropertyOptional({ description: 'Sous-composants JSON' })
   @IsOptional()
   subComponents?: any;
+
+  @ApiPropertyOptional({ description: "Lignes d'ingrédients (source de vérité)", type: [MenuComponentIngredientLineDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MenuComponentIngredientLineDto)
+  ingredients?: MenuComponentIngredientLineDto[];
+
+  @ApiPropertyOptional({ description: 'Sous-composants (relation parent→child) (source de vérité)', type: [MenuComponentChildLineDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MenuComponentChildLineDto)
+  children?: MenuComponentChildLineDto[];
 
   @ApiPropertyOptional({ description: 'Catégorie de composant (Sauce, Meat, Fish, Veg, Salad, Biscuit, Jus, Juice)' })
   @IsOptional()

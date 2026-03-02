@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateMenuComponentDto } from './dto/create-menu-component.dto';
 import { UpdateMenuComponentDto } from './dto/update-menu-component.dto';
@@ -8,6 +8,110 @@ export class MenuComponentsService {
   private readonly logger = new Logger(MenuComponentsService.name);
 
   constructor(private prisma: PrismaService) {}
+
+  private toDecimalOrUndefined(value: unknown): any {
+    if (value === null || value === undefined || value === '') return undefined;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : undefined;
+  }
+
+  async replaceIngredients(
+    componentId: string,
+    ingredients: CreateMenuComponentDto['ingredients'],
+    tenantId: string,
+  ) {
+    this.logger.log(`Replacing ingredient lines for component ${componentId} (tenant ${tenantId})`);
+    await this.findOne(componentId, tenantId);
+
+    const lines = Array.isArray(ingredients) ? ingredients : [];
+
+    await this.prisma.menuComponent.update({
+      where: { id: componentId },
+      data: {
+        ingredients: {
+          deleteMany: {},
+          create: lines.map((l: any) => ({
+            ingredientId: l.ingredientId,
+            quantity: Number(l.quantity),
+            unit: l.unit,
+            unitCost: this.toDecimalOrUndefined((l as any).unitCost),
+            cost: this.toDecimalOrUndefined((l as any).cost),
+          })),
+        },
+      },
+    });
+
+    await this.refreshCosts(tenantId, { componentIds: [componentId] });
+    return this.findOne(componentId, tenantId);
+  }
+
+  async replaceChildren(
+    componentId: string,
+    children: CreateMenuComponentDto['children'],
+    tenantId: string,
+  ) {
+    this.logger.log(`Replacing child component lines for component ${componentId} (tenant ${tenantId})`);
+    await this.findOne(componentId, tenantId);
+
+    const lines = Array.isArray(children) ? children : [];
+
+    await this.prisma.menuComponent.update({
+      where: { id: componentId },
+      data: {
+        children: {
+          deleteMany: {},
+          create: lines.map((l: any) => ({
+            childId: l.childId,
+            quantity: Number(l.quantity),
+            unit: l.unit,
+            cost: this.toDecimalOrUndefined((l as any).cost),
+          })),
+        },
+      },
+    });
+
+    await this.refreshCosts(tenantId, { componentIds: [componentId] });
+    return this.findOne(componentId, tenantId);
+  }
+
+  private async resolveIngredientUnitCost(ingredientId: string, tenantId: string): Promise<number> {
+    const ingredient = await this.prisma.ingredient.findFirst({
+      where: { id: ingredientId, tenantId, deletedAt: null },
+      select: { costPerRecipeUnit: true },
+    });
+    if (!ingredient) throw new BadRequestException(`Ingredient ${ingredientId} not found`);
+    return Number(ingredient.costPerRecipeUnit || 0);
+  }
+
+  private async computeComponentUnitCost(componentId: string, tenantId: string, stack: string[] = []): Promise<number> {
+    if (stack.includes(componentId)) {
+      throw new BadRequestException(`Cycle detected in components: ${[...stack, componentId].join(' -> ')}`);
+    }
+
+    const component = await this.prisma.menuComponent.findFirst({
+      where: { id: componentId, tenantId, deletedAt: null },
+      include: {
+        ingredients: true,
+        children: true,
+      },
+    });
+    if (!component) throw new BadRequestException(`MenuComponent ${componentId} not found`);
+
+    const nextStack = [...stack, componentId];
+
+    let total = 0;
+    for (const line of component.ingredients || []) {
+      const unitCost = Number(line.unitCost || 0) || (await this.resolveIngredientUnitCost(line.ingredientId, tenantId));
+      total += unitCost * (Number(line.quantity) || 0);
+    }
+
+    for (const childLine of component.children || []) {
+      const childUnitCost = await this.computeComponentUnitCost(childLine.childId, tenantId, nextStack);
+      total += childUnitCost * (Number(childLine.quantity) || 0);
+    }
+
+    return Math.round(total * 10000) / 10000;
+  }
 
   private readonly includeRelations = {
     ingredients: {
@@ -24,6 +128,9 @@ export class MenuComponentsService {
   async create(dto: CreateMenuComponentDto, tenantId: string) {
     this.logger.log(`Creating menu component "${dto.name}" for tenant ${tenantId}`);
     try {
+      const ingredientsLines = Array.isArray((dto as any).ingredients) ? (dto as any).ingredients : undefined;
+      const childrenLines = Array.isArray((dto as any).children) ? (dto as any).children : undefined;
+
       const component = await this.prisma.menuComponent.create({
         data: {
           tenantId,
@@ -37,9 +144,42 @@ export class MenuComponentsService {
           subComponents: dto.subComponents,
           componentCategory: dto.componentCategory,
           numberOfUnitsRecipe: dto.numberOfUnitsRecipe,
+
+          ...(ingredientsLines
+            ? {
+                ingredients: {
+                  create: ingredientsLines.map((l: any) => ({
+                    ingredientId: l.ingredientId,
+                    quantity: Number(l.quantity),
+                    unit: l.unit,
+                    unitCost: this.toDecimalOrUndefined(l.unitCost),
+                    cost: this.toDecimalOrUndefined(l.cost),
+                  })),
+                },
+              }
+            : {}),
+
+          ...(childrenLines
+            ? {
+                children: {
+                  create: childrenLines.map((l: any) => ({
+                    childId: l.childId,
+                    quantity: Number(l.quantity),
+                    unit: l.unit,
+                    cost: this.toDecimalOrUndefined(l.cost),
+                  })),
+                },
+              }
+            : {}),
         },
         include: this.includeRelations,
       });
+
+      if (ingredientsLines || childrenLines) {
+        await this.refreshCosts(tenantId, { componentIds: [component.id] });
+        return this.findOne(component.id, tenantId);
+      }
+
       this.logger.log(`Menu component created: ${component.id}`);
       return component;
     } catch (error) {
@@ -104,6 +244,34 @@ export class MenuComponentsService {
     if (dto.componentCategory !== undefined) updateData.componentCategory = dto.componentCategory;
     if (dto.numberOfUnitsRecipe !== undefined) updateData.numberOfUnitsRecipe = dto.numberOfUnitsRecipe;
 
+    const ingredientsLines = Array.isArray((dto as any).ingredients) ? (dto as any).ingredients : undefined;
+    const childrenLines = Array.isArray((dto as any).children) ? (dto as any).children : undefined;
+
+    if (ingredientsLines) {
+      updateData.ingredients = {
+        deleteMany: {},
+        create: ingredientsLines.map((l: any) => ({
+          ingredientId: l.ingredientId,
+          quantity: Number(l.quantity),
+          unit: l.unit,
+          unitCost: this.toDecimalOrUndefined(l.unitCost),
+          cost: this.toDecimalOrUndefined(l.cost),
+        })),
+      };
+    }
+
+    if (childrenLines) {
+      updateData.children = {
+        deleteMany: {},
+        create: childrenLines.map((l: any) => ({
+          childId: l.childId,
+          quantity: Number(l.quantity),
+          unit: l.unit,
+          cost: this.toDecimalOrUndefined(l.cost),
+        })),
+      };
+    }
+
     try {
       const component = await this.prisma.menuComponent.update({
         where: { id },
@@ -111,11 +279,77 @@ export class MenuComponentsService {
         include: this.includeRelations,
       });
       this.logger.log(`Menu component ${id} updated`);
+
+      if (ingredientsLines || childrenLines) {
+        await this.refreshCosts(tenantId, { componentIds: [id] });
+        return this.findOne(id, tenantId);
+      }
+
       return component;
     } catch (error) {
       this.logger.error(`Failed to update menu component ${id}: ${error.message}`, error.stack);
       throw error;
     }
+  }
+
+  async refreshCosts(tenantId: string, opts?: { componentIds?: string[] }) {
+    const componentIds = opts?.componentIds;
+    this.logger.log(`Refreshing menu component costs for tenant ${tenantId}${componentIds?.length ? ` (ids=${componentIds.length})` : ''}...`);
+
+    const components = await this.prisma.menuComponent.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        ...(componentIds?.length ? { id: { in: componentIds } } : {}),
+      },
+      include: {
+        ingredients: true,
+        children: true,
+      },
+    });
+
+    let updatedComponents = 0;
+    let updatedLines = 0;
+
+    for (const comp of components) {
+      const ingredientLineUpdates = [] as any[];
+      for (const line of comp.ingredients || []) {
+        const unitCost = Number(line.unitCost || 0) || (await this.resolveIngredientUnitCost(line.ingredientId, tenantId));
+        const cost = Math.round((unitCost * (Number(line.quantity) || 0)) * 10000) / 10000;
+        ingredientLineUpdates.push(
+          this.prisma.componentIngredient.update({
+            where: { id: line.id },
+            data: { unitCost, cost },
+          }),
+        );
+      }
+
+      const childLineUpdates = [] as any[];
+      for (const line of comp.children || []) {
+        const childUnitCost = await this.computeComponentUnitCost(line.childId, tenantId, [comp.id]);
+        const cost = Math.round((childUnitCost * (Number(line.quantity) || 0)) * 10000) / 10000;
+        childLineUpdates.push(
+          this.prisma.componentComponent.update({
+            where: { id: line.id },
+            data: { cost },
+          }),
+        );
+      }
+
+      const unitCost = await this.computeComponentUnitCost(comp.id, tenantId);
+
+      await this.prisma.$transaction([
+        ...ingredientLineUpdates,
+        ...childLineUpdates,
+        this.prisma.menuComponent.update({ where: { id: comp.id }, data: { unitCost } }),
+      ]);
+
+      updatedComponents++;
+      updatedLines += (comp.ingredients?.length || 0) + (comp.children?.length || 0);
+    }
+
+    this.logger.log(`Refreshed costs for ${updatedComponents} components (${updatedLines} lines)`);
+    return { updatedComponents, updatedLines };
   }
 
   async remove(id: string, tenantId: string) {

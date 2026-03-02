@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Body,
   Patch,
   Param,
@@ -13,7 +14,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { MenuItemsService } from './menu-items.service';
-import { CreateMenuItemDto } from './dto/create-menu-item.dto';
+import { CreateMenuItemDto, ReplaceMenuItemComponentsDto, ReplaceMenuItemIngredientsDto, ReplaceMenuItemPackagingsDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
@@ -56,12 +57,64 @@ export class MenuItemsController {
     return this.menuItemsService.refreshCosts(tenantId);
   }
 
+  @Post(':id/refresh-costs')
+  @ApiOperation({ summary: "Recalculer les coûts d'un article" })
+  @ApiResponse({ status: 200, description: 'Coûts recalculés (article)' })
+  async refreshOneCosts(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+  ) {
+    this.logger.log(`POST /menu-items/${id}/refresh-costs - User: ${user?.id}, Tenant: ${tenantId}`);
+    await this.menuItemsService.refreshCosts(tenantId, { itemIds: [id] });
+    return this.menuItemsService.findOne(id, tenantId);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Obtenir un article par ID' })
   @ApiResponse({ status: 200, description: 'Détails de l\'article' })
   findOne(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /menu-items/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
     return this.menuItemsService.findOne(id, tenantId);
+  }
+
+  @Put(':id/components')
+  @ApiOperation({ summary: "Remplacer les composants d'un menu item" })
+  @ApiResponse({ status: 200, description: 'Composants mis à jour' })
+  replaceComponents(
+    @Param('id') id: string,
+    @Body() dto: ReplaceMenuItemComponentsDto,
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+  ) {
+    this.logger.log(`PUT /menu-items/${id}/components - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.menuItemsService.replaceComponents(id, dto.components, tenantId);
+  }
+
+  @Put(':id/ingredients')
+  @ApiOperation({ summary: "Remplacer les ingrédients d'un menu item" })
+  @ApiResponse({ status: 200, description: 'Ingrédients mis à jour' })
+  replaceIngredients(
+    @Param('id') id: string,
+    @Body() dto: ReplaceMenuItemIngredientsDto,
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+  ) {
+    this.logger.log(`PUT /menu-items/${id}/ingredients - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.menuItemsService.replaceIngredients(id, dto.ingredients, tenantId);
+  }
+
+  @Put(':id/packagings')
+  @ApiOperation({ summary: "Remplacer les packagings d'un menu item" })
+  @ApiResponse({ status: 200, description: 'Packagings mis à jour' })
+  replacePackagings(
+    @Param('id') id: string,
+    @Body() dto: ReplaceMenuItemPackagingsDto,
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+  ) {
+    this.logger.log(`PUT /menu-items/${id}/packagings - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.menuItemsService.replacePackagings(id, dto.packagings, tenantId);
   }
 
   @Patch(':id')

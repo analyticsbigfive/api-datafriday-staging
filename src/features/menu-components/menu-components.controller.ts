@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Body,
   Patch,
   Param,
@@ -12,7 +13,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { MenuComponentsService } from './menu-components.service';
-import { CreateMenuComponentDto } from './dto/create-menu-component.dto';
+import { CreateMenuComponentDto, ReplaceMenuComponentChildrenDto, ReplaceMenuComponentIngredientsDto } from './dto/create-menu-component.dto';
 import { UpdateMenuComponentDto } from './dto/update-menu-component.dto';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
@@ -42,6 +43,14 @@ export class MenuComponentsController {
     return this.menuComponentsService.repair(tenantId);
   }
 
+  @Post('refresh-costs')
+  @ApiOperation({ summary: 'Recalculer les coûts des composants de menu' })
+  @ApiResponse({ status: 200, description: 'Coûts recalculés' })
+  refreshCosts(@CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+    this.logger.log(`POST /menu-components/refresh-costs - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.menuComponentsService.refreshCosts(tenantId);
+  }
+
   @Get()
   @ApiOperation({ summary: 'Lister tous les composants de menu' })
   @ApiResponse({ status: 200, description: 'Liste des composants' })
@@ -56,6 +65,32 @@ export class MenuComponentsController {
   findOne(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /menu-components/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
     return this.menuComponentsService.findOne(id, tenantId);
+  }
+
+  @Put(':id/ingredients')
+  @ApiOperation({ summary: "Remplacer les lignes d'ingrédients d'un composant" })
+  @ApiResponse({ status: 200, description: 'Lignes ingrédients mises à jour' })
+  replaceIngredients(
+    @Param('id') id: string,
+    @Body() dto: ReplaceMenuComponentIngredientsDto,
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+  ) {
+    this.logger.log(`PUT /menu-components/${id}/ingredients - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.menuComponentsService.replaceIngredients(id, dto.ingredients, tenantId);
+  }
+
+  @Put(':id/children')
+  @ApiOperation({ summary: "Remplacer les sous-composants (children) d'un composant" })
+  @ApiResponse({ status: 200, description: 'Sous-composants mis à jour' })
+  replaceChildren(
+    @Param('id') id: string,
+    @Body() dto: ReplaceMenuComponentChildrenDto,
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+  ) {
+    this.logger.log(`PUT /menu-components/${id}/children - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.menuComponentsService.replaceChildren(id, dto.children, tenantId);
   }
 
   @Patch(':id')

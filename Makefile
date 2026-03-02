@@ -6,6 +6,11 @@ ifneq (,$(wildcard envFiles/.env.development))
     export
 endif
 
+API_PORT := $(subst ",,$(API_PORT))
+REDIS_PORT := $(subst ",,$(REDIS_PORT))
+BULL_BOARD_PORT := $(subst ",,$(BULL_BOARD_PORT))
+export API_PORT REDIS_PORT BULL_BOARD_PORT
+
 # Couleurs pour l'affichage
 BLUE := \033[0;34m
 GREEN := \033[0;32m

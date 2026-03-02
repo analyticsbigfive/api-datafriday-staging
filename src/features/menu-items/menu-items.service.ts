@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
@@ -77,9 +77,45 @@ export class MenuItemsService {
     return { ...rest, spaceIds };
   }
 
+  private toNumber(value: unknown, fallback = 0) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  private async getComponentUnitCost(componentId: string, tenantId: string) {
+    const comp = await this.prisma.menuComponent.findFirst({
+      where: { id: componentId, tenantId, deletedAt: null },
+      select: { unitCost: true, storageType: true },
+    });
+    if (!comp) throw new BadRequestException(`Component ${componentId} not found`);
+    return { unitCost: this.toNumber(comp.unitCost, 0), storageType: comp.storageType };
+  }
+
+  private async getIngredientUnitCost(ingredientId: string, tenantId: string) {
+    const ing = await this.prisma.ingredient.findFirst({
+      where: { id: ingredientId, tenantId, deletedAt: null },
+      select: { costPerRecipeUnit: true, storageType: true },
+    });
+    if (!ing) throw new BadRequestException(`Ingredient ${ingredientId} not found`);
+    return { unitCost: this.toNumber(ing.costPerRecipeUnit, 0), storageType: ing.storageType };
+  }
+
+  private async getPackagingUnitCost(packagingId: string, tenantId: string) {
+    const p = await this.prisma.packaging.findFirst({
+      where: { id: packagingId, tenantId, deletedAt: null },
+      select: { costPerRecipeUnit: true, storageType: true },
+    });
+    if (!p) throw new BadRequestException(`Packaging ${packagingId} not found`);
+    return { unitCost: this.toNumber(p.costPerRecipeUnit, 0), storageType: p.storageType };
+  }
+
   async create(dto: CreateMenuItemDto, tenantId: string) {
     this.logger.log(`Creating menu item "${dto.name}" for tenant ${tenantId}`);
     try {
+      const componentsLines = Array.isArray((dto as any).components) ? (dto as any).components : undefined;
+      const ingredientsLines = Array.isArray((dto as any).ingredients) ? (dto as any).ingredients : undefined;
+      const packagingsLines = Array.isArray((dto as any).packagings) ? (dto as any).packagings : undefined;
+
       const item = await this.prisma.menuItem.create({
         data: {
           tenantId,
@@ -98,12 +134,51 @@ export class MenuItemsService {
           comboItem: dto.comboItem,
           numberOfPiecesRecipe: dto.numberOfPiecesRecipe,
           componentsData: dto.componentsData,
+
+          ...(componentsLines
+            ? {
+                components: {
+                  create: componentsLines.map((l: any) => ({
+                    componentId: l.componentId,
+                    numberOfUnits: this.toNumber(l.numberOfUnits),
+                  })),
+                },
+              }
+            : {}),
+
+          ...(ingredientsLines
+            ? {
+                ingredients: {
+                  create: ingredientsLines.map((l: any) => ({
+                    ingredientId: l.ingredientId,
+                    numberOfUnits: this.toNumber(l.numberOfUnits),
+                  })),
+                },
+              }
+            : {}),
+
+          ...(packagingsLines
+            ? {
+                packagings: {
+                  create: packagingsLines.map((l: any) => ({
+                    packagingId: l.packagingId,
+                    numberOfUnits: this.toNumber(l.numberOfUnits),
+                  })),
+                },
+              }
+            : {}),
         } as any,
         include: this.includeRelations,
       });
       this.logger.log(`Menu item created: ${item.id}`);
+
+      if (componentsLines || ingredientsLines || packagingsLines) {
+        await this.refreshCosts(tenantId, { itemIds: [item.id] });
+      }
+
       await this.invalidateCache(tenantId);
-      return this.serializeItem(item);
+      const refreshed = await this.findOne(item.id, tenantId);
+      return refreshed;
     } catch (error) {
       this.logger.error(`Failed to create menu item: ${error.message}`, error.stack);
       throw error;
@@ -172,6 +247,38 @@ export class MenuItemsService {
     if (dto.numberOfPiecesRecipe !== undefined) updateData.numberOfPiecesRecipe = dto.numberOfPiecesRecipe;
     if (dto.componentsData !== undefined) updateData.componentsData = dto.componentsData;
 
+    const componentsLines = Array.isArray((dto as any).components) ? (dto as any).components : undefined;
+    const ingredientsLines = Array.isArray((dto as any).ingredients) ? (dto as any).ingredients : undefined;
+    const packagingsLines = Array.isArray((dto as any).packagings) ? (dto as any).packagings : undefined;
+
+    if (componentsLines) {
+      updateData.components = {
+        deleteMany: {},
+        create: componentsLines.map((l: any) => ({
+          componentId: l.componentId,
+          numberOfUnits: this.toNumber(l.numberOfUnits),
+        })),
+      };
+    }
+    if (ingredientsLines) {
+      updateData.ingredients = {
+        deleteMany: {},
+        create: ingredientsLines.map((l: any) => ({
+          ingredientId: l.ingredientId,
+          numberOfUnits: this.toNumber(l.numberOfUnits),
+        })),
+      };
+    }
+    if (packagingsLines) {
+      updateData.packagings = {
+        deleteMany: {},
+        create: packagingsLines.map((l: any) => ({
+          packagingId: l.packagingId,
+          numberOfUnits: this.toNumber(l.numberOfUnits),
+        })),
+      };
+    }
+
     try {
       const item = await this.prisma.menuItem.update({
         where: { id },
@@ -179,12 +286,86 @@ export class MenuItemsService {
         include: this.includeRelations,
       });
       this.logger.log(`Menu item ${id} updated`);
+
+      if (componentsLines || ingredientsLines || packagingsLines) {
+        await this.refreshCosts(tenantId, { itemIds: [id] });
+      }
+
       await this.invalidateCache(tenantId);
-      return this.serializeItem(item);
+      return this.findOne(id, tenantId);
     } catch (error) {
       this.logger.error(`Failed to update menu item ${id}: ${error.message}`, error.stack);
       throw error;
     }
+  }
+
+  async replaceComponents(menuItemId: string, components: CreateMenuItemDto['components'], tenantId: string) {
+    this.logger.log(`Replacing components for menu item ${menuItemId} (tenant ${tenantId})`);
+    await this.findOne(menuItemId, tenantId);
+    const lines = Array.isArray(components) ? components : [];
+
+    await this.prisma.menuItem.update({
+      where: { id: menuItemId },
+      data: {
+        components: {
+          deleteMany: {},
+          create: lines.map((l: any) => ({
+            componentId: l.componentId,
+            numberOfUnits: this.toNumber(l.numberOfUnits),
+          })),
+        },
+      },
+    });
+
+    await this.refreshCosts(tenantId, { itemIds: [menuItemId] });
+    await this.invalidateCache(tenantId);
+    return this.findOne(menuItemId, tenantId);
+  }
+
+  async replaceIngredients(menuItemId: string, ingredients: CreateMenuItemDto['ingredients'], tenantId: string) {
+    this.logger.log(`Replacing ingredients for menu item ${menuItemId} (tenant ${tenantId})`);
+    await this.findOne(menuItemId, tenantId);
+    const lines = Array.isArray(ingredients) ? ingredients : [];
+
+    await this.prisma.menuItem.update({
+      where: { id: menuItemId },
+      data: {
+        ingredients: {
+          deleteMany: {},
+          create: lines.map((l: any) => ({
+            ingredientId: l.ingredientId,
+            numberOfUnits: this.toNumber(l.numberOfUnits),
+          })),
+        },
+      },
+    });
+
+    await this.refreshCosts(tenantId, { itemIds: [menuItemId] });
+    await this.invalidateCache(tenantId);
+    return this.findOne(menuItemId, tenantId);
+  }
+
+  async replacePackagings(menuItemId: string, packagings: CreateMenuItemDto['packagings'], tenantId: string) {
+    this.logger.log(`Replacing packagings for menu item ${menuItemId} (tenant ${tenantId})`);
+    await this.findOne(menuItemId, tenantId);
+    const lines = Array.isArray(packagings) ? packagings : [];
+
+    await this.prisma.menuItem.update({
+      where: { id: menuItemId },
+      data: {
+        packagings: {
+          deleteMany: {},
+          create: lines.map((l: any) => ({
+            packagingId: l.packagingId,
+            numberOfUnits: this.toNumber(l.numberOfUnits),
+          })),
+        },
+      },
+    });
+
+    await this.refreshCosts(tenantId, { itemIds: [menuItemId] });
+    await this.invalidateCache(tenantId);
+    return this.findOne(menuItemId, tenantId);
   }
 
   async remove(id: string, tenantId: string) {
@@ -201,11 +382,16 @@ export class MenuItemsService {
     }
   }
 
-  async refreshCosts(tenantId: string) {
-    this.logger.log(`Refreshing menu item costs for tenant ${tenantId}...`);
+  async refreshCosts(tenantId: string, opts?: { itemIds?: string[] }) {
+    const itemIds = opts?.itemIds;
+    this.logger.log(`Refreshing menu item costs for tenant ${tenantId}${itemIds?.length ? ` (ids=${itemIds.length})` : ''}...`);
     try {
       const items = await this.prisma.menuItem.findMany({
-        where: { tenantId, deletedAt: null },
+        where: {
+          tenantId,
+          deletedAt: null,
+          ...(itemIds?.length ? { id: { in: itemIds } } : {}),
+        },
         include: {
           components: { include: { component: true } },
           ingredients: { include: { ingredient: true } },
@@ -213,45 +399,73 @@ export class MenuItemsService {
         },
       });
 
-      // Calculate costs in memory, then batch update in a single transaction
-      const updates: { id: string; totalCost: number; margin: number | null }[] = [];
+      let updated = 0;
+      let updatedLines = 0;
 
-      for (const item of items) {
+      for (const item of items as any[]) {
+        const tx: any[] = [];
         let totalCost = 0;
 
-        for (const mic of (item as any).components || []) {
-          totalCost += Number(mic.totalCost || 0);
-        }
-        for (const mii of (item as any).ingredients || []) {
-          totalCost += Number(mii.totalCost || 0);
-        }
-        for (const mip of (item as any).packagings || []) {
-          totalCost += Number(mip.totalCost || 0);
-        }
-
-        if (totalCost > 0) {
-          const margin = Number(item.basePrice) > 0
-            ? ((Number(item.basePrice) - totalCost) / Number(item.basePrice)) * 100
-            : null;
-          updates.push({ id: item.id, totalCost, margin });
-        }
-      }
-
-      // Batch update in a single transaction (much faster than N individual updates)
-      if (updates.length > 0) {
-        await this.prisma.$transaction(
-          updates.map(u =>
-            this.prisma.menuItem.update({
-              where: { id: u.id },
-              data: { totalCost: u.totalCost, margin: u.margin },
+        for (const line of item.components || []) {
+          const { unitCost, storageType } = await this.getComponentUnitCost(line.componentId, tenantId);
+          const numberOfUnits = this.toNumber(line.numberOfUnits);
+          const lineTotal = Math.round((unitCost * numberOfUnits) * 10000) / 10000;
+          totalCost += lineTotal;
+          tx.push(
+            this.prisma.menuItemComponent.update({
+              where: { id: line.id },
+              data: { unitCost, totalCost: lineTotal, storageType: storageType || undefined },
             }),
-          ),
+          );
+          updatedLines++;
+        }
+
+        for (const line of item.ingredients || []) {
+          const { unitCost, storageType } = await this.getIngredientUnitCost(line.ingredientId, tenantId);
+          const numberOfUnits = this.toNumber(line.numberOfUnits);
+          const lineTotal = Math.round((unitCost * numberOfUnits) * 10000) / 10000;
+          totalCost += lineTotal;
+          tx.push(
+            this.prisma.menuItemIngredient.update({
+              where: { id: line.id },
+              data: { unitCost, totalCost: lineTotal, storageType: storageType || undefined },
+            }),
+          );
+          updatedLines++;
+        }
+
+        for (const line of item.packagings || []) {
+          const { unitCost, storageType } = await this.getPackagingUnitCost(line.packagingId, tenantId);
+          const numberOfUnits = this.toNumber(line.numberOfUnits);
+          const lineTotal = Math.round((unitCost * numberOfUnits) * 10000) / 10000;
+          totalCost += lineTotal;
+          tx.push(
+            this.prisma.menuItemPackaging.update({
+              where: { id: line.id },
+              data: { unitCost, totalCost: lineTotal, storageType: storageType || undefined },
+            }),
+          );
+          updatedLines++;
+        }
+
+        const margin = this.toNumber(item.basePrice) > 0
+          ? ((this.toNumber(item.basePrice) - totalCost) / this.toNumber(item.basePrice)) * 100
+          : null;
+
+        tx.push(
+          this.prisma.menuItem.update({
+            where: { id: item.id },
+            data: { totalCost, margin },
+          }),
         );
+
+        await this.prisma.$transaction(tx);
+        updated++;
       }
 
-      this.logger.log(`Refreshed costs for ${updates.length} menu items`);
+      this.logger.log(`Refreshed costs for ${updated} menu items (${updatedLines} lines)`);
       await this.invalidateCache(tenantId);
-      return { updated: updates.length, total: items.length };
+      return { updated, total: items.length, updatedLines };
     } catch (error) {
       this.logger.error(`Failed to refresh costs: ${error.message}`, error.stack);
       throw error;

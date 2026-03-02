@@ -6,8 +6,66 @@ import {
   IsInt,
   IsArray,
   IsEnum,
+  ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+
+export class MenuItemComponentLineDto {
+  @ApiProperty({ description: 'ID du composant (MenuComponent)' })
+  @IsString()
+  componentId: string;
+
+  @ApiProperty({ description: "Nombre d'unités" })
+  @IsNumber()
+  @Type(() => Number)
+  numberOfUnits: number;
+}
+
+export class MenuItemIngredientLineDto {
+  @ApiProperty({ description: "ID de l'ingrédient" })
+  @IsString()
+  ingredientId: string;
+
+  @ApiProperty({ description: "Nombre d'unités" })
+  @IsNumber()
+  @Type(() => Number)
+  numberOfUnits: number;
+}
+
+export class MenuItemPackagingLineDto {
+  @ApiProperty({ description: 'ID du packaging' })
+  @IsString()
+  packagingId: string;
+
+  @ApiProperty({ description: "Nombre d'unités" })
+  @IsNumber()
+  @Type(() => Number)
+  numberOfUnits: number;
+}
+
+export class ReplaceMenuItemComponentsDto {
+  @ApiProperty({ description: 'Liste complète des composants', type: [MenuItemComponentLineDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MenuItemComponentLineDto)
+  components: MenuItemComponentLineDto[];
+}
+
+export class ReplaceMenuItemIngredientsDto {
+  @ApiProperty({ description: 'Liste complète des ingrédients', type: [MenuItemIngredientLineDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MenuItemIngredientLineDto)
+  ingredients: MenuItemIngredientLineDto[];
+}
+
+export class ReplaceMenuItemPackagingsDto {
+  @ApiProperty({ description: 'Liste complète des packagings', type: [MenuItemPackagingLineDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MenuItemPackagingLineDto)
+  packagings: MenuItemPackagingLineDto[];
+}
 
 export class CreateMenuItemDto {
   @ApiProperty({ description: 'Nom de l\'article' })
@@ -86,4 +144,25 @@ export class CreateMenuItemDto {
   @ApiPropertyOptional({ description: 'Données composants JSON' })
   @IsOptional()
   componentsData?: any;
+
+  @ApiPropertyOptional({ description: 'Composants (source de vérité)', type: [MenuItemComponentLineDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MenuItemComponentLineDto)
+  components?: MenuItemComponentLineDto[];
+
+  @ApiPropertyOptional({ description: 'Ingrédients (source de vérité)', type: [MenuItemIngredientLineDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MenuItemIngredientLineDto)
+  ingredients?: MenuItemIngredientLineDto[];
+
+  @ApiPropertyOptional({ description: 'Packagings (source de vérité)', type: [MenuItemPackagingLineDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MenuItemPackagingLineDto)
+  packagings?: MenuItemPackagingLineDto[];
 }

@@ -189,14 +189,20 @@ model Tenant {
   webhooks       Webhook[]
 
   // Weezevent Relations
-  weezeventEvents        WeezeventEvent[]
-  weezeventMerchants     WeezeventMerchant[]
-  weezeventLocations     WeezeventLocation[]
-  weezeventProducts      WeezeventProduct[]
-  weezeventUsers         WeezeventUser[]
-  weezeventWallets       WeezeventWallet[]
-  weezeventTransactions  WeezeventTransaction[]
-  weezeventWebhookEvents WeezeventWebhookEvent[]
+  weezeventEvents           WeezeventEvent[]
+  weezeventMerchants        WeezeventMerchant[]
+  weezeventLocations        WeezeventLocation[]
+  weezeventProducts         WeezeventProduct[]
+  weezeventUsers            WeezeventUser[]
+  weezeventWallets          WeezeventWallet[]
+  weezeventTransactions     WeezeventTransaction[]
+  weezeventWebhookEvents    WeezeventWebhookEvent[]
+  weezeventProductMappings  WeezeventProductMapping[]
+  weezeventProductVariants  WeezeventProductVariant[]
+  weezeventProductComponents WeezeventProductComponent[]
+  weezeventOrders           WeezeventOrder[]
+  weezeventPrices           WeezeventPrice[]
+  weezeventAttendees        WeezeventAttendee[]
 
   @@index([slug])
   @@index([status])
@@ -593,6 +599,9 @@ model WeezeventEvent {
   tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   transactions WeezeventTransaction[]
   locations    WeezeventLocation[]
+  orders       WeezeventOrder[]
+  prices       WeezeventPrice[]
+  attendees    WeezeventAttendee[]
 
   @@index([tenantId])
   @@index([weezeventId])
@@ -689,8 +698,12 @@ model WeezeventProduct {
   syncedAt  DateTime @default(now())
 
   // Relations
-  tenant           Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant           Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   transactionItems WeezeventTransactionItem[]
+  mappings         WeezeventProductMapping[]
+  productVariants  WeezeventProductVariant[]
+  productComponents WeezeventProductComponent[]
+  prices           WeezeventPrice[]
 
   @@index([tenantId])
   @@index([weezeventId])
@@ -946,6 +959,175 @@ model WeezeventPayment {
   @@index([walletId])
 }
 
+// ==================== WEEZEVENT PRODUCT MAPPING ====================
+
+model WeezeventProductMapping {
+  id                 String   @id @default(cuid())
+  tenantId           String
+  weezeventProductId String
+  menuItemId         String
+  autoMapped         Boolean  @default(false)
+  confidence         Float?
+  mappedBy           String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  weezeventProduct WeezeventProduct @relation(fields: [weezeventProductId], references: [id], onDelete: Cascade)
+  menuItem         MenuItem         @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@unique([weezeventProductId])
+  @@index([menuItemId])
+  @@index([tenantId])
+  @@index([autoMapped])
+}
+
+model WeezeventProductVariant {
+  id          String @id @default(cuid())
+  weezeventId String @unique
+  tenantId    String
+  productId   String
+
+  name        String
+  description String?
+  price       Decimal? @db.Decimal(10, 2)
+  sku         String?
+  stock       Int?
+  isDefault   Boolean  @default(false)
+
+  metadata Json?
+  rawData  Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
+  tenant  Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product WeezeventProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([productId])
+  @@index([weezeventId])
+}
+
+model WeezeventProductComponent {
+  id          String @id @default(cuid())
+  weezeventId String @unique
+  tenantId    String
+  productId   String
+
+  name        String
+  description String?
+  quantity    Float?
+  unit        String?
+  isRequired  Boolean @default(true)
+
+  metadata Json?
+  rawData  Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
+  tenant  Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product WeezeventProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([productId])
+  @@index([weezeventId])
+}
+
+model WeezeventOrder {
+  id          String @id @default(cuid())
+  weezeventId String @unique
+  tenantId    String
+
+  eventId      String?
+  eventName    String?
+  userId       String?
+  userEmail    String?
+  status       String
+  totalAmount  Decimal  @db.Decimal(10, 2)
+  orderDate    DateTime
+  paymentMethod String?
+
+  metadata Json?
+  rawData  Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
+  tenant Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  event  WeezeventEvent? @relation(fields: [eventId], references: [id])
+
+  @@index([tenantId])
+  @@index([eventId])
+  @@index([weezeventId])
+  @@index([orderDate])
+  @@index([status])
+}
+
+model WeezeventPrice {
+  id          String @id @default(cuid())
+  weezeventId String @unique
+  tenantId    String
+
+  eventId     String?
+  productId   String?
+  name        String
+  amount      Decimal  @db.Decimal(10, 2)
+  currency    String
+  validFrom   DateTime?
+  validUntil  DateTime?
+  priceType   String?
+
+  metadata Json?
+  rawData  Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
+  tenant  Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  event   WeezeventEvent?  @relation(fields: [eventId], references: [id])
+  product WeezeventProduct? @relation(fields: [productId], references: [id])
+
+  @@index([tenantId])
+  @@index([eventId])
+  @@index([productId])
+  @@index([weezeventId])
+}
+
+model WeezeventAttendee {
+  id          String @id @default(cuid())
+  weezeventId String @unique
+  tenantId    String
+
+  eventId   String?
+  eventName String?
+  email     String?
+  firstName String?
+  lastName  String?
+  ticketType String?
+  status    String
+
+  metadata Json?
+  rawData  Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  syncedAt  DateTime @default(now())
+
+  tenant Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  event  WeezeventEvent? @relation(fields: [eventId], references: [id])
+
+  @@index([tenantId])
+  @@index([eventId])
+  @@index([weezeventId])
+  @@index([email])
+}
+
 // ==================== INGREDIENTS & PACKAGING ====================
 
 model Ingredient {
@@ -1129,13 +1311,14 @@ model MenuItem {
   updatedAt            DateTime      @updatedAt
   deletedAt            DateTime?
 
-  tenant          Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  productType     ProductType         @relation(fields: [typeId], references: [id])
-  productCategory ProductCategory     @relation(fields: [categoryId], references: [id])
-  components      MenuItemComponent[]
-  ingredients     MenuItemIngredient[]
-  packagings      MenuItemPackaging[]
-  menuAssignments MenuAssignment[]
+  tenant            Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productType       ProductType               @relation(fields: [typeId], references: [id])
+  productCategory   ProductCategory           @relation(fields: [categoryId], references: [id])
+  components        MenuItemComponent[]
+  ingredients       MenuItemIngredient[]
+  packagings        MenuItemPackaging[]
+  menuAssignments   MenuAssignment[]
+  weezeventMappings WeezeventProductMapping[]
 
   @@index([tenantId])
   @@index([name])

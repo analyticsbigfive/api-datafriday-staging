@@ -44,6 +44,12 @@ export class WebhookEventHandler {
                 case 'transaction':
                     await this.handleTransactionEvent(event);
                     break;
+                case 'order':
+                    await this.handleOrderEvent(event);
+                    break;
+                case 'product':
+                    await this.handleProductEvent(event);
+                    break;
                 default:
                     this.logger.warn(`Unknown event type: ${event.eventType}`);
             }
@@ -168,6 +174,56 @@ export class WebhookEventHandler {
             this.logger.warn(`Transaction ${transactionId} not found for deletion`);
         } else {
             this.logger.log(`Marked transaction ${transactionId} as deleted`);
+        }
+    }
+
+    /**
+     * Handle order webhook event (create/update)
+     */
+    private async handleOrderEvent(event: WebhookEvent): Promise<void> {
+        const { method, payload } = event;
+        const orderId = payload.data?.id?.toString();
+        const eventId = payload.data?.event_id?.toString();
+
+        if (!orderId || !eventId) {
+            throw new Error('Order ID or Event ID not found in webhook payload');
+        }
+
+        this.logger.log(`Handling order ${method} for ID: ${orderId}`);
+
+        switch (method) {
+            case 'create':
+            case 'update':
+                // Trigger immediate sync for this event's orders
+                await this.syncService.syncOrders(event.tenantId, eventId);
+                break;
+
+            default:
+                this.logger.warn(`Unknown order method: ${method}`);
+        }
+    }
+
+    /**
+     * Handle product webhook event (update)
+     */
+    private async handleProductEvent(event: WebhookEvent): Promise<void> {
+        const { method, payload } = event;
+        const productId = payload.data?.id?.toString();
+
+        if (!productId) {
+            throw new Error('Product ID not found in webhook payload');
+        }
+
+        this.logger.log(`Handling product ${method} for ID: ${productId}`);
+
+        switch (method) {
+            case 'update':
+                // Trigger full products sync to get updated data
+                await this.syncService.syncProducts(event.tenantId);
+                break;
+
+            default:
+                this.logger.warn(`Unknown product method: ${method}`);
         }
     }
 }

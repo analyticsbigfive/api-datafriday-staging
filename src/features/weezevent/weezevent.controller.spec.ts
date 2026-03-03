@@ -64,12 +64,36 @@ describe('WeezeventController', () => {
       findFirst: jest.fn(),
       count: jest.fn(),
     },
+    weezeventProductMapping: {
+      findMany: jest.fn(),
+      count: jest.fn(),
+      upsert: jest.fn(),
+      deleteMany: jest.fn(),
+    },
+    weezeventOrder: {
+      findMany: jest.fn(),
+      count: jest.fn(),
+    },
+    weezeventPrice: {
+      findMany: jest.fn(),
+      count: jest.fn(),
+    },
+    weezeventAttendee: {
+      findMany: jest.fn(),
+      count: jest.fn(),
+    },
+    menuItem: {
+      findFirst: jest.fn(),
+    },
   };
 
   const mockSyncService = {
     syncTransactions: jest.fn(),
     syncEvents: jest.fn(),
     syncProducts: jest.fn(),
+    syncOrders: jest.fn(),
+    syncPrices: jest.fn(),
+    syncAttendees: jest.fn(),
   };
 
   const mockIncrementalSyncService = {
@@ -334,6 +358,265 @@ describe('WeezeventController', () => {
           },
         }),
       );
+    });
+  });
+
+  describe('mapProductToMenuItem', () => {
+    it('should create product mapping successfully', async () => {
+      const mockProduct = { id: 'prod-123', tenantId: 'tenant-123', name: 'Burger' };
+      const mockMenuItem = { id: 'menu-123', tenantId: 'tenant-123', name: 'Burger Classic' };
+      const mockMapping = {
+        id: 'mapping-123',
+        tenantId: 'tenant-123',
+        weezeventProductId: 'prod-123',
+        menuItemId: 'menu-123',
+        autoMapped: false,
+        confidence: null,
+        mappedBy: 'user-123',
+      };
+
+      mockPrismaService.weezeventProduct.findFirst.mockResolvedValue(mockProduct);
+      mockPrismaService.menuItem.findFirst.mockResolvedValue(mockMenuItem);
+      mockPrismaService.weezeventProductMapping.upsert.mockResolvedValue(mockMapping);
+
+      const result = await controller.mapProductToMenuItem(
+        mockUser,
+        'prod-123',
+        { menuItemId: 'menu-123' },
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.mapping).toEqual(mockMapping);
+      expect(mockPrismaService.weezeventProductMapping.upsert).toHaveBeenCalledWith({
+        where: { weezeventProductId: 'prod-123' },
+        create: expect.objectContaining({
+          tenantId: 'tenant-123',
+          weezeventProductId: 'prod-123',
+          menuItemId: 'menu-123',
+          mappedBy: 'user-123',
+        }),
+        update: expect.objectContaining({
+          menuItemId: 'menu-123',
+        }),
+      });
+    });
+
+    it('should throw error if product not found', async () => {
+      mockPrismaService.weezeventProduct.findFirst.mockResolvedValue(null);
+
+      await expect(
+        controller.mapProductToMenuItem(mockUser, 'invalid-prod', { menuItemId: 'menu-123' }),
+      ).rejects.toThrow('Product not found');
+    });
+
+    it('should throw error if menu item not found', async () => {
+      mockPrismaService.weezeventProduct.findFirst.mockResolvedValue({ id: 'prod-123' });
+      mockPrismaService.menuItem.findFirst.mockResolvedValue(null);
+
+      await expect(
+        controller.mapProductToMenuItem(mockUser, 'prod-123', { menuItemId: 'invalid-menu' }),
+      ).rejects.toThrow('Menu item not found');
+    });
+  });
+
+  describe('getProductMappings', () => {
+    it('should return paginated product mappings', async () => {
+      const mockMappings = [
+        {
+          id: 'mapping-1',
+          weezeventProduct: { id: 'prod-1', name: 'Burger' },
+          menuItem: { id: 'menu-1', name: 'Burger Classic' },
+        },
+      ];
+
+      mockPrismaService.weezeventProductMapping.findMany.mockResolvedValue(mockMappings);
+      mockPrismaService.weezeventProductMapping.count.mockResolvedValue(1);
+
+      const result = await controller.getProductMappings(mockUser, 1, 50);
+
+      expect(result.data).toEqual(mockMappings);
+      expect(result.meta).toEqual({
+        current_page: 1,
+        per_page: 50,
+        total: 1,
+        total_pages: 1,
+      });
+    });
+  });
+
+  describe('unmapProduct', () => {
+    it('should delete product mapping', async () => {
+      mockPrismaService.weezeventProductMapping.deleteMany.mockResolvedValue({ count: 1 });
+
+      const result = await controller.unmapProduct(mockUser, 'prod-123');
+
+      expect(result.success).toBe(true);
+      expect(mockPrismaService.weezeventProductMapping.deleteMany).toHaveBeenCalledWith({
+        where: {
+          weezeventProductId: 'prod-123',
+          tenantId: 'tenant-123',
+        },
+      });
+    });
+  });
+
+  describe('getOrders', () => {
+    it('should return paginated orders', async () => {
+      const mockOrders = [
+        {
+          id: 'order-1',
+          tenantId: 'tenant-123',
+          eventId: 'event-123',
+          totalAmount: 100,
+          status: 'completed',
+        },
+      ];
+
+      mockPrismaService.weezeventOrder.findMany.mockResolvedValue(mockOrders);
+      mockPrismaService.weezeventOrder.count.mockResolvedValue(1);
+
+      const result = await controller.getOrders(mockUser, 1, 50);
+
+      expect(result.data).toEqual(mockOrders);
+      expect(result.meta.total).toBe(1);
+    });
+
+    it('should filter by eventId', async () => {
+      mockPrismaService.weezeventOrder.findMany.mockResolvedValue([]);
+      mockPrismaService.weezeventOrder.count.mockResolvedValue(0);
+
+      await controller.getOrders(mockUser, 1, 50, 'event-123');
+
+      expect(mockPrismaService.weezeventOrder.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            tenantId: 'tenant-123',
+            eventId: 'event-123',
+          },
+        }),
+      );
+    });
+  });
+
+  describe('getPrices', () => {
+    it('should return paginated prices', async () => {
+      const mockPrices = [
+        {
+          id: 'price-1',
+          tenantId: 'tenant-123',
+          amount: 10,
+          currency: 'EUR',
+        },
+      ];
+
+      mockPrismaService.weezeventPrice.findMany.mockResolvedValue(mockPrices);
+      mockPrismaService.weezeventPrice.count.mockResolvedValue(1);
+
+      const result = await controller.getPrices(mockUser, 1, 50);
+
+      expect(result.data).toEqual(mockPrices);
+      expect(result.meta.total).toBe(1);
+    });
+  });
+
+  describe('getAttendees', () => {
+    it('should return paginated attendees', async () => {
+      const mockAttendees = [
+        {
+          id: 'attendee-1',
+          tenantId: 'tenant-123',
+          eventId: 'event-123',
+          email: 'attendee@example.com',
+        },
+      ];
+
+      mockPrismaService.weezeventAttendee.findMany.mockResolvedValue(mockAttendees);
+      mockPrismaService.weezeventAttendee.count.mockResolvedValue(1);
+
+      const result = await controller.getAttendees(mockUser, 1, 50);
+
+      expect(result.data).toEqual(mockAttendees);
+      expect(result.meta.total).toBe(1);
+    });
+  });
+
+  describe('syncData - extended types', () => {
+    it('should sync orders when type is orders', async () => {
+      const mockResult = {
+        type: 'orders',
+        success: true,
+        itemsSynced: 10,
+        itemsCreated: 5,
+        itemsUpdated: 5,
+        errors: 0,
+        duration: 1000,
+      };
+
+      mockSyncService.syncOrders.mockResolvedValue(mockResult);
+
+      const result = await controller.syncData(mockUser, {
+        type: 'orders',
+        eventId: 'event-123',
+      });
+
+      expect(result).toEqual(mockResult);
+      expect(mockSyncService.syncOrders).toHaveBeenCalledWith('tenant-123', 'event-123');
+    });
+
+    it('should throw error if eventId missing for orders sync', async () => {
+      await expect(
+        controller.syncData(mockUser, { type: 'orders' }),
+      ).rejects.toThrow('eventId is required for orders sync');
+    });
+
+    it('should sync prices when type is prices', async () => {
+      const mockResult = {
+        type: 'prices',
+        success: true,
+        itemsSynced: 5,
+        itemsCreated: 3,
+        itemsUpdated: 2,
+        errors: 0,
+        duration: 500,
+      };
+
+      mockSyncService.syncPrices.mockResolvedValue(mockResult);
+
+      const result = await controller.syncData(mockUser, {
+        type: 'prices',
+        eventId: 'event-123',
+      });
+
+      expect(result).toEqual(mockResult);
+      expect(mockSyncService.syncPrices).toHaveBeenCalledWith('tenant-123', 'event-123');
+    });
+
+    it('should sync attendees when type is attendees', async () => {
+      const mockResult = {
+        type: 'attendees',
+        success: true,
+        itemsSynced: 100,
+        itemsCreated: 100,
+        itemsUpdated: 0,
+        errors: 0,
+        duration: 2000,
+      };
+
+      mockSyncService.syncAttendees.mockResolvedValue(mockResult);
+
+      const result = await controller.syncData(mockUser, {
+        type: 'attendees',
+        eventId: 'event-123',
+      });
+
+      expect(result).toEqual(mockResult);
+      expect(mockSyncService.syncAttendees).toHaveBeenCalledWith('tenant-123', 'event-123');
+    });
+
+    it('should throw error if eventId missing for attendees sync', async () => {
+      await expect(
+        controller.syncData(mockUser, { type: 'attendees' }),
+      ).rejects.toThrow('eventId is required for attendees sync');
     });
   });
 });

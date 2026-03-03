@@ -690,6 +690,18 @@ export class WeezeventSyncService {
             }
 
             result.itemsSynced = productsToCreate.length + productsToUpdate.length;
+
+            // Sync variants, components, and menu-steps for all products
+            this.logger.log(`Syncing variants/components/menu-steps for ${response.data.length} products...`);
+            
+            for (const apiProduct of response.data) {
+                try {
+                    await this.syncProductDetails(tenantId, organizationId, apiProduct.id.toString());
+                } catch (error) {
+                    this.logger.warn(`Failed to sync details for product ${apiProduct.id}: ${error.message}`);
+                }
+            }
+
             result.success = true;
             result.duration = Date.now() - startTime;
 
@@ -698,6 +710,398 @@ export class WeezeventSyncService {
             return result;
         } catch (error) {
             this.logger.error('Products sync failed', error.stack);
+            result.success = false;
+            result.duration = Date.now() - startTime;
+            throw error;
+        }
+    }
+
+    /**
+     * Sync product details: variants, components, menu-steps
+     */
+    private async syncProductDetails(
+        tenantId: string,
+        organizationId: string,
+        productId: string,
+    ): Promise<void> {
+        // Get the product from DB to link relations
+        const product = await this.prisma.weezeventProduct.findUnique({
+            where: { weezeventId: productId },
+            select: { id: true, weezeventId: true },
+        });
+
+        if (!product) {
+            this.logger.warn(`Product ${productId} not found in DB, skipping details sync`);
+            return;
+        }
+
+        // Sync variants
+        try {
+            const variants = await this.weezeventClient.getProductVariants(
+                tenantId,
+                organizationId,
+                productId,
+            );
+
+            // Delete existing variants
+            await this.prisma.weezeventProductVariant.deleteMany({
+                where: { productId: product.id },
+            });
+
+            // Create new variants
+            if (variants.length > 0) {
+                const variantsData = variants.map((v: any) => ({
+                    weezeventId: v.id?.toString() || `${productId}-variant-${v.name}`,
+                    tenantId,
+                    productId: product.id,
+                    name: v.name || 'Unnamed Variant',
+                    description: v.description || null,
+                    price: v.price || null,
+                    sku: v.sku || null,
+                    stock: v.stock || null,
+                    isDefault: v.is_default || false,
+                    metadata: v.metadata || null,
+                    rawData: v,
+                    syncedAt: new Date(),
+                }));
+
+                await this.prisma.weezeventProductVariant.createMany({
+                    data: variantsData,
+                    skipDuplicates: true,
+                });
+
+                this.logger.debug(`Synced ${variants.length} variants for product ${productId}`);
+            }
+        } catch (error) {
+            this.logger.warn(`Failed to sync variants for product ${productId}: ${error.message}`);
+        }
+
+        // Sync components
+        try {
+            const components = await this.weezeventClient.getProductComponents(
+                tenantId,
+                organizationId,
+                productId,
+            );
+
+            // Delete existing components
+            await this.prisma.weezeventProductComponent.deleteMany({
+                where: { productId: product.id },
+            });
+
+            // Create new components
+            if (components.length > 0) {
+                const componentsData = components.map((c: any) => ({
+                    weezeventId: c.id?.toString() || `${productId}-component-${c.name}`,
+                    tenantId,
+                    productId: product.id,
+                    name: c.name || 'Unnamed Component',
+                    description: c.description || null,
+                    quantity: c.quantity || null,
+                    unit: c.unit || null,
+                    isRequired: c.is_required !== false,
+                    metadata: c.metadata || null,
+                    rawData: c,
+                    syncedAt: new Date(),
+                }));
+
+                await this.prisma.weezeventProductComponent.createMany({
+                    data: componentsData,
+                    skipDuplicates: true,
+                });
+
+                this.logger.debug(`Synced ${components.length} components for product ${productId}`);
+            }
+        } catch (error) {
+            this.logger.warn(`Failed to sync components for product ${productId}: ${error.message}`);
+        }
+
+        // Note: menu-steps are stored in rawData for now (complex structure)
+        // Can be extracted later if needed for specific use cases
+    }
+
+    /**
+     * Sync orders for an event
+     */
+    async syncOrders(tenantId: string, eventId: string): Promise<SyncResult> {
+        const startTime = Date.now();
+        const result: SyncResult = {
+            type: 'orders',
+            success: false,
+            itemsSynced: 0,
+            itemsCreated: 0,
+            itemsUpdated: 0,
+            errors: 0,
+            duration: 0,
+        };
+
+        try {
+            const tenant = await this.prisma.tenant.findUnique({
+                where: { id: tenantId },
+                select: { weezeventOrganizationId: true },
+            });
+
+            if (!tenant?.weezeventOrganizationId) {
+                throw new Error('Weezevent not configured for tenant');
+            }
+
+            const organizationId = tenant.weezeventOrganizationId;
+
+            this.logger.log(`Syncing orders for event ${eventId}`);
+
+            let page = 1;
+            let hasMore = true;
+
+            while (hasMore) {
+                const response = await this.weezeventClient.getOrders(
+                    tenantId,
+                    organizationId,
+                    eventId,
+                    { page, perPage: 100 },
+                );
+
+                for (const apiOrder of response.data) {
+                    try {
+                        const weezeventId = apiOrder.id.toString();
+                        const existing = await this.prisma.weezeventOrder.findUnique({
+                            where: { weezeventId },
+                        });
+
+                        await this.prisma.weezeventOrder.upsert({
+                            where: { weezeventId },
+                            create: {
+                                weezeventId,
+                                tenantId,
+                                eventId,
+                                eventName: apiOrder.event_name || null,
+                                userId: apiOrder.user_id?.toString() || null,
+                                userEmail: apiOrder.user_email || null,
+                                status: apiOrder.status || 'unknown',
+                                totalAmount: apiOrder.total_amount || 0,
+                                orderDate: apiOrder.order_date ? new Date(apiOrder.order_date) : new Date(),
+                                paymentMethod: apiOrder.payment_method || null,
+                                metadata: apiOrder.metadata || null,
+                                rawData: apiOrder,
+                                syncedAt: new Date(),
+                            },
+                            update: {
+                                status: apiOrder.status || 'unknown',
+                                totalAmount: apiOrder.total_amount || 0,
+                                rawData: apiOrder,
+                                syncedAt: new Date(),
+                            },
+                        });
+
+                        result.itemsSynced++;
+                        if (existing) result.itemsUpdated++;
+                        else result.itemsCreated++;
+                    } catch (error) {
+                        this.logger.error(`Failed to sync order ${apiOrder.id}`, error);
+                        result.errors++;
+                    }
+                }
+
+                hasMore = page < response.meta.total_pages;
+                page++;
+            }
+
+            result.success = result.errors === 0;
+            result.duration = Date.now() - startTime;
+
+            this.logger.log(`Orders sync completed: ${result.itemsSynced} synced in ${result.duration}ms`);
+
+            return result;
+        } catch (error) {
+            this.logger.error('Orders sync failed', error.stack);
+            result.success = false;
+            result.duration = Date.now() - startTime;
+            throw error;
+        }
+    }
+
+    /**
+     * Sync prices
+     */
+    async syncPrices(tenantId: string, eventId?: string): Promise<SyncResult> {
+        const startTime = Date.now();
+        const result: SyncResult = {
+            type: 'prices',
+            success: false,
+            itemsSynced: 0,
+            itemsCreated: 0,
+            itemsUpdated: 0,
+            errors: 0,
+            duration: 0,
+        };
+
+        try {
+            const tenant = await this.prisma.tenant.findUnique({
+                where: { id: tenantId },
+                select: { weezeventOrganizationId: true },
+            });
+
+            if (!tenant?.weezeventOrganizationId) {
+                throw new Error('Weezevent not configured for tenant');
+            }
+
+            const organizationId = tenant.weezeventOrganizationId;
+
+            this.logger.log(`Syncing prices${eventId ? ` for event ${eventId}` : ''}`);
+
+            const response = await this.weezeventClient.getPrices(
+                tenantId,
+                organizationId,
+                eventId,
+                { perPage: 100 },
+            );
+
+            for (const apiPrice of response.data) {
+                try {
+                    const weezeventId = apiPrice.id.toString();
+                    const existing = await this.prisma.weezeventPrice.findUnique({
+                        where: { weezeventId },
+                    });
+
+                    await this.prisma.weezeventPrice.upsert({
+                        where: { weezeventId },
+                        create: {
+                            weezeventId,
+                            tenantId,
+                            eventId: eventId || apiPrice.event_id?.toString() || null,
+                            productId: apiPrice.product_id?.toString() || null,
+                            name: apiPrice.name || 'Unnamed Price',
+                            amount: apiPrice.amount || 0,
+                            currency: apiPrice.currency || 'EUR',
+                            validFrom: apiPrice.valid_from ? new Date(apiPrice.valid_from) : null,
+                            validUntil: apiPrice.valid_until ? new Date(apiPrice.valid_until) : null,
+                            priceType: apiPrice.price_type || null,
+                            metadata: apiPrice.metadata || null,
+                            rawData: apiPrice,
+                            syncedAt: new Date(),
+                        },
+                        update: {
+                            amount: apiPrice.amount || 0,
+                            validFrom: apiPrice.valid_from ? new Date(apiPrice.valid_from) : null,
+                            validUntil: apiPrice.valid_until ? new Date(apiPrice.valid_until) : null,
+                            rawData: apiPrice,
+                            syncedAt: new Date(),
+                        },
+                    });
+
+                    result.itemsSynced++;
+                    if (existing) result.itemsUpdated++;
+                    else result.itemsCreated++;
+                } catch (error) {
+                    this.logger.error(`Failed to sync price ${apiPrice.id}`, error);
+                    result.errors++;
+                }
+            }
+
+            result.success = result.errors === 0;
+            result.duration = Date.now() - startTime;
+
+            this.logger.log(`Prices sync completed: ${result.itemsSynced} synced in ${result.duration}ms`);
+
+            return result;
+        } catch (error) {
+            this.logger.error('Prices sync failed', error.stack);
+            result.success = false;
+            result.duration = Date.now() - startTime;
+            throw error;
+        }
+    }
+
+    /**
+     * Sync attendees for an event
+     */
+    async syncAttendees(tenantId: string, eventId: string): Promise<SyncResult> {
+        const startTime = Date.now();
+        const result: SyncResult = {
+            type: 'attendees',
+            success: false,
+            itemsSynced: 0,
+            itemsCreated: 0,
+            itemsUpdated: 0,
+            errors: 0,
+            duration: 0,
+        };
+
+        try {
+            const tenant = await this.prisma.tenant.findUnique({
+                where: { id: tenantId },
+                select: { weezeventOrganizationId: true },
+            });
+
+            if (!tenant?.weezeventOrganizationId) {
+                throw new Error('Weezevent not configured for tenant');
+            }
+
+            const organizationId = tenant.weezeventOrganizationId;
+
+            this.logger.log(`Syncing attendees for event ${eventId}`);
+
+            let page = 1;
+            let hasMore = true;
+
+            while (hasMore) {
+                const response = await this.weezeventClient.getAttendees(
+                    tenantId,
+                    organizationId,
+                    eventId,
+                    { page, perPage: 100 },
+                );
+
+                for (const apiAttendee of response.data) {
+                    try {
+                        const weezeventId = apiAttendee.id.toString();
+                        const existing = await this.prisma.weezeventAttendee.findUnique({
+                            where: { weezeventId },
+                        });
+
+                        await this.prisma.weezeventAttendee.upsert({
+                            where: { weezeventId },
+                            create: {
+                                weezeventId,
+                                tenantId,
+                                eventId,
+                                eventName: apiAttendee.event_name || null,
+                                email: apiAttendee.email || null,
+                                firstName: apiAttendee.first_name || null,
+                                lastName: apiAttendee.last_name || null,
+                                ticketType: apiAttendee.ticket_type || null,
+                                status: apiAttendee.status || 'unknown',
+                                metadata: apiAttendee.metadata || null,
+                                rawData: apiAttendee,
+                                syncedAt: new Date(),
+                            },
+                            update: {
+                                status: apiAttendee.status || 'unknown',
+                                rawData: apiAttendee,
+                                syncedAt: new Date(),
+                            },
+                        });
+
+                        result.itemsSynced++;
+                        if (existing) result.itemsUpdated++;
+                        else result.itemsCreated++;
+                    } catch (error) {
+                        this.logger.error(`Failed to sync attendee ${apiAttendee.id}`, error);
+                        result.errors++;
+                    }
+                }
+
+                hasMore = page < response.meta.total_pages;
+                page++;
+            }
+
+            result.success = result.errors === 0;
+            result.duration = Date.now() - startTime;
+
+            this.logger.log(`Attendees sync completed: ${result.itemsSynced} synced in ${result.duration}ms`);
+
+            return result;
+        } catch (error) {
+            this.logger.error('Attendees sync failed', error.stack);
             result.success = false;
             result.duration = Date.now() - startTime;
             throw error;

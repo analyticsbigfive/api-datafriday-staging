@@ -2,8 +2,8 @@ import { IsOptional, IsEnum, IsDateString, IsBoolean, IsInt, Min, Max, IsString 
 import { Type } from 'class-transformer';
 
 export class SyncWeezeventDto {
-    @IsEnum(['transactions', 'wallets', 'users', 'events', 'products'])
-    type: 'transactions' | 'wallets' | 'users' | 'events' | 'products';
+    @IsEnum(['transactions', 'wallets', 'users', 'events', 'products', 'orders', 'prices', 'attendees'])
+    type: 'transactions' | 'wallets' | 'users' | 'events' | 'products' | 'orders' | 'prices' | 'attendees';
 
     @IsOptional()
     @IsString()
@@ -23,7 +23,6 @@ export class SyncWeezeventDto {
     full?: boolean;
 
     @IsOptional()
-    @IsInt()
-    @Type(() => Number)
-    eventId?: number;
+    @IsString()
+    eventId?: string;
 }

@@ -300,4 +300,214 @@ export class WeezeventClientService {
         // If it's already in the correct format, return as is
         return response;
     }
+
+    /**
+     * Get product variants
+     */
+    async getProductVariants(
+        tenantId: string,
+        organizationId: string,
+        productId: string,
+        eventId?: string,
+    ): Promise<any[]> {
+        const path = eventId
+            ? `/organizations/${organizationId}/events/${eventId}/products/${productId}/variants`
+            : `/organizations/${organizationId}/products/${productId}/variants`;
+
+        this.logger.debug(`Fetching variants for product ${productId}`);
+
+        const response = await this.apiService.get<any>(tenantId, path);
+        return Array.isArray(response) ? response : response.data || [];
+    }
+
+    /**
+     * Get product components (ingredients/sub-products)
+     */
+    async getProductComponents(
+        tenantId: string,
+        organizationId: string,
+        productId: string,
+        eventId?: string,
+    ): Promise<any[]> {
+        const path = eventId
+            ? `/organizations/${organizationId}/events/${eventId}/products/${productId}/components`
+            : `/organizations/${organizationId}/products/${productId}/components`;
+
+        this.logger.debug(`Fetching components for product ${productId}`);
+
+        const response = await this.apiService.get<any>(tenantId, path);
+        return Array.isArray(response) ? response : response.data || [];
+    }
+
+    /**
+     * Get product menu steps (customizable choices)
+     */
+    async getProductMenuSteps(
+        tenantId: string,
+        organizationId: string,
+        productId: string,
+        eventId?: string,
+    ): Promise<any[]> {
+        const path = eventId
+            ? `/organizations/${organizationId}/events/${eventId}/products/${productId}/menu-steps`
+            : `/organizations/${organizationId}/products/${productId}/menu-steps`;
+
+        this.logger.debug(`Fetching menu steps for product ${productId}`);
+
+        const response = await this.apiService.get<any>(tenantId, path);
+        return Array.isArray(response) ? response : response.data || [];
+    }
+
+    // ==================== ORDERS ====================
+
+    /**
+     * Get paginated list of orders
+     */
+    async getOrders(
+        tenantId: string,
+        organizationId: string,
+        eventId: string,
+        options?: {
+            page?: number;
+            perPage?: number;
+            status?: string;
+            fromDate?: Date;
+            toDate?: Date;
+        },
+    ): Promise<WeezeventPaginatedResponse<any>> {
+        const params: Record<string, any> = {
+            page: options?.page || 1,
+            per_page: options?.perPage || 50,
+        };
+
+        if (options?.status) params.status = options.status;
+        if (options?.fromDate) params.from_date = options.fromDate.toISOString();
+        if (options?.toDate) params.to_date = options.toDate.toISOString();
+
+        this.logger.debug(`Fetching orders for event ${eventId}`);
+
+        const response = await this.apiService.get<any>(
+            tenantId,
+            `/organizations/${organizationId}/events/${eventId}/orders`,
+            params,
+        );
+
+        if (Array.isArray(response)) {
+            return {
+                data: response,
+                meta: {
+                    current_page: options?.page || 1,
+                    per_page: options?.perPage || 50,
+                    total: response.length,
+                    total_pages: 1,
+                },
+            };
+        }
+
+        return response;
+    }
+
+    /**
+     * Get a single order by ID
+     */
+    async getOrder(
+        tenantId: string,
+        organizationId: string,
+        eventId: string,
+        orderId: string,
+    ): Promise<any> {
+        this.logger.debug(`Fetching order ${orderId} for event ${eventId}`);
+
+        return this.apiService.get<any>(
+            tenantId,
+            `/organizations/${organizationId}/events/${eventId}/orders/${orderId}`,
+        );
+    }
+
+    // ==================== PRICES ====================
+
+    /**
+     * Get paginated list of prices
+     */
+    async getPrices(
+        tenantId: string,
+        organizationId: string,
+        eventId?: string,
+        options?: {
+            page?: number;
+            perPage?: number;
+        },
+    ): Promise<WeezeventPaginatedResponse<any>> {
+        const params: Record<string, any> = {
+            page: options?.page || 1,
+            per_page: options?.perPage || 50,
+        };
+
+        const path = eventId
+            ? `/organizations/${organizationId}/events/${eventId}/prices`
+            : `/organizations/${organizationId}/prices`;
+
+        this.logger.debug(`Fetching prices${eventId ? ` for event ${eventId}` : ''}`);
+
+        const response = await this.apiService.get<any>(tenantId, path, params);
+
+        if (Array.isArray(response)) {
+            return {
+                data: response,
+                meta: {
+                    current_page: options?.page || 1,
+                    per_page: options?.perPage || 50,
+                    total: response.length,
+                    total_pages: 1,
+                },
+            };
+        }
+
+        return response;
+    }
+
+    // ==================== ATTENDEES ====================
+
+    /**
+     * Get paginated list of attendees
+     */
+    async getAttendees(
+        tenantId: string,
+        organizationId: string,
+        eventId: string,
+        options?: {
+            page?: number;
+            perPage?: number;
+            status?: string;
+        },
+    ): Promise<WeezeventPaginatedResponse<any>> {
+        const params: Record<string, any> = {
+            page: options?.page || 1,
+            per_page: options?.perPage || 50,
+        };
+
+        if (options?.status) params.status = options.status;
+
+        this.logger.debug(`Fetching attendees for event ${eventId}`);
+
+        const response = await this.apiService.get<any>(
+            tenantId,
+            `/organizations/${organizationId}/events/${eventId}/attendees`,
+            params,
+        );
+
+        if (Array.isArray(response)) {
+            return {
+                data: response,
+                meta: {
+                    current_page: options?.page || 1,
+                    per_page: options?.perPage || 50,
+                    total: response.length,
+                    total_pages: 1,
+                },
+            };
+        }
+
+        return response;
+    }
 }

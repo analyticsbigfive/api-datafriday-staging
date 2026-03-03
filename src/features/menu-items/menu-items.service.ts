@@ -399,6 +399,33 @@ export class MenuItemsService {
         },
       });
 
+      // P1: Batch load all costs in 3 queries instead of N queries
+      const [allComponents, allIngredients, allPackagings] = await Promise.all([
+        this.prisma.menuComponent.findMany({
+          where: { tenantId, deletedAt: null },
+          select: { id: true, unitCost: true, storageType: true },
+        }),
+        this.prisma.ingredient.findMany({
+          where: { tenantId, deletedAt: null },
+          select: { id: true, costPerRecipeUnit: true, storageType: true },
+        }),
+        this.prisma.packaging.findMany({
+          where: { tenantId, deletedAt: null },
+          select: { id: true, costPerRecipeUnit: true, storageType: true },
+        }),
+      ]);
+
+      // Create lookup maps for O(1) access
+      const componentCostMap = new Map(
+        allComponents.map(c => [c.id, { unitCost: this.toNumber(c.unitCost, 0), storageType: c.storageType }])
+      );
+      const ingredientCostMap = new Map(
+        allIngredients.map(i => [i.id, { unitCost: this.toNumber(i.costPerRecipeUnit, 0), storageType: i.storageType }])
+      );
+      const packagingCostMap = new Map(
+        allPackagings.map(p => [p.id, { unitCost: this.toNumber(p.costPerRecipeUnit, 0), storageType: p.storageType }])
+      );
+
       let updated = 0;
       let updatedLines = 0;
 
@@ -407,7 +434,12 @@ export class MenuItemsService {
         let totalCost = 0;
 
         for (const line of item.components || []) {
-          const { unitCost, storageType } = await this.getComponentUnitCost(line.componentId, tenantId);
+          const costData = componentCostMap.get(line.componentId);
+          if (!costData) {
+            this.logger.warn(`Component ${line.componentId} not found in cost map`);
+            continue;
+          }
+          const { unitCost, storageType } = costData;
           const numberOfUnits = this.toNumber(line.numberOfUnits);
           const lineTotal = Math.round((unitCost * numberOfUnits) * 10000) / 10000;
           totalCost += lineTotal;
@@ -421,7 +453,12 @@ export class MenuItemsService {
         }
 
         for (const line of item.ingredients || []) {
-          const { unitCost, storageType } = await this.getIngredientUnitCost(line.ingredientId, tenantId);
+          const costData = ingredientCostMap.get(line.ingredientId);
+          if (!costData) {
+            this.logger.warn(`Ingredient ${line.ingredientId} not found in cost map`);
+            continue;
+          }
+          const { unitCost, storageType } = costData;
           const numberOfUnits = this.toNumber(line.numberOfUnits);
           const lineTotal = Math.round((unitCost * numberOfUnits) * 10000) / 10000;
           totalCost += lineTotal;
@@ -435,7 +472,12 @@ export class MenuItemsService {
         }
 
         for (const line of item.packagings || []) {
-          const { unitCost, storageType } = await this.getPackagingUnitCost(line.packagingId, tenantId);
+          const costData = packagingCostMap.get(line.packagingId);
+          if (!costData) {
+            this.logger.warn(`Packaging ${line.packagingId} not found in cost map`);
+            continue;
+          }
+          const { unitCost, storageType } = costData;
           const numberOfUnits = this.toNumber(line.numberOfUnits);
           const lineTotal = Math.round((unitCost * numberOfUnits) * 10000) / 10000;
           totalCost += lineTotal;
@@ -463,7 +505,7 @@ export class MenuItemsService {
         updated++;
       }
 
-      this.logger.log(`Refreshed costs for ${updated} menu items (${updatedLines} lines)`);
+      this.logger.log(`✅ P1: Refreshed costs for ${updated} menu items (${updatedLines} lines) with batch optimization`);
       await this.invalidateCache(tenantId);
       return { updated, total: items.length, updatedLines };
     } catch (error) {

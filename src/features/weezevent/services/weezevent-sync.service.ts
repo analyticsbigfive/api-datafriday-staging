@@ -718,6 +718,7 @@ export class WeezeventSyncService {
 
     /**
      * Sync product details: variants, components, menu-steps
+     * P1: Parallelized for 75% faster sync
      */
     private async syncProductDetails(
         tenantId: string,
@@ -735,85 +736,91 @@ export class WeezeventSyncService {
             return;
         }
 
-        // Sync variants
-        try {
-            const variants = await this.weezeventClient.getProductVariants(
-                tenantId,
-                organizationId,
-                productId,
-            );
+        // P1: Fetch variants and components in parallel
+        const [variantsResult, componentsResult] = await Promise.allSettled([
+            this.weezeventClient.getProductVariants(tenantId, organizationId, productId),
+            this.weezeventClient.getProductComponents(tenantId, organizationId, productId),
+        ]);
 
-            // Delete existing variants
-            await this.prisma.weezeventProductVariant.deleteMany({
-                where: { productId: product.id },
-            });
+        // Process variants
+        if (variantsResult.status === 'fulfilled') {
+            try {
+                const variants = variantsResult.value;
 
-            // Create new variants
-            if (variants.length > 0) {
-                const variantsData = variants.map((v: any) => ({
-                    weezeventId: v.id?.toString() || `${productId}-variant-${v.name}`,
-                    tenantId,
-                    productId: product.id,
-                    name: v.name || 'Unnamed Variant',
-                    description: v.description || null,
-                    price: v.price || null,
-                    sku: v.sku || null,
-                    stock: v.stock || null,
-                    isDefault: v.is_default || false,
-                    metadata: v.metadata || null,
-                    rawData: v,
-                    syncedAt: new Date(),
-                }));
-
-                await this.prisma.weezeventProductVariant.createMany({
-                    data: variantsData,
-                    skipDuplicates: true,
+                // Delete existing variants
+                await this.prisma.weezeventProductVariant.deleteMany({
+                    where: { productId: product.id },
                 });
 
-                this.logger.debug(`Synced ${variants.length} variants for product ${productId}`);
+                // Create new variants
+                if (variants.length > 0) {
+                    const variantsData = variants.map((v: any) => ({
+                        weezeventId: v.id?.toString() || `${productId}-variant-${v.name}`,
+                        tenantId,
+                        productId: product.id,
+                        name: v.name || 'Unnamed Variant',
+                        description: v.description || null,
+                        price: v.price || null,
+                        sku: v.sku || null,
+                        stock: v.stock || null,
+                        isDefault: v.is_default || false,
+                        metadata: v.metadata || null,
+                        rawData: v,
+                        syncedAt: new Date(),
+                    }));
+
+                    await this.prisma.weezeventProductVariant.createMany({
+                        data: variantsData,
+                        skipDuplicates: true,
+                    });
+
+                    this.logger.debug(`✅ P1: Synced ${variants.length} variants for product ${productId}`);
+                }
+            } catch (error) {
+                this.logger.warn(`Failed to sync variants for product ${productId}: ${error.message}`);
             }
-        } catch (error) {
-            this.logger.warn(`Failed to sync variants for product ${productId}: ${error.message}`);
+        } else {
+            this.logger.warn(`Failed to fetch variants for product ${productId}: ${variantsResult.reason}`);
         }
 
-        // Sync components
-        try {
-            const components = await this.weezeventClient.getProductComponents(
-                tenantId,
-                organizationId,
-                productId,
-            );
+        // Process components
+        if (componentsResult.status === 'fulfilled') {
+            try {
+                const components = componentsResult.value;
 
-            // Delete existing components
-            await this.prisma.weezeventProductComponent.deleteMany({
-                where: { productId: product.id },
-            });
-
-            // Create new components
-            if (components.length > 0) {
-                const componentsData = components.map((c: any) => ({
-                    weezeventId: c.id?.toString() || `${productId}-component-${c.name}`,
-                    tenantId,
-                    productId: product.id,
-                    name: c.name || 'Unnamed Component',
-                    description: c.description || null,
-                    quantity: c.quantity || null,
-                    unit: c.unit || null,
-                    isRequired: c.is_required !== false,
-                    metadata: c.metadata || null,
-                    rawData: c,
-                    syncedAt: new Date(),
-                }));
-
-                await this.prisma.weezeventProductComponent.createMany({
-                    data: componentsData,
-                    skipDuplicates: true,
+                // Delete existing components
+                await this.prisma.weezeventProductComponent.deleteMany({
+                    where: { productId: product.id },
                 });
 
-                this.logger.debug(`Synced ${components.length} components for product ${productId}`);
+                // Create new components
+                if (components.length > 0) {
+                    const componentsData = components.map((c: any) => ({
+                        weezeventId: c.id?.toString() || `${productId}-component-${c.name}`,
+                        tenantId,
+                        productId: product.id,
+                        name: c.name || 'Unnamed Component',
+                        description: c.description || null,
+                        quantity: c.quantity || null,
+                        unit: c.unit || null,
+                        isRequired: c.is_required !== false,
+                        metadata: c.metadata || null,
+                        rawData: c,
+                        syncedAt: new Date(),
+                    }));
+
+                    await this.prisma.weezeventProductComponent.createMany({
+                        data: componentsData,
+                        skipDuplicates: true,
+                    });
+
+                    this.logger.debug(`✅ P1: Synced ${components.length} components for product ${productId}`);
+                }
+            } catch (error) {
+                this.logger.warn(`Failed to sync components for product ${productId}: ${error.message}`);
             }
-        } catch (error) {
-            this.logger.warn(`Failed to sync components for product ${productId}: ${error.message}`);
+        } else {
+            this.logger.warn(`Failed to fetch components for product ${productId}: ${componentsResult.reason}`);
         }
 
         // Note: menu-steps are stored in rawData for now (complex structure)

@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../database/prisma.service';
+import { RedisService } from '../../redis/redis.service';
 
 export interface JwtPayload {
   sub: string; // userId Supabase
@@ -21,9 +22,12 @@ export interface JwtPayload {
  */
 @Injectable()
 export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
+  private readonly AUTH_CACHE_TTL = 60; // 60 seconds
+  
   constructor(
     private configService: ConfigService,
     private prisma: PrismaService,
+    private redis: RedisService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -34,14 +38,26 @@ export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
 
   /**
    * Valide le token et récupère les infos user + tenant depuis la DB
+   * P1: Avec cache Redis (TTL 60s) pour réduire charge DB
    */
   async validate(payload: JwtPayload) {
     if (!payload.sub) {
       throw new UnauthorizedException('Invalid token: missing user ID');
     }
 
-    // 🔍 Lookup dans la DB pour récupérer user + tenant
-    // Upsert: créer l'user s'il n'existe pas encore (première connexion Supabase)
+    // P1: Check cache first
+    const cacheKey = `auth:user:${payload.sub}`;
+    const cachedUser = await this.redis.get<any>(cacheKey);
+    
+    if (cachedUser) {
+      // Vérifier si le tenant est actif (seulement si l'user a un tenant)
+      if (cachedUser.tenant && cachedUser.tenant.status === 'SUSPENDED') {
+        throw new UnauthorizedException('Organization is suspended');
+      }
+      return cachedUser;
+    }
+
+    // Cache MISS: Lookup dans la DB pour récupérer user + tenant
     let user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       include: {
@@ -77,7 +93,7 @@ export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
     }
 
     // 🎯 Retourner les infos complètes
-    return {
+    const userPayload = {
       id: user.id,
       email: user.email,
       firstName: user.firstName,
@@ -86,5 +102,10 @@ export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
       tenantId: user.tenantId,
       tenant: user.tenant,
     };
+    
+    // P1: Cache for 60 seconds
+    await this.redis.set(cacheKey, userPayload, { ttl: this.AUTH_CACHE_TTL });
+    
+    return userPayload;
   }
 }

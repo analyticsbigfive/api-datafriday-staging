@@ -4,12 +4,38 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './core/exceptions/all-exceptions.filter';
 import { ValidationPipe } from './core/pipes/validation.pipe';
+import helmet from '@fastify/helmet';
+import compress from '@fastify/compress';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ logger: true }),
+    new FastifyAdapter({ 
+      logger: true,
+      // P2: Connection pooling optimization
+      connectionTimeout: 30000,
+      keepAliveTimeout: 65000,
+    }),
   );
+
+  // P0: Security headers (Helmet)
+  await app.register(helmet as any, {
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'https:'],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  });
+
+  // P2: Response compression
+  await app.register(compress as any, {
+    encodings: ['gzip', 'deflate'],
+    threshold: 1024, // Only compress responses > 1KB
+  });
 
   // Global exception filter for standardized error responses
   app.useGlobalFilters(new AllExceptionsFilter());
@@ -17,10 +43,18 @@ async function bootstrap() {
   // Global validation pipe for automatic DTO validation
   app.useGlobalPipes(new ValidationPipe());
 
-  // CORS configuration
+  // P0: CORS configuration (strict in production)
+  const allowedOrigins = process.env.CORS_ORIGIN 
+    ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
+    : ['http://localhost:3000', 'http://localhost:5173'];
+  
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || '*',
+    origin: process.env.NODE_ENV === 'production' 
+      ? allowedOrigins
+      : true, // Allow all in development
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   });
 
   // Global prefix
@@ -88,6 +122,9 @@ Tous les autres endpoints nécessitent un utilisateur lié à un tenant.
 
   console.log(`🚀 Application is running on: http://localhost:${port}/api/v1`);
   console.log(`📚 API Documentation available at: http://localhost:${port}/docs`);
+  console.log(`🔒 Security: Helmet enabled, CORS configured`);
+  console.log(`⚡ Performance: Compression enabled, Connection pooling optimized`);
+  console.log(`🛡️  Rate limiting: 20 req/s, 300 req/min, 5000 req/h per tenant`);
 }
 
 bootstrap();

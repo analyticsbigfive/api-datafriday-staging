@@ -3,9 +3,11 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { EventsService } from './events.service';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
+import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 
 @ApiTags('Events')
 @ApiBearerAuth()
+@UseGuards(JwtDatabaseGuard)
 @Controller('events')
 export class EventsController {
   constructor(private readonly eventsService: EventsService) {}
@@ -38,6 +40,7 @@ export class EventsController {
 
 @ApiTags('Event Types')
 @ApiBearerAuth()
+@UseGuards(JwtDatabaseGuard)
 @Controller('event-types')
 export class EventTypesController {
   constructor(private readonly eventsService: EventsService) {}
@@ -57,6 +60,7 @@ export class EventTypesController {
 
 @ApiTags('Event Categories')
 @ApiBearerAuth()
+@UseGuards(JwtDatabaseGuard)
 @Controller('event-categories')
 export class EventCategoriesController {
   constructor(private readonly eventsService: EventsService) {}
@@ -76,6 +80,7 @@ export class EventCategoriesController {
 
 @ApiTags('Event Subcategories')
 @ApiBearerAuth()
+@UseGuards(JwtDatabaseGuard)
 @Controller('event-subcategories')
 export class EventSubcategoriesController {
   constructor(private readonly eventsService: EventsService) {}

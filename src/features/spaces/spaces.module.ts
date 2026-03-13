@@ -1,13 +1,30 @@
 import { Module } from '@nestjs/common';
 import { SpacesController, ConfigurationsController } from './spaces.controller';
 import { PinnedSpacesController } from './pinned-spaces.controller';
+import { DashboardController } from './dashboard.controller';
 import { SpacesService } from './spaces.service';
+import { SpaceDashboardService } from './services/space-dashboard.service';
+import { SpaceAggregationService } from './services/space-aggregation.service';
 import { PrismaModule } from '../../core/database/prisma.module';
+import { RedisModule } from '../../core/redis/redis.module';
 
 @Module({
-  imports: [PrismaModule],
-  controllers: [SpacesController, ConfigurationsController, PinnedSpacesController],
-  providers: [SpacesService],
-  exports: [SpacesService],
+  imports: [PrismaModule, RedisModule],
+  controllers: [
+    SpacesController,
+    ConfigurationsController,
+    PinnedSpacesController,
+    DashboardController,
+  ],
+  providers: [
+    SpacesService,
+    SpaceDashboardService,
+    SpaceAggregationService,
+  ],
+  exports: [
+    SpacesService,
+    SpaceDashboardService,
+    SpaceAggregationService,
+  ],
 })
 export class SpacesModule {}

@@ -339,6 +339,9 @@ model Space {
   avgTransaction Float?
   perCapita      Float?
   cachedMetrics  Json? // Cache des métriques calculées
+  
+  // Timezone for dashboard aggregations
+  timezone       String? @default("Europe/Paris")
 
   // Relations
   tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1608,4 +1611,156 @@ model Menu {
   @@index([tenantId])
   @@index([spaceId])
   @@index([configId])
+}
+
+// ==================== SPACE DASHBOARD - MAPPING DOMAIN ====================
+
+// Maps Weezevent Location to Space for revenue attribution
+model WeezeventLocationSpaceMapping {
+  id                   String   @id @default(cuid())
+  tenantId             String
+  weezeventLocationId  String
+  spaceId              String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([tenantId, weezeventLocationId])
+  @@index([tenantId, spaceId])
+  @@index([weezeventLocationId])
+}
+
+// Maps Weezevent Merchant to SpaceElement (shop) for revenue grouping
+model WeezeventMerchantElementMapping {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  weezeventMerchantId String
+  spaceElementId      String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([tenantId, weezeventMerchantId])
+  @@index([tenantId, spaceElementId])
+  @@index([weezeventMerchantId])
+}
+
+// Tenant-specific VAT configuration
+model TenantVatConfig {
+  id             String   @id @default(cuid())
+  tenantId       String
+  defaultVatRate Decimal  @db.Decimal(5, 2)
+  countryCode    String   @default("FR")
+  effectiveFrom  DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([tenantId, effectiveFrom])
+  @@index([tenantId])
+}
+
+// ==================== SPACE DASHBOARD - READ MODELS ====================
+
+// Daily revenue aggregates by space, with optional dimensions
+model SpaceRevenueDailyAgg {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  spaceId             String
+  day                 DateTime @db.Date
+  timezone            String   @default("Europe/Paris")
+  
+  // Optional dimensions for filtering
+  weezeventEventId    String?
+  weezeventLocationId String?
+  weezeventMerchantId String?
+  spaceElementId      String?
+  
+  // Aggregated metrics
+  revenueHt           Decimal  @db.Decimal(12, 2)
+  transactionsCount   Int
+  itemsCount          Int
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([tenantId, spaceId, day, weezeventEventId, weezeventLocationId, weezeventMerchantId, spaceElementId])
+  @@index([tenantId, spaceId, day])
+  @@index([tenantId, spaceId, spaceElementId, day])
+  @@index([tenantId, spaceId, weezeventLocationId, day])
+  @@index([tenantId, spaceId, weezeventMerchantId, day])
+  @@index([tenantId, spaceId, weezeventEventId, day])
+}
+
+// Daily product revenue aggregates
+model SpaceProductRevenueDailyAgg {
+  id                 String   @id @default(cuid())
+  tenantId           String
+  spaceId            String
+  day                DateTime @db.Date
+  weezeventProductId String
+  
+  // Aggregated metrics
+  revenueHt          Decimal  @db.Decimal(12, 2)
+  quantity           Int
+  
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([tenantId, spaceId, day, weezeventProductId])
+  @@index([tenantId, spaceId, day])
+  @@index([tenantId, spaceId, weezeventProductId, day])
+}
+
+// Version tracking for cache invalidation
+model SpaceDashboardVersion {
+  spaceId   String   @id
+  tenantId  String
+  version   Int      @default(1)
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+// ==================== SPACE DASHBOARD - JOB TRACKING ====================
+
+// Tracks aggregation job execution for monitoring and retry
+model AggregationJobLog {
+  id                   String    @id @default(cuid())
+  tenantId             String
+  spaceId              String?
+  jobType              String    // 'full' | 'incremental' | 'rebuild'
+  status               String    // 'pending' | 'running' | 'completed' | 'failed'
+  fromDate             DateTime  @db.Date
+  toDate               DateTime  @db.Date
+  transactionsProcessed Int      @default(0)
+  startedAt            DateTime  @default(now())
+  completedAt          DateTime?
+  error                String?   @db.Text
+  retryCount           Int       @default(0)
+  metadata             Json?
+  
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([tenantId, status, startedAt])
+  @@index([spaceId, status])
+  @@index([status, startedAt])
+}
+
+// Tracks unmapped Weezevent entities for data quality monitoring
+model UnmappedDataMetrics {
+  id               String   @id @default(cuid())
+  tenantId         String
+  entityType       String   // 'location' | 'merchant' | 'product'
+  entityId         String
+  entityName       String
+  transactionCount Int      @default(0)
+  revenueHt        Decimal  @db.Decimal(12, 2)
+  firstSeenAt      DateTime @default(now())
+  lastSeenAt       DateTime @updatedAt
+  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([tenantId, entityType, entityId])
+  @@index([tenantId, entityType])
+  @@index([lastSeenAt])
 }

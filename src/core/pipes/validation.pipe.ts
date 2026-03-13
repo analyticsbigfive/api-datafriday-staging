@@ -4,7 +4,7 @@ import {
   ArgumentMetadata,
   BadRequestException,
 } from '@nestjs/common';
-import { validate } from 'class-validator';
+import { ValidationError, validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 
 /**
@@ -26,13 +26,7 @@ export class ValidationPipe implements PipeTransform<any> {
     });
 
     if (errors.length > 0) {
-      const messages = errors.map((error) => {
-        return {
-          property: error.property,
-          constraints: error.constraints,
-          value: error.value,
-        };
-      });
+      const messages = this.formatErrors(errors);
 
       throw new BadRequestException({
         message: 'Validation failed',
@@ -46,5 +40,33 @@ export class ValidationPipe implements PipeTransform<any> {
   private toValidate(metatype: Function): boolean {
     const types: Function[] = [String, Boolean, Number, Array, Object];
     return !types.includes(metatype);
+  }
+
+  private formatErrors(errors: ValidationError[], parentPath?: string): Array<{
+    property: string;
+    constraints?: Record<string, string>;
+    messages?: string[];
+    value: unknown;
+  }> {
+    return errors.flatMap((error) => {
+      const propertyPath = parentPath
+        ? `${parentPath}.${error.property}`
+        : error.property;
+
+      const currentError = error.constraints
+        ? [{
+            property: propertyPath,
+            constraints: error.constraints,
+            messages: Object.values(error.constraints),
+            value: error.value,
+          }]
+        : [];
+
+      const childErrors = error.children?.length
+        ? this.formatErrors(error.children, propertyPath)
+        : [];
+
+      return [...currentError, ...childErrors];
+    });
   }
 }

@@ -93,10 +93,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
   private getValidationErrors(exception: unknown): any[] | null {
     if (exception instanceof HttpException) {
       const response = exception.getResponse();
-      if (typeof response === 'object' && 'message' in response) {
-        const message = (response as any).message;
-        if (Array.isArray(message)) {
-          return message;
+      if (typeof response === 'object' && response !== null) {
+        if ('errors' in response && Array.isArray((response as any).errors)) {
+          return (response as any).errors;
+        }
+
+        if ('message' in response) {
+          const message = (response as any).message;
+          if (Array.isArray(message)) {
+            return message;
+          }
         }
       }
     }

@@ -3,6 +3,12 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { EventsService } from './events.service';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
+import { CreateEventTypeDto } from './dto/create-event-type.dto';
+import { UpdateEventTypeDto } from './dto/update-event-type.dto';
+import { CreateEventCategoryDto } from './dto/create-event-category.dto';
+import { UpdateEventCategoryDto } from './dto/update-event-category.dto';
+import { CreateEventSubcategoryDto } from './dto/create-event-subcategory.dto';
+import { UpdateEventSubcategoryDto } from './dto/update-event-subcategory.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 
 @ApiTags('Events')
@@ -49,10 +55,10 @@ export class EventTypesController {
   findAll(@Req() req) { return this.eventsService.getEventTypes(req.user.tenantId); }
 
   @Post()
-  create(@Req() req, @Body() dto: { name: string }) { return this.eventsService.createEventType(req.user.tenantId, dto); }
+  create(@Req() req, @Body() dto: CreateEventTypeDto) { return this.eventsService.createEventType(req.user.tenantId, dto); }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: { name: string }) { return this.eventsService.updateEventType(id, dto); }
+  update(@Param('id') id: string, @Body() dto: UpdateEventTypeDto) { return this.eventsService.updateEventType(id, dto); }
 
   @Delete(':id')
   remove(@Param('id') id: string) { return this.eventsService.deleteEventType(id); }
@@ -69,10 +75,10 @@ export class EventCategoriesController {
   findAll(@Req() req) { return this.eventsService.getEventCategories(req.user.tenantId); }
 
   @Post()
-  create(@Req() req, @Body() dto: { name: string; eventTypeId: string }) { return this.eventsService.createEventCategory(req.user.tenantId, dto); }
+  create(@Req() req, @Body() dto: CreateEventCategoryDto) { return this.eventsService.createEventCategory(req.user.tenantId, dto); }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: { name?: string; eventTypeId?: string }) { return this.eventsService.updateEventCategory(id, dto); }
+  update(@Param('id') id: string, @Body() dto: UpdateEventCategoryDto) { return this.eventsService.updateEventCategory(id, dto); }
 
   @Delete(':id')
   remove(@Param('id') id: string) { return this.eventsService.deleteEventCategory(id); }
@@ -89,10 +95,10 @@ export class EventSubcategoriesController {
   findAll(@Req() req) { return this.eventsService.getEventSubcategories(req.user.tenantId); }
 
   @Post()
-  create(@Req() req, @Body() dto: { name: string; eventCategoryId: string }) { return this.eventsService.createEventSubcategory(req.user.tenantId, dto); }
+  create(@Req() req, @Body() dto: CreateEventSubcategoryDto) { return this.eventsService.createEventSubcategory(req.user.tenantId, dto); }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: { name?: string; eventCategoryId?: string }) { return this.eventsService.updateEventSubcategory(id, dto); }
+  update(@Param('id') id: string, @Body() dto: UpdateEventSubcategoryDto) { return this.eventsService.updateEventSubcategory(id, dto); }
 
   @Delete(':id')
   remove(@Param('id') id: string) { return this.eventsService.deleteEventSubcategory(id); }

@@ -111,7 +111,7 @@ export class EventsService {
     });
   }
 
-  async updateEventType(id: string, data: { name: string }) {
+  async updateEventType(id: string, data: { name?: string }) {
     return this.prisma.eventType.update({ where: { id }, data: { name: data.name } });
   }
 

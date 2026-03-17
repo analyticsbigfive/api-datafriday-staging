@@ -266,15 +266,27 @@ export class SpaceDashboardService {
           tenantId,
           weezeventMerchantId: { in: merchants.map((m) => m.weezeventId) },
         },
-        include: {
-          spaceElement: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
+        select: {
+          weezeventMerchantId: true,
+          spaceElementId: true,
         },
       });
+
+    const spaceElements = merchantMappings.length
+      ? await this.prisma.spaceElement.findMany({
+          where: {
+            id: { in: merchantMappings.map((m) => m.spaceElementId) },
+          },
+          select: {
+            id: true,
+            name: true,
+          },
+        })
+      : [];
+
+    const spaceElementById = new Map(
+      spaceElements.map((element) => [element.id, element]),
+    );
 
     // Get locations
     const locations = await this.prisma.weezeventLocation.findMany({
@@ -294,7 +306,18 @@ export class SpaceDashboardService {
         startDate: e.startDate?.toISOString() || null,
       })),
       shops: merchantMappings
-        .filter((m) => m.spaceElement)
+        .map((m) => ({
+          spaceElementId: m.spaceElementId,
+          spaceElement: spaceElementById.get(m.spaceElementId),
+        }))
+        .filter(
+          (
+            m,
+          ): m is {
+            spaceElementId: string;
+            spaceElement: { id: string; name: string };
+          } => Boolean(m.spaceElement),
+        )
         .map((m) => ({
           spaceElementId: m.spaceElementId,
           name: m.spaceElement.name,
@@ -584,12 +607,11 @@ export class SpaceDashboardService {
     key: string,
   ): Promise<DashboardResponseDto | null> {
     try {
-      const cached = await this.redis.get(key);
+      const cached = await this.redis.get<DashboardResponseDto>(key);
       if (!cached) return null;
 
-      const data = JSON.parse(cached);
-      data.meta.cache.hit = true;
-      return data;
+      cached.meta.cache.hit = true;
+      return cached;
     } catch (error) {
       this.logger.warn(`Cache read error: ${error.message}`);
       return null;
@@ -601,7 +623,7 @@ export class SpaceDashboardService {
     data: DashboardResponseDto,
   ): Promise<void> {
     try {
-      await this.redis.setex(key, this.CACHE_TTL, JSON.stringify(data));
+      await this.redis.set(key, data, { ttl: this.CACHE_TTL });
     } catch (error) {
       this.logger.warn(`Cache write error: ${error.message}`);
     }
@@ -610,12 +632,7 @@ export class SpaceDashboardService {
   async invalidateCache(spaceId: string, tenantId: string): Promise<number> {
     try {
       const pattern = `${this.CACHE_PREFIX}:${tenantId}:${spaceId}:*`;
-      const keys = await this.redis.keys(pattern);
-      
-      if (keys.length === 0) return 0;
-      
-      await this.redis.del(...keys);
-      return keys.length;
+      return this.redis.deletePattern(pattern);
     } catch (error) {
       this.logger.error(`Cache invalidation error: ${error.message}`);
       return 0;

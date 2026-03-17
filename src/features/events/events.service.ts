@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
@@ -162,20 +162,50 @@ export class EventsService {
     });
   }
 
-  async createEventSubcategory(tenantId: string, data: { name: string; eventCategoryId: string }) {
+  async createEventSubcategory(
+    tenantId: string,
+    data: { name: string; eventCategoryId?: string; categoryId?: string },
+  ) {
+    const eventCategoryId = data.eventCategoryId ?? data.categoryId;
+
+    if (!eventCategoryId) {
+      throw new BadRequestException({
+        message: 'Validation failed',
+        errors: [
+          {
+            property: 'eventCategoryId',
+            constraints: {
+              isNotEmpty: 'eventCategoryId should not be empty',
+              isString: 'eventCategoryId must be a string',
+            },
+            messages: [
+              'eventCategoryId should not be empty',
+              'eventCategoryId must be a string',
+            ],
+            value: eventCategoryId,
+          },
+        ],
+      });
+    }
+
     return this.prisma.eventSubcategory.create({
-      data: { name: data.name, eventCategoryId: data.eventCategoryId, tenantId },
+      data: { name: data.name, eventCategoryId, tenantId },
     });
   }
 
-  async updateEventSubcategory(id: string, data: { name?: string; eventCategoryId?: string }) {
+  async updateEventSubcategory(
+    id: string,
+    data: { name?: string; eventCategoryId?: string; categoryId?: string },
+  ) {
+    const eventCategoryId = data.eventCategoryId ?? data.categoryId;
+
     return this.prisma.eventSubcategory.update({
       where: { id },
       data: {
         ...(data.name !== undefined && { name: data.name }),
-        ...(data.eventCategoryId !== undefined && {
+        ...(eventCategoryId !== undefined && {
           eventCategory: {
-            connect: { id: data.eventCategoryId },
+            connect: { id: eventCategoryId },
           },
         }),
       },

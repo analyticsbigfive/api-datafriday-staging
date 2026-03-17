@@ -100,16 +100,6 @@ describe('Events validation', () => {
   });
 
   describe('CreateEventSubcategoryDto', () => {
-    it('rejects missing eventCategoryId', async () => {
-      const error = await expectValidationError({ name: 'Rock' }, CreateEventSubcategoryDto);
-
-      expect((error.getResponse() as any).errors).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ property: 'eventCategoryId' }),
-        ]),
-      );
-    });
-
     it('accepts valid subcategory payload', async () => {
       const result = await pipe.transform(
         { name: 'Rock', eventCategoryId: 'cat-1' },
@@ -117,6 +107,16 @@ describe('Events validation', () => {
       );
 
       expect(result).toBeDefined();
+    });
+
+    it('accepts valid subcategory payload with categoryId alias', async () => {
+      const result = await pipe.transform(
+        { name: 'Race F1', categoryId: 'cat-1' },
+        { metatype: CreateEventSubcategoryDto } as ArgumentMetadata,
+      );
+
+      expect(result).toBeDefined();
+      expect((result as CreateEventSubcategoryDto).categoryId).toBe('cat-1');
     });
   });
 });

@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventsService } from './events.service';
 import { PrismaService } from '../../core/database/prisma.service';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 describe('EventsService', () => {
   let service: EventsService;
@@ -248,6 +248,70 @@ describe('EventsService', () => {
             connect: { id: 'cat-2' },
           },
         },
+      });
+    });
+  });
+
+  describe('createEventSubcategory', () => {
+    it('should create subcategory with eventCategoryId', async () => {
+      mockPrisma.eventSubcategory.create.mockResolvedValue({ id: 'sub-1', name: 'Race F1' });
+
+      const result = await service.createEventSubcategory('tenant-1', {
+        name: 'Race F1',
+        eventCategoryId: 'cat-1',
+      });
+
+      expect(result.name).toBe('Race F1');
+      expect(mockPrisma.eventSubcategory.create).toHaveBeenCalledWith({
+        data: {
+          name: 'Race F1',
+          eventCategoryId: 'cat-1',
+          tenantId: 'tenant-1',
+        },
+      });
+    });
+
+    it('should create subcategory with categoryId alias', async () => {
+      mockPrisma.eventSubcategory.create.mockResolvedValue({ id: 'sub-1', name: 'Race F1' });
+
+      await service.createEventSubcategory('tenant-1', {
+        name: 'Race F1',
+        categoryId: 'cat-1',
+      });
+
+      expect(mockPrisma.eventSubcategory.create).toHaveBeenCalledWith({
+        data: {
+          name: 'Race F1',
+          eventCategoryId: 'cat-1',
+          tenantId: 'tenant-1',
+        },
+      });
+    });
+
+    it('should throw detailed BadRequestException when category is missing', async () => {
+      await expect(
+        service.createEventSubcategory('tenant-1', {
+          name: 'Race F1',
+        }),
+      ).rejects.toThrow(BadRequestException);
+
+      await service.createEventSubcategory('tenant-1', {
+        name: 'Race F1',
+      }).catch((error) => {
+        expect(error.getResponse()).toEqual(
+          expect.objectContaining({
+            message: 'Validation failed',
+            errors: expect.arrayContaining([
+              expect.objectContaining({
+                property: 'eventCategoryId',
+                messages: expect.arrayContaining([
+                  'eventCategoryId should not be empty',
+                  'eventCategoryId must be a string',
+                ]),
+              }),
+            ]),
+          }),
+        );
       });
     });
   });

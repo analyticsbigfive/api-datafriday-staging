@@ -177,12 +177,78 @@ describe('EventsService', () => {
     });
   });
 
+  describe('updateEventCategory', () => {
+    it('should update category name only', async () => {
+      mockPrisma.eventCategory.update.mockResolvedValue({ id: 'cat-1', name: 'Motos' });
+
+      const result = await service.updateEventCategory('cat-1', { name: 'Motos' });
+
+      expect(result.name).toBe('Motos');
+      expect(mockPrisma.eventCategory.update).toHaveBeenCalledWith({
+        where: { id: 'cat-1' },
+        data: { name: 'Motos' },
+      });
+    });
+
+    it('should update category relation using eventType.connect', async () => {
+      mockPrisma.eventCategory.update.mockResolvedValue({ id: 'cat-1', name: 'Motos' });
+
+      await service.updateEventCategory('cat-1', {
+        name: 'Motos',
+        eventTypeId: 'type-2',
+      });
+
+      expect(mockPrisma.eventCategory.update).toHaveBeenCalledWith({
+        where: { id: 'cat-1' },
+        data: {
+          name: 'Motos',
+          eventType: {
+            connect: { id: 'type-2' },
+          },
+        },
+      });
+    });
+  });
+
   describe('getEventSubcategories', () => {
     it('should return subcategories for tenant', async () => {
       mockPrisma.eventSubcategory.findMany.mockResolvedValue([]);
 
       const result = await service.getEventSubcategories('tenant-1');
       expect(result).toEqual([]);
+    });
+  });
+
+  describe('updateEventSubcategory', () => {
+    it('should update subcategory name only', async () => {
+      mockPrisma.eventSubcategory.update.mockResolvedValue({ id: 'sub-1', name: 'Cross' });
+
+      const result = await service.updateEventSubcategory('sub-1', { name: 'Cross' });
+
+      expect(result.name).toBe('Cross');
+      expect(mockPrisma.eventSubcategory.update).toHaveBeenCalledWith({
+        where: { id: 'sub-1' },
+        data: { name: 'Cross' },
+      });
+    });
+
+    it('should update subcategory relation using eventCategory.connect', async () => {
+      mockPrisma.eventSubcategory.update.mockResolvedValue({ id: 'sub-1', name: 'Cross' });
+
+      await service.updateEventSubcategory('sub-1', {
+        name: 'Cross',
+        eventCategoryId: 'cat-2',
+      });
+
+      expect(mockPrisma.eventSubcategory.update).toHaveBeenCalledWith({
+        where: { id: 'sub-1' },
+        data: {
+          name: 'Cross',
+          eventCategory: {
+            connect: { id: 'cat-2' },
+          },
+        },
+      });
     });
   });
 });

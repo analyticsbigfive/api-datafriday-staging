@@ -136,7 +136,17 @@ export class EventsService {
   }
 
   async updateEventCategory(id: string, data: { name?: string; eventTypeId?: string }) {
-    return this.prisma.eventCategory.update({ where: { id }, data });
+    return this.prisma.eventCategory.update({
+      where: { id },
+      data: {
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.eventTypeId !== undefined && {
+          eventType: {
+            connect: { id: data.eventTypeId },
+          },
+        }),
+      },
+    });
   }
 
   async deleteEventCategory(id: string) {
@@ -159,7 +169,17 @@ export class EventsService {
   }
 
   async updateEventSubcategory(id: string, data: { name?: string; eventCategoryId?: string }) {
-    return this.prisma.eventSubcategory.update({ where: { id }, data });
+    return this.prisma.eventSubcategory.update({
+      where: { id },
+      data: {
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.eventCategoryId !== undefined && {
+          eventCategory: {
+            connect: { id: data.eventCategoryId },
+          },
+        }),
+      },
+    });
   }
 
   async deleteEventSubcategory(id: string) {

@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { SpacesService } from './spaces.service';
 import { PrismaService } from '../../core/database/prisma.service';
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 
 describe('SpacesService', () => {
   let service: SpacesService;
@@ -37,7 +37,10 @@ describe('SpacesService', () => {
     config: {
       count: jest.fn(),
       findMany: jest.fn(),
+      findFirst: jest.fn(),
+      upsert: jest.fn(),
     },
+    $transaction: jest.fn((callback) => callback(mockPrismaService)),
   };
 
   beforeEach(async () => {
@@ -463,9 +466,19 @@ describe('SpacesService', () => {
       expect(result).toEqual(mockConfigurations);
       expect(result).toHaveLength(2);
       expect(mockPrismaService.config.findMany).toHaveBeenCalledWith({
-        where: { spaceId },
+        where: {
+          spaceId,
+          space: {
+            tenantId,
+          },
+        },
         orderBy: { createdAt: 'desc' },
-        include: {
+        select: {
+          id: true,
+          name: true,
+          capacity: true,
+          createdAt: true,
+          updatedAt: true,
           _count: {
             select: {
               floors: true,
@@ -476,15 +489,13 @@ describe('SpacesService', () => {
       });
     });
 
-    it('should throw NotFoundException if space not found', async () => {
+    it('should return empty array if no accessible configurations exist for the tenant', async () => {
       const spaceId = 'non-existent';
       const tenantId = 'tenant-123';
 
-      mockPrismaService.space.findFirst.mockResolvedValue(null);
+      mockPrismaService.config.findMany.mockResolvedValue([]);
 
-      await expect(service.getConfigurations(spaceId, tenantId)).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(service.getConfigurations(spaceId, tenantId)).resolves.toEqual([]);
     });
 
     it('should return empty array if no configurations', async () => {
@@ -503,6 +514,70 @@ describe('SpacesService', () => {
       const result = await service.getConfigurations(spaceId, tenantId);
 
       expect(result).toEqual([]);
+    });
+  });
+
+  describe('getConfiguration', () => {
+    it('should return a configuration only if it belongs to the tenant', async () => {
+      mockPrismaService.config.findFirst.mockResolvedValue({
+        id: 'config-1',
+        name: 'Config 1',
+        spaceId: 'space-1',
+        capacity: 100,
+        data: { floors: [], forecourt: null },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        space: { id: 'space-1', name: 'Space 1', tenantId: 'tenant-123' },
+      });
+
+      const result = await service.getConfiguration('config-1', 'tenant-123');
+
+      expect(result.spaceId).toBe('space-1');
+      expect(mockPrismaService.config.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            id: 'config-1',
+            space: { tenantId: 'tenant-123' },
+          },
+        }),
+      );
+    });
+
+    it('should throw NotFoundException when configuration is not accessible for tenant', async () => {
+      mockPrismaService.config.findFirst.mockResolvedValue(null);
+
+      await expect(service.getConfiguration('config-404', 'tenant-123')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('saveConfiguration', () => {
+    it('should reject updating a configuration tied to another space', async () => {
+      mockPrismaService.space.findFirst.mockResolvedValue({ id: 'space-1', tenantId: 'tenant-123' });
+      mockPrismaService.config.findFirst.mockResolvedValue({
+        id: 'config-1',
+        name: 'Config 1',
+        spaceId: 'space-2',
+        capacity: 100,
+        data: { floors: [], forecourt: null },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        space: { id: 'space-2', name: 'Space 2', tenantId: 'tenant-123' },
+      });
+
+      await expect(
+        service.saveConfiguration(
+          {
+            id: 'config-1',
+            name: 'Updated config',
+            spaceId: 'space-1',
+            capacity: 100,
+            data: { floors: [], forecourt: null },
+          },
+          'tenant-123',
+        ),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 

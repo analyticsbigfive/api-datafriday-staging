@@ -58,10 +58,10 @@ export class EventTypesController {
   create(@Req() req, @Body() dto: CreateEventTypeDto) { return this.eventsService.createEventType(req.user.tenantId, dto); }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateEventTypeDto) { return this.eventsService.updateEventType(id, dto); }
+  update(@Req() req, @Param('id') id: string, @Body() dto: UpdateEventTypeDto) { return this.eventsService.updateEventType(req.user.tenantId, id, dto); }
 
   @Delete(':id')
-  remove(@Param('id') id: string) { return this.eventsService.deleteEventType(id); }
+  remove(@Req() req, @Param('id') id: string) { return this.eventsService.deleteEventType(req.user.tenantId, id); }
 }
 
 @ApiTags('Event Categories')
@@ -78,10 +78,10 @@ export class EventCategoriesController {
   create(@Req() req, @Body() dto: CreateEventCategoryDto) { return this.eventsService.createEventCategory(req.user.tenantId, dto); }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateEventCategoryDto) { return this.eventsService.updateEventCategory(id, dto); }
+  update(@Req() req, @Param('id') id: string, @Body() dto: UpdateEventCategoryDto) { return this.eventsService.updateEventCategory(req.user.tenantId, id, dto); }
 
   @Delete(':id')
-  remove(@Param('id') id: string) { return this.eventsService.deleteEventCategory(id); }
+  remove(@Req() req, @Param('id') id: string) { return this.eventsService.deleteEventCategory(req.user.tenantId, id); }
 }
 
 @ApiTags('Event Subcategories')
@@ -98,8 +98,8 @@ export class EventSubcategoriesController {
   create(@Req() req, @Body() dto: CreateEventSubcategoryDto) { return this.eventsService.createEventSubcategory(req.user.tenantId, dto); }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateEventSubcategoryDto) { return this.eventsService.updateEventSubcategory(id, dto); }
+  update(@Req() req, @Param('id') id: string, @Body() dto: UpdateEventSubcategoryDto) { return this.eventsService.updateEventSubcategory(req.user.tenantId, id, dto); }
 
   @Delete(':id')
-  remove(@Param('id') id: string) { return this.eventsService.deleteEventSubcategory(id); }
+  remove(@Req() req, @Param('id') id: string) { return this.eventsService.deleteEventSubcategory(req.user.tenantId, id); }
 }

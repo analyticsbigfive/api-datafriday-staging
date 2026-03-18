@@ -515,17 +515,30 @@ export class MenuItemsService {
   }
 
   // ── ProductType & ProductCategory ────────────────
-  async getProductTypes() {
-    return this.prisma.productType.findMany({ orderBy: { name: 'asc' }, include: { categories: true } });
+  async getProductTypes(tenantId: string) {
+    return this.prisma.productType.findMany({
+      where: { OR: [{ tenantId }, { tenantId: null }] },
+      orderBy: { name: 'asc' },
+      include: {
+        categories: {
+          where: { OR: [{ tenantId }, { tenantId: null }] },
+        },
+      },
+    });
   }
 
   async createProductType(name: string, tenantId?: string) {
     return this.prisma.productType.create({ data: { name, tenantId }, include: { categories: true } });
   }
 
-  async getProductCategories(typeId?: string) {
+  async getProductCategories(tenantId: string, typeId?: string) {
     return this.prisma.productCategory.findMany({
-      where: typeId ? { typeId } : undefined,
+      where: {
+        AND: [
+          { OR: [{ tenantId }, { tenantId: null }] },
+          ...(typeId ? [{ typeId }] : []),
+        ],
+      },
       orderBy: { name: 'asc' },
       include: { type: true },
     });
@@ -553,6 +566,29 @@ export class MenuItemsService {
               'typeId should not be empty',
               'typeId must be a string',
             ],
+            value: resolvedTypeId,
+          },
+        ],
+      });
+    }
+
+    const productType = await this.prisma.productType.findFirst({
+      where: {
+        id: resolvedTypeId,
+        OR: [{ tenantId }, { tenantId: null }],
+      },
+    });
+
+    if (!productType) {
+      throw new BadRequestException({
+        message: 'Validation failed',
+        errors: [
+          {
+            property: 'typeId',
+            constraints: {
+              exists: 'typeId must reference an accessible product type',
+            },
+            messages: ['typeId must reference an accessible product type'],
             value: resolvedTypeId,
           },
         ],

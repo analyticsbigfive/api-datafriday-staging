@@ -31,18 +31,21 @@ describe('EventsService', () => {
       count: jest.fn(),
     },
     eventType: {
+      findFirst: jest.fn(),
       findMany: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
     },
     eventCategory: {
+      findFirst: jest.fn(),
       findMany: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
     },
     eventSubcategory: {
+      findFirst: jest.fn(),
       findMany: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -179,9 +182,10 @@ describe('EventsService', () => {
 
   describe('updateEventCategory', () => {
     it('should update category name only', async () => {
+      mockPrisma.eventCategory.findFirst.mockResolvedValue({ id: 'cat-1', tenantId: 'tenant-1' });
       mockPrisma.eventCategory.update.mockResolvedValue({ id: 'cat-1', name: 'Motos' });
 
-      const result = await service.updateEventCategory('cat-1', { name: 'Motos' });
+      const result = await service.updateEventCategory('tenant-1', 'cat-1', { name: 'Motos' });
 
       expect(result.name).toBe('Motos');
       expect(mockPrisma.eventCategory.update).toHaveBeenCalledWith({
@@ -191,9 +195,11 @@ describe('EventsService', () => {
     });
 
     it('should update category relation using eventType.connect', async () => {
+      mockPrisma.eventCategory.findFirst.mockResolvedValue({ id: 'cat-1', tenantId: 'tenant-1' });
+      mockPrisma.eventType.findFirst.mockResolvedValue({ id: 'type-2', tenantId: null });
       mockPrisma.eventCategory.update.mockResolvedValue({ id: 'cat-1', name: 'Motos' });
 
-      await service.updateEventCategory('cat-1', {
+      await service.updateEventCategory('tenant-1', 'cat-1', {
         name: 'Motos',
         eventTypeId: 'type-2',
       });
@@ -221,9 +227,10 @@ describe('EventsService', () => {
 
   describe('updateEventSubcategory', () => {
     it('should update subcategory name only', async () => {
+      mockPrisma.eventSubcategory.findFirst.mockResolvedValue({ id: 'sub-1', tenantId: 'tenant-1' });
       mockPrisma.eventSubcategory.update.mockResolvedValue({ id: 'sub-1', name: 'Cross' });
 
-      const result = await service.updateEventSubcategory('sub-1', { name: 'Cross' });
+      const result = await service.updateEventSubcategory('tenant-1', 'sub-1', { name: 'Cross' });
 
       expect(result.name).toBe('Cross');
       expect(mockPrisma.eventSubcategory.update).toHaveBeenCalledWith({
@@ -233,9 +240,11 @@ describe('EventsService', () => {
     });
 
     it('should update subcategory relation using eventCategory.connect', async () => {
+      mockPrisma.eventSubcategory.findFirst.mockResolvedValue({ id: 'sub-1', tenantId: 'tenant-1' });
+      mockPrisma.eventCategory.findFirst.mockResolvedValue({ id: 'cat-2', tenantId: null });
       mockPrisma.eventSubcategory.update.mockResolvedValue({ id: 'sub-1', name: 'Cross' });
 
-      await service.updateEventSubcategory('sub-1', {
+      await service.updateEventSubcategory('tenant-1', 'sub-1', {
         name: 'Cross',
         eventCategoryId: 'cat-2',
       });
@@ -254,6 +263,7 @@ describe('EventsService', () => {
 
   describe('createEventSubcategory', () => {
     it('should create subcategory with eventCategoryId', async () => {
+      mockPrisma.eventCategory.findFirst.mockResolvedValue({ id: 'cat-1', tenantId: 'tenant-1' });
       mockPrisma.eventSubcategory.create.mockResolvedValue({ id: 'sub-1', name: 'Race F1' });
 
       const result = await service.createEventSubcategory('tenant-1', {
@@ -272,6 +282,7 @@ describe('EventsService', () => {
     });
 
     it('should create subcategory with categoryId alias', async () => {
+      mockPrisma.eventCategory.findFirst.mockResolvedValue({ id: 'cat-1', tenantId: null });
       mockPrisma.eventSubcategory.create.mockResolvedValue({ id: 'sub-1', name: 'Race F1' });
 
       await service.createEventSubcategory('tenant-1', {
@@ -313,6 +324,17 @@ describe('EventsService', () => {
           }),
         );
       });
+    });
+
+    it('should throw detailed BadRequestException when category is not accessible', async () => {
+      mockPrisma.eventCategory.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.createEventSubcategory('tenant-1', {
+          name: 'Race F1',
+          eventCategoryId: 'cat-404',
+        }),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });

@@ -665,6 +665,14 @@ export class SpacesService {
     // Verify space exists and belongs to tenant
     await this.findOne(dto.spaceId, tenantId);
 
+    if (dto.id) {
+      const existingConfig = await this.getConfiguration(dto.id, tenantId);
+
+      if (existingConfig.spaceId !== dto.spaceId) {
+        throw new ForbiddenException('Configuration does not belong to the provided space');
+      }
+    }
+
     // Extract floors and elements from data
     const floors = dto.data?.floors || [];
     const forecourt = dto.data?.forecourt || null;
@@ -1036,8 +1044,13 @@ export class SpacesService {
    */
   async getConfiguration(configId: string, tenantId: string) {
     // Fast query - only get config with JSON data
-    const config = await this.prisma.config.findUnique({
-      where: { id: configId },
+    const config = await this.prisma.config.findFirst({
+      where: {
+        id: configId,
+        space: {
+          tenantId,
+        },
+      },
       select: {
         id: true,
         name: true,
@@ -1058,11 +1071,6 @@ export class SpacesService {
 
     if (!config) {
       throw new NotFoundException(`Configuration with ID ${configId} not found`);
-    }
-
-    // Verify the configuration's space belongs to the tenant
-    if (config.space.tenantId !== tenantId) {
-      throw new ForbiddenException('Access denied to this configuration');
     }
 
     // Use JSON data directly for fast loading

@@ -146,16 +146,16 @@ export class ProductTypesController {
 
   @Get()
   @ApiOperation({ summary: 'Lister tous les types de produits' })
-  findAll(@CurrentUser() user: any) {
+  findAll(@CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /product-types - User: ${user?.id}`);
-    return this.menuItemsService.getProductTypes();
+    return this.menuItemsService.getProductTypes(tenantId);
   }
 
   @Post()
   @ApiOperation({ summary: 'Créer un type de produit' })
-  create(@Body() body: { name: string; tenantId?: string }, @CurrentUser() user: any) {
+  create(@Body() body: { name: string }, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`POST /product-types - User: ${user?.id}`);
-    return this.menuItemsService.createProductType(body.name, body.tenantId || user?.tenantId);
+    return this.menuItemsService.createProductType(body.name, tenantId);
   }
 }
 
@@ -171,19 +171,19 @@ export class ProductCategoriesController {
   @Get()
   @ApiOperation({ summary: 'Lister toutes les catégories de produits' })
   @ApiQuery({ name: 'typeId', required: false })
-  findAll(@Query('typeId') typeId: string, @CurrentUser() user: any) {
+  findAll(@Query('typeId') typeId: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /product-categories - User: ${user?.id}`);
-    return this.menuItemsService.getProductCategories(typeId);
+    return this.menuItemsService.getProductCategories(tenantId, typeId);
   }
 
   @Post()
   @ApiOperation({ summary: 'Créer une catégorie de produit' })
-  create(@Body() body: CreateProductCategoryDto & { tenantId?: string }, @CurrentUser() user: any) {
+  create(@Body() body: CreateProductCategoryDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`POST /product-categories - User: ${user?.id}`);
     return this.menuItemsService.createProductCategory(
       body.name,
       body.typeId,
-      body.tenantId || user?.tenantId,
+      tenantId,
       body.productTypeId,
     );
   }

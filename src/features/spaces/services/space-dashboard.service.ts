@@ -44,7 +44,7 @@ export class SpaceDashboardService {
     }
 
     // Get dashboard version for cache key
-    const version = await this.getDashboardVersion(spaceId);
+    const version = await this.getDashboardVersion(spaceId, tenantId);
 
     // Build cache key
     const cacheKey = this.buildCacheKey(
@@ -117,14 +117,18 @@ export class SpaceDashboardService {
     return response;
   }
 
-  private async getDashboardVersion(spaceId: string) {
+  private async getDashboardVersion(spaceId: string, tenantId: string) {
     let version = await this.prisma.spaceDashboardVersion.findUnique({
       where: { spaceId },
     });
 
+    if (version && version.tenantId !== tenantId) {
+      throw new NotFoundException(`Space ${spaceId} not found`);
+    }
+
     if (!version) {
       version = await this.prisma.spaceDashboardVersion.create({
-        data: { spaceId, tenantId: '', version: 1 },
+        data: { spaceId, tenantId, version: 1 },
       });
     }
 

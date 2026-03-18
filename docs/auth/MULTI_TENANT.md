@@ -81,3 +81,62 @@ make quickstart
 # Tests
 curl http://localhost:3000/api/v1/health
 ```
+
+## Stratégie recommandée : données `system` et données `tenant`
+
+### Convention
+
+- `tenantId = null` : donnée système partagée
+- `tenantId = currentTenantId` : donnée privée au tenant
+
+### Lecture des données
+
+- données privées : `where: { tenantId: currentTenantId }`
+- référentiels partageables :
+
+```typescript
+where: {
+  OR: [
+    { tenantId: currentTenantId },
+    { tenantId: null },
+  ],
+}
+```
+
+### Création
+
+- ne jamais accepter `tenantId` depuis le body
+- toujours injecter `tenantId` depuis `@CurrentTenant()` ou depuis le guard
+
+### Update / Delete
+
+- un tenant ne peut modifier ou supprimer que ses propres données
+- les données système doivent être gérées par des endpoints admin dédiés
+- ne jamais faire `update` ou `delete` sur `id` seul sans vérification d'appartenance
+
+### Validation des relations
+
+Lors d'un `connect`, la cible doit être :
+
+- soit dans le tenant courant
+- soit une donnée système `tenantId = null`
+
+Exemple : un `productCategory` d'un tenant ne doit jamais pouvoir se connecter à un `productType` privé d'un autre tenant.
+
+## Ordre recommandé d'implémentation
+
+1. Forcer les contrôleurs à utiliser `@CurrentTenant()` pour toutes les écritures.
+2. Filtrer toutes les lectures métier par `tenantId`.
+3. Autoriser explicitement `tenantId = null` uniquement sur les référentiels partagés.
+4. Vérifier l'appartenance tenant avant tout `update` / `delete`.
+5. Vérifier l'accessibilité des relations avant tout `connect`.
+6. Couvrir chaque règle avec des tests ciblés.
+
+## Modules déjà durcis
+
+- `events`
+- `menu-items`
+- `product-types`
+- `product-categories`
+- accès aux `spaces` et aux `configurations`
+- cache/version du `space-dashboard`

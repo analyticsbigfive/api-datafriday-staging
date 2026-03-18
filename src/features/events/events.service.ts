@@ -15,6 +15,42 @@ export class EventsService {
     eventSubcategory: true,
   };
 
+  private async findOwnedEventTypeOrThrow(id: string, tenantId: string) {
+    const eventType = await this.prisma.eventType.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!eventType) {
+      throw new NotFoundException(`Event type ${id} not found`);
+    }
+
+    return eventType;
+  }
+
+  private async findOwnedEventCategoryOrThrow(id: string, tenantId: string) {
+    const eventCategory = await this.prisma.eventCategory.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!eventCategory) {
+      throw new NotFoundException(`Event category ${id} not found`);
+    }
+
+    return eventCategory;
+  }
+
+  private async findOwnedEventSubcategoryOrThrow(id: string, tenantId: string) {
+    const eventSubcategory = await this.prisma.eventSubcategory.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!eventSubcategory) {
+      throw new NotFoundException(`Event subcategory ${id} not found`);
+    }
+
+    return eventSubcategory;
+  }
+
   async create(tenantId: string, dto: CreateEventDto) {
     this.logger.log(`Creating event "${dto.name}" for tenant ${tenantId}`);
     return this.prisma.event.create({
@@ -111,11 +147,13 @@ export class EventsService {
     });
   }
 
-  async updateEventType(id: string, data: { name?: string }) {
+  async updateEventType(tenantId: string, id: string, data: { name?: string }) {
+    await this.findOwnedEventTypeOrThrow(id, tenantId);
     return this.prisma.eventType.update({ where: { id }, data: { name: data.name } });
   }
 
-  async deleteEventType(id: string) {
+  async deleteEventType(tenantId: string, id: string) {
+    await this.findOwnedEventTypeOrThrow(id, tenantId);
     return this.prisma.eventType.delete({ where: { id } });
   }
 
@@ -135,7 +173,34 @@ export class EventsService {
     });
   }
 
-  async updateEventCategory(id: string, data: { name?: string; eventTypeId?: string }) {
+  async updateEventCategory(tenantId: string, id: string, data: { name?: string; eventTypeId?: string }) {
+    await this.findOwnedEventCategoryOrThrow(id, tenantId);
+
+    if (data.eventTypeId !== undefined) {
+      const eventType = await this.prisma.eventType.findFirst({
+        where: {
+          id: data.eventTypeId,
+          OR: [{ tenantId }, { tenantId: null }],
+        },
+      });
+
+      if (!eventType) {
+        throw new BadRequestException({
+          message: 'Validation failed',
+          errors: [
+            {
+              property: 'eventTypeId',
+              constraints: {
+                exists: 'eventTypeId must reference an accessible event type',
+              },
+              messages: ['eventTypeId must reference an accessible event type'],
+              value: data.eventTypeId,
+            },
+          ],
+        });
+      }
+    }
+
     return this.prisma.eventCategory.update({
       where: { id },
       data: {
@@ -149,7 +214,8 @@ export class EventsService {
     });
   }
 
-  async deleteEventCategory(id: string) {
+  async deleteEventCategory(tenantId: string, id: string) {
+    await this.findOwnedEventCategoryOrThrow(id, tenantId);
     return this.prisma.eventCategory.delete({ where: { id } });
   }
 
@@ -188,16 +254,67 @@ export class EventsService {
       });
     }
 
+    const eventCategory = await this.prisma.eventCategory.findFirst({
+      where: {
+        id: eventCategoryId,
+        OR: [{ tenantId }, { tenantId: null }],
+      },
+    });
+
+    if (!eventCategory) {
+      throw new BadRequestException({
+        message: 'Validation failed',
+        errors: [
+          {
+            property: 'eventCategoryId',
+            constraints: {
+              exists: 'eventCategoryId must reference an accessible event category',
+            },
+            messages: ['eventCategoryId must reference an accessible event category'],
+            value: eventCategoryId,
+          },
+        ],
+      });
+    }
+
     return this.prisma.eventSubcategory.create({
       data: { name: data.name, eventCategoryId, tenantId },
     });
   }
 
   async updateEventSubcategory(
+    tenantId: string,
     id: string,
     data: { name?: string; eventCategoryId?: string; categoryId?: string },
   ) {
+    await this.findOwnedEventSubcategoryOrThrow(id, tenantId);
+
     const eventCategoryId = data.eventCategoryId ?? data.categoryId;
+
+    if (eventCategoryId !== undefined) {
+      const eventCategory = await this.prisma.eventCategory.findFirst({
+        where: {
+          id: eventCategoryId,
+          OR: [{ tenantId }, { tenantId: null }],
+        },
+      });
+
+      if (!eventCategory) {
+        throw new BadRequestException({
+          message: 'Validation failed',
+          errors: [
+            {
+              property: 'eventCategoryId',
+              constraints: {
+                exists: 'eventCategoryId must reference an accessible event category',
+              },
+              messages: ['eventCategoryId must reference an accessible event category'],
+              value: eventCategoryId,
+            },
+          ],
+        });
+      }
+    }
 
     return this.prisma.eventSubcategory.update({
       where: { id },
@@ -212,7 +329,8 @@ export class EventsService {
     });
   }
 
-  async deleteEventSubcategory(id: string) {
+  async deleteEventSubcategory(tenantId: string, id: string) {
+    await this.findOwnedEventSubcategoryOrThrow(id, tenantId);
     return this.prisma.eventSubcategory.delete({ where: { id } });
   }
 }

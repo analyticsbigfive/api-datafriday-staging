@@ -3,6 +3,9 @@ import { MenuItemsService } from './menu-items.service';
 
 describe('MenuItemsService product categories', () => {
   const mockPrisma = {
+    productType: {
+      findFirst: jest.fn(),
+    },
     productCategory: {
       create: jest.fn(),
     },
@@ -18,6 +21,7 @@ describe('MenuItemsService product categories', () => {
   });
 
   it('creates a product category with typeId', async () => {
+    mockPrisma.productType.findFirst.mockResolvedValue({ id: 'type-1', tenantId: 'tenant-1' });
     mockPrisma.productCategory.create.mockResolvedValue({ id: 'cat-1', name: 'Food' });
 
     const result = await service.createProductCategory('Food', 'type-1', 'tenant-1');
@@ -36,6 +40,7 @@ describe('MenuItemsService product categories', () => {
   });
 
   it('creates a product category with productTypeId alias', async () => {
+    mockPrisma.productType.findFirst.mockResolvedValue({ id: 'type-1', tenantId: null });
     mockPrisma.productCategory.create.mockResolvedValue({ id: 'cat-1', name: 'Food' });
 
     await service.createProductCategory('Food', undefined as any, 'tenant-1', 'type-1');
@@ -73,5 +78,13 @@ describe('MenuItemsService product categories', () => {
         }),
       );
     });
+  });
+
+  it('throws a detailed BadRequestException when type is not accessible', async () => {
+    mockPrisma.productType.findFirst.mockResolvedValue(null);
+
+    await expect(service.createProductCategory('Food', 'type-404', 'tenant-1')).rejects.toThrow(
+      BadRequestException,
+    );
   });
 });

@@ -20,6 +20,7 @@
 - **[AUTH_TESTING_GUIDE.md](./AUTH_TESTING_GUIDE.md)** - Guide de test complet
 - **[AUTH_QUICKSTART.md](./AUTH_QUICKSTART.md)** - Démarrage rapide
 - **[auth/](./auth/)** - Documentation auth détaillée
+- **[auth/MULTI_TENANT.md](./auth/MULTI_TENANT.md)** - Stratégie multi-tenant, données système et règles d'implémentation
 
 ### Development
 - **[DEVELOPMENT.md](./DEVELOPMENT.md)** - Guide développement

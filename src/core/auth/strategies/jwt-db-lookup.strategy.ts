@@ -23,6 +23,9 @@ export interface JwtPayload {
 @Injectable()
 export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
   private readonly AUTH_CACHE_TTL = 60; // 60 seconds
+  private readonly LOCAL_AUTH_CACHE_TTL_MS = 15_000;
+  private readonly localCache = new Map<string, { user: any; expiresAt: number }>();
+  private readonly pendingLookups = new Map<string, Promise<any>>();
   
   constructor(
     private configService: ConfigService,
@@ -45,11 +48,21 @@ export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
       throw new UnauthorizedException('Invalid token: missing user ID');
     }
 
-    // P1: Check cache first
     const cacheKey = `auth:user:${payload.sub}`;
+    const localCachedUser = this.getLocalCachedUser(cacheKey);
+
+    if (localCachedUser) {
+      if (localCachedUser.tenant && localCachedUser.tenant.status === 'SUSPENDED') {
+        throw new UnauthorizedException('Organization is suspended');
+      }
+      return localCachedUser;
+    }
+
+    // P1: Check cache first
     const cachedUser = await this.redis.get<any>(cacheKey);
     
     if (cachedUser) {
+      this.setLocalCachedUser(cacheKey, cachedUser);
       // Vérifier si le tenant est actif (seulement si l'user a un tenant)
       if (cachedUser.tenant && cachedUser.tenant.status === 'SUSPENDED') {
         throw new UnauthorizedException('Organization is suspended');
@@ -57,10 +70,54 @@ export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
       return cachedUser;
     }
 
+    const pendingLookup = this.pendingLookups.get(cacheKey);
+    if (pendingLookup) {
+      return pendingLookup;
+    }
+
+    const lookupPromise = this.lookupAndCacheUser(cacheKey, payload);
+    this.pendingLookups.set(cacheKey, lookupPromise);
+
+    try {
+      return await lookupPromise;
+    } finally {
+      this.pendingLookups.delete(cacheKey);
+    }
+  }
+
+  private getLocalCachedUser(cacheKey: string) {
+    const cached = this.localCache.get(cacheKey);
+
+    if (!cached) {
+      return null;
+    }
+
+    if (cached.expiresAt <= Date.now()) {
+      this.localCache.delete(cacheKey);
+      return null;
+    }
+
+    return cached.user;
+  }
+
+  private setLocalCachedUser(cacheKey: string, user: any) {
+    this.localCache.set(cacheKey, {
+      user,
+      expiresAt: Date.now() + this.LOCAL_AUTH_CACHE_TTL_MS,
+    });
+  }
+
+  private async lookupAndCacheUser(cacheKey: string, payload: JwtPayload) {
     // Cache MISS: Lookup dans la DB pour récupérer user + tenant
-    let user = await this.prisma.user.findUnique({
+    const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      include: {
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        fullName: true,
+        role: true,
+        tenantId: true,
         tenant: {
           select: {
             id: true,
@@ -73,10 +130,7 @@ export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
     });
 
     if (!user) {
-      // User authentifié Supabase mais pas encore en DB (onboarding non complété)
-      // On retourne un user partiel depuis le JWT — les endpoints nécessitant un tenant
-      // retourneront une erreur métier appropriée (403/404), pas un 401 cryptique
-      return {
+      const anonymousUser = {
         id: payload.sub,
         email: payload.email,
         firstName: null,
@@ -85,25 +139,28 @@ export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
         tenantId: null,
         tenant: null,
       };
+
+      this.setLocalCachedUser(cacheKey, anonymousUser);
+      await this.redis.set(cacheKey, anonymousUser, { ttl: this.AUTH_CACHE_TTL });
+
+      return anonymousUser;
     }
 
-    // Vérifier si le tenant est actif (seulement si l'user a un tenant)
     if (user.tenant && user.tenant.status === 'SUSPENDED') {
       throw new UnauthorizedException('Organization is suspended');
     }
 
-    // 🎯 Retourner les infos complètes
     const userPayload = {
       id: user.id,
       email: user.email,
       firstName: user.firstName,
-      fullName: (user as any).fullName,
+      fullName: user.fullName,
       role: user.role,
       tenantId: user.tenantId,
       tenant: user.tenant,
     };
     
-    // P1: Cache for 60 seconds
+    this.setLocalCachedUser(cacheKey, userPayload);
     await this.redis.set(cacheKey, userPayload, { ttl: this.AUTH_CACHE_TTL });
     
     return userPayload;

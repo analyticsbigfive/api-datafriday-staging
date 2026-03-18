@@ -531,7 +531,43 @@ export class MenuItemsService {
     });
   }
 
-  async createProductCategory(name: string, typeId: string, tenantId?: string) {
-    return this.prisma.productCategory.create({ data: { name, typeId, tenantId }, include: { type: true } });
+  async createProductCategory(
+    name: string,
+    typeId?: string,
+    tenantId?: string,
+    productTypeId?: string,
+  ) {
+    const resolvedTypeId = typeId ?? productTypeId;
+
+    if (!resolvedTypeId) {
+      throw new BadRequestException({
+        message: 'Validation failed',
+        errors: [
+          {
+            property: 'typeId',
+            constraints: {
+              isNotEmpty: 'typeId should not be empty',
+              isString: 'typeId must be a string',
+            },
+            messages: [
+              'typeId should not be empty',
+              'typeId must be a string',
+            ],
+            value: resolvedTypeId,
+          },
+        ],
+      });
+    }
+
+    return this.prisma.productCategory.create({
+      data: {
+        name,
+        tenantId,
+        type: {
+          connect: { id: resolvedTypeId },
+        },
+      },
+      include: { type: true },
+    });
   }
 }

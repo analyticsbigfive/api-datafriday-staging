@@ -16,6 +16,7 @@ import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { MenuItemsService } from './menu-items.service';
 import { CreateMenuItemDto, ReplaceMenuItemComponentsDto, ReplaceMenuItemIngredientsDto, ReplaceMenuItemPackagingsDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
+import { CreateProductCategoryDto } from './dto/create-product-category.dto';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 
@@ -177,8 +178,13 @@ export class ProductCategoriesController {
 
   @Post()
   @ApiOperation({ summary: 'Créer une catégorie de produit' })
-  create(@Body() body: { name: string; typeId: string; tenantId?: string }, @CurrentUser() user: any) {
+  create(@Body() body: CreateProductCategoryDto & { tenantId?: string }, @CurrentUser() user: any) {
     this.logger.log(`POST /product-categories - User: ${user?.id}`);
-    return this.menuItemsService.createProductCategory(body.name, body.typeId, body.tenantId || user?.tenantId);
+    return this.menuItemsService.createProductCategory(
+      body.name,
+      body.typeId,
+      body.tenantId || user?.tenantId,
+      body.productTypeId,
+    );
   }
 }

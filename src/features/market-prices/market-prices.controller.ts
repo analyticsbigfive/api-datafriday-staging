@@ -9,7 +9,7 @@ import {
   UseGuards,
   Logger,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { MarketPricesService } from './market-prices.service';
 import { CreateMarketPriceDto } from './dto/create-market-price.dto';
@@ -61,7 +61,9 @@ export class MarketPricesController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Obtenir un prix par ID' })
+  @ApiParam({ name: 'id', description: 'ID du prix marché' })
   @ApiResponse({ status: 200, description: 'Détails du prix' })
+  @ApiResponse({ status: 404, description: 'Prix non trouvé' })
   findOne(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /market-prices/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
     return this.marketPricesService.findOne(id, tenantId);
@@ -69,7 +71,9 @@ export class MarketPricesController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour un prix' })
+  @ApiParam({ name: 'id', description: 'ID du prix marché' })
   @ApiResponse({ status: 200, description: 'Prix mis à jour' })
+  @ApiResponse({ status: 404, description: 'Prix non trouvé' })
   update(@Param('id') id: string, @Body() dto: UpdateMarketPriceDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`PATCH /market-prices/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
     return this.marketPricesService.update(id, dto, tenantId);
@@ -77,7 +81,9 @@ export class MarketPricesController {
 
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer un prix' })
+  @ApiParam({ name: 'id', description: 'ID du prix marché' })
   @ApiResponse({ status: 200, description: 'Prix supprimé' })
+  @ApiResponse({ status: 404, description: 'Prix non trouvé' })
   remove(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`DELETE /market-prices/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
     return this.marketPricesService.remove(id, tenantId);
@@ -85,6 +91,7 @@ export class MarketPricesController {
 
   @Delete('item/:itemName')
   @ApiOperation({ summary: 'Supprimer tous les prix par nom de produit' })
+  @ApiParam({ name: 'itemName', description: 'Nom du produit à supprimer (URL encodé si nécessaire)' })
   @ApiResponse({ status: 200, description: 'Prix supprimés' })
   removeByItemName(@Param('itemName') itemName: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`DELETE /market-prices/item/${itemName} - User: ${user?.id}, Tenant: ${tenantId}`);

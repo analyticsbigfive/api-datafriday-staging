@@ -10,7 +10,7 @@ import {
   UseGuards,
   Logger,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { MenuComponentsService } from './menu-components.service';
 import { CreateMenuComponentDto, ReplaceMenuComponentChildrenDto, ReplaceMenuComponentIngredientsDto } from './dto/create-menu-component.dto';
@@ -61,6 +61,7 @@ export class MenuComponentsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Obtenir un composant par ID' })
+  @ApiParam({ name: 'id', description: 'ID du composant de menu' })
   @ApiResponse({ status: 200, description: 'Détails du composant' })
   findOne(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /menu-components/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
@@ -69,6 +70,7 @@ export class MenuComponentsController {
 
   @Put(':id/ingredients')
   @ApiOperation({ summary: "Remplacer les lignes d'ingrédients d'un composant" })
+  @ApiParam({ name: 'id', description: 'ID du composant de menu' })
   @ApiResponse({ status: 200, description: 'Lignes ingrédients mises à jour' })
   replaceIngredients(
     @Param('id') id: string,
@@ -82,6 +84,7 @@ export class MenuComponentsController {
 
   @Put(':id/children')
   @ApiOperation({ summary: "Remplacer les sous-composants (children) d'un composant" })
+  @ApiParam({ name: 'id', description: 'ID du composant de menu' })
   @ApiResponse({ status: 200, description: 'Sous-composants mis à jour' })
   replaceChildren(
     @Param('id') id: string,
@@ -95,6 +98,7 @@ export class MenuComponentsController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour un composant' })
+  @ApiParam({ name: 'id', description: 'ID du composant de menu' })
   @ApiResponse({ status: 200, description: 'Composant mis à jour' })
   update(@Param('id') id: string, @Body() dto: UpdateMenuComponentDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`PATCH /menu-components/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
@@ -103,6 +107,7 @@ export class MenuComponentsController {
 
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer un composant' })
+  @ApiParam({ name: 'id', description: 'ID du composant de menu' })
   @ApiResponse({ status: 200, description: 'Composant supprimé' })
   remove(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`DELETE /menu-components/${id} - User: ${user?.id}, Tenant: ${tenantId}`);

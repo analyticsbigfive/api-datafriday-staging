@@ -84,6 +84,13 @@ Chaque utilisateur appartient à une organisation (tenant). Le tenant est automa
 
 ### 🛡️ Endpoints protégés (auth + tenant requis)
 Tous les autres endpoints nécessitent un utilisateur lié à un tenant.
+
+### 📚 Modules documentés dans Swagger
+- Events / référentiels d'événements
+- Spaces / configurations / dashboards
+- Market prices
+- Users / tenants / onboarding
+- Suppliers / ingredients / menu components
     `)
     .setVersion('1.0')
     .addBearerAuth(
@@ -101,6 +108,16 @@ Tous les autres endpoints nécessitent un utilisateur lié à un tenant.
     .addTag('Users', 'Gestion des utilisateurs')
     .addTag('Me', 'Profil utilisateur courant')
     .addTag('Spaces', 'Gestion des espaces/établissements')
+    .addTag('Configurations', 'Gestion des configurations d\'espaces')
+    .addTag('Space Dashboard', 'Dashboard et analytics par espace')
+    .addTag('Events', 'Gestion des événements')
+    .addTag('Event Types', 'Référentiel des types d\'événements')
+    .addTag('Event Categories', 'Référentiel des catégories d\'événements')
+    .addTag('Event Subcategories', 'Référentiel des sous-catégories d\'événements')
+    .addTag('Market Prices', 'Référentiel des prix marché par tenant')
+    .addTag('Suppliers', 'Gestion des fournisseurs')
+    .addTag('Ingredients', 'Gestion des ingrédients')
+    .addTag('Menu Components', 'Gestion des composants de menu')
     .addTag('Weezevent', 'Intégration Weezevent')
     .addTag('Organizations', 'Gestion de l\'organisation courante')
     .build();

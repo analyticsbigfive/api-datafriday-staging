@@ -16,6 +16,7 @@ import {
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiBody,
   ApiParam,
   ApiQuery,
 } from '@nestjs/swagger';
@@ -25,6 +26,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { QueryUserDto } from './dto/query-user.dto';
 import { InviteUserDto } from './dto/invite-user.dto';
 import { ChangeRoleDto } from './dto/change-role.dto';
+import { GrantSpaceAccessDto } from './dto/grant-space-access.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RolesGuard } from '../../core/auth/guards/roles.guard';
 import { Roles } from '../../core/auth/decorators/roles.decorator';
@@ -223,12 +225,13 @@ export class UsersController {
   })
   @ApiParam({ name: 'id', description: 'ID de l\'utilisateur' })
   @ApiParam({ name: 'spaceId', description: 'ID de l\'espace' })
+  @ApiBody({ type: GrantSpaceAccessDto })
   @ApiResponse({ status: 201, description: 'Accès accordé' })
   async grantSpaceAccess(
     @Param('id') userId: string,
     @Param('spaceId') spaceId: string,
     @CurrentTenant() tenantId: string,
-    @Body() body: { role?: UserRole },
+    @Body() body: GrantSpaceAccessDto,
   ) {
     return this.usersService.grantSpaceAccess(userId, spaceId, tenantId, body.role);
   }

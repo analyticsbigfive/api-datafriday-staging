@@ -9,6 +9,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { JwtGuard } from '../../core/auth/guards/jwt.guard';
 import { SpaceDashboardService } from './services/space-dashboard.service';
 import { SpaceAggregationService } from './services/space-aggregation.service';
@@ -19,6 +20,8 @@ import {
   AggregationStatus,
 } from './dto';
 
+@ApiTags('Space Dashboard')
+@ApiBearerAuth('supabase-jwt')
 @Controller('api/v1/spaces/:spaceId/dashboard')
 @UseGuards(JwtGuard)
 export class DashboardController {
@@ -28,6 +31,9 @@ export class DashboardController {
   ) {}
 
   @Get()
+  @ApiOperation({ summary: 'Obtenir le dashboard agrégé d’un espace' })
+  @ApiParam({ name: 'spaceId', description: 'ID de l’espace' })
+  @ApiResponse({ status: 200, description: 'Dashboard agrégé de l’espace' })
   async getDashboard(
     @Param('spaceId') spaceId: string,
     @Query() query: DashboardQueryDto,
@@ -38,6 +44,9 @@ export class DashboardController {
   }
 
   @Get('health')
+  @ApiOperation({ summary: 'Obtenir l’état de santé des agrégations du dashboard' })
+  @ApiParam({ name: 'spaceId', description: 'ID de l’espace' })
+  @ApiResponse({ status: 200, description: 'État de santé du dashboard agrégé' })
   async getHealth(
     @Param('spaceId') spaceId: string,
     @Request() req: any,
@@ -54,6 +63,9 @@ export class DashboardController {
 
   @Post('invalidate')
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Invalider le cache du dashboard d’un espace' })
+  @ApiParam({ name: 'spaceId', description: 'ID de l’espace' })
+  @ApiResponse({ status: 200, description: 'Cache invalidé' })
   async invalidateCache(
     @Param('spaceId') spaceId: string,
     @Request() req: any,
@@ -72,6 +84,11 @@ export class DashboardController {
 
   @Post('rebuild')
   @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({ summary: 'Reconstruire les agrégations du dashboard d’un espace' })
+  @ApiParam({ name: 'spaceId', description: 'ID de l’espace' })
+  @ApiQuery({ name: 'from', required: false, type: String, description: 'Date de début ISO' })
+  @ApiQuery({ name: 'to', required: false, type: String, description: 'Date de fin ISO' })
+  @ApiResponse({ status: 202, description: 'Reconstruction des agrégations lancée' })
   async rebuildAggregates(
     @Param('spaceId') spaceId: string,
     @Query('from') from?: string,

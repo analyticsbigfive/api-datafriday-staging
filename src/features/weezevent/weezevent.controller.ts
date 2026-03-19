@@ -1,13 +1,17 @@
 import { Controller, Get, Post, Delete, Body, Query, Param, UseGuards, Logger } from '@nestjs/common';
+import { ApiBearerAuth, ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { WeezeventSyncService, SyncResult } from './services/weezevent-sync.service';
 import { WeezeventIncrementalSyncService, IncrementalSyncResult } from './services/weezevent-incremental-sync.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SyncWeezeventDto } from './dto/sync-weezevent.dto';
 import { GetTransactionsQueryDto } from './dto/get-transactions-query.dto';
+import { MapProductToMenuItemDto } from './dto/map-product-to-menu-item.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { SyncTrackerService } from './services/sync-tracker.service';
 
+@ApiTags('Weezevent')
+@ApiBearerAuth('supabase-jwt')
 @Controller('weezevent')
 @UseGuards(JwtDatabaseGuard)
 export class WeezeventController {
@@ -24,6 +28,8 @@ export class WeezeventController {
      * Get synced transactions from database
      */
     @Get('transactions')
+    @ApiOperation({ summary: 'Lister les transactions Weezevent synchronisées' })
+    @ApiResponse({ status: 200, description: 'Liste paginée des transactions Weezevent' })
     async getTransactions(
         @CurrentUser() user: any,
         @Query() query: GetTransactionsQueryDto,
@@ -74,6 +80,9 @@ export class WeezeventController {
      * Get a single transaction by ID
      */
     @Get('transactions/:id')
+    @ApiOperation({ summary: 'Obtenir une transaction Weezevent par ID' })
+    @ApiParam({ name: 'id', description: 'ID de la transaction' })
+    @ApiResponse({ status: 200, description: 'Transaction Weezevent' })
     async getTransaction(
         @CurrentUser() user: any,
         @Param('id') id: string,
@@ -98,6 +107,9 @@ export class WeezeventController {
      * Trigger manual synchronization (supports incremental)
      */
     @Post('sync')
+    @ApiOperation({ summary: 'Déclencher une synchronisation Weezevent' })
+    @ApiBody({ type: SyncWeezeventDto })
+    @ApiResponse({ status: 201, description: 'Synchronisation déclenchée' })
     async syncData(
         @CurrentUser() user: any,
         @Body() dto: SyncWeezeventDto,
@@ -156,6 +168,8 @@ export class WeezeventController {
      * Get sync status (including incremental state)
      */
     @Get('sync/status')
+    @ApiOperation({ summary: 'Obtenir le statut de synchronisation Weezevent' })
+    @ApiResponse({ status: 200, description: 'Statut des synchronisations Weezevent' })
     async getSyncStatus(@CurrentUser() user: any) {
         const tenantId = user.tenantId;
 
@@ -193,6 +207,9 @@ export class WeezeventController {
      * Reset sync state (force full sync next time)
      */
     @Delete('sync/state')
+    @ApiOperation({ summary: 'Réinitialiser l’état de synchronisation Weezevent' })
+    @ApiQuery({ name: 'type', required: false, type: String, description: 'Type de sync à réinitialiser' })
+    @ApiResponse({ status: 200, description: 'État de synchronisation réinitialisé' })
     async resetSyncState(
         @CurrentUser() user: any,
         @Query('type') syncType?: string,
@@ -214,6 +231,8 @@ export class WeezeventController {
      * Get events
      */
     @Get('events')
+    @ApiOperation({ summary: 'Lister les événements Weezevent synchronisés' })
+    @ApiResponse({ status: 200, description: 'Liste paginée des événements Weezevent' })
     async getEvents(
         @CurrentUser() user: any,
         @Query('page') page: number = 1,
@@ -245,6 +264,8 @@ export class WeezeventController {
      * Get products
      */
     @Get('products')
+    @ApiOperation({ summary: 'Lister les produits Weezevent synchronisés' })
+    @ApiResponse({ status: 200, description: 'Liste paginée des produits Weezevent' })
     async getProducts(
         @CurrentUser() user: any,
         @Query('page') page: number = 1,
@@ -280,10 +301,14 @@ export class WeezeventController {
      * Map a Weezevent product to a MenuItem
      */
     @Post('products/:productId/map')
+    @ApiOperation({ summary: 'Associer un produit Weezevent à un menu item' })
+    @ApiParam({ name: 'productId', description: 'ID du produit Weezevent' })
+    @ApiBody({ type: MapProductToMenuItemDto })
+    @ApiResponse({ status: 201, description: 'Mapping créé ou mis à jour' })
     async mapProductToMenuItem(
         @CurrentUser() user: any,
         @Param('productId') productId: string,
-        @Body() body: { menuItemId: string; autoMapped?: boolean; confidence?: number },
+        @Body() body: MapProductToMenuItemDto,
     ) {
         const tenantId = user.tenantId;
 
@@ -334,6 +359,8 @@ export class WeezeventController {
      * Get product mappings
      */
     @Get('products/mappings')
+    @ApiOperation({ summary: 'Lister les mappings produits Weezevent / menu items' })
+    @ApiResponse({ status: 200, description: 'Liste paginée des mappings de produits' })
     async getProductMappings(
         @CurrentUser() user: any,
         @Query('page') page: number = 1,
@@ -370,6 +397,9 @@ export class WeezeventController {
      * Delete a product mapping
      */
     @Delete('products/:productId/map')
+    @ApiOperation({ summary: 'Supprimer le mapping d’un produit Weezevent' })
+    @ApiParam({ name: 'productId', description: 'ID du produit Weezevent' })
+    @ApiResponse({ status: 200, description: 'Mapping supprimé' })
     async unmapProduct(
         @CurrentUser() user: any,
         @Param('productId') productId: string,
@@ -390,6 +420,8 @@ export class WeezeventController {
      * Get orders
      */
     @Get('orders')
+    @ApiOperation({ summary: 'Lister les commandes Weezevent synchronisées' })
+    @ApiResponse({ status: 200, description: 'Liste paginée des commandes Weezevent' })
     async getOrders(
         @CurrentUser() user: any,
         @Query('page') page: number = 1,
@@ -425,6 +457,8 @@ export class WeezeventController {
      * Get prices
      */
     @Get('prices')
+    @ApiOperation({ summary: 'Lister les tarifs Weezevent synchronisés' })
+    @ApiResponse({ status: 200, description: 'Liste paginée des tarifs Weezevent' })
     async getPrices(
         @CurrentUser() user: any,
         @Query('page') page: number = 1,
@@ -460,6 +494,8 @@ export class WeezeventController {
      * Get attendees
      */
     @Get('attendees')
+    @ApiOperation({ summary: 'Lister les participants Weezevent synchronisés' })
+    @ApiResponse({ status: 200, description: 'Liste paginée des participants Weezevent' })
     async getAttendees(
         @CurrentUser() user: any,
         @Query('page') page: number = 1,

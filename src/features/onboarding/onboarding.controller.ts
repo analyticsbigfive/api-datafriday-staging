@@ -12,6 +12,7 @@ import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { OnboardingService } from './onboarding.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { JoinByCodeDto } from './dto/join-by-code.dto';
+import { JoinTenantDto } from './dto/join-tenant.dto';
 
 @ApiTags('Onboarding')
 @ApiBearerAuth('supabase-jwt')
@@ -182,10 +183,11 @@ export class OnboardingController {
     description: '⚠️ DÉPRÉCIÉ - Utilisez /join-by-code à la place. Cet endpoint sera supprimé dans une future version.',
     deprecated: true,
   })
+  @ApiBody({ type: JoinTenantDto })
   async joinTenant(
     @CurrentUser() user: any,
     @Param('slug') slug: string,
-    @Body() dto: { firstName?: string; lastName?: string },
+    @Body() dto: JoinTenantDto,
   ) {
     return this.onboardingService.joinTenant(
       user.id,

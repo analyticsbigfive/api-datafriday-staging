@@ -118,9 +118,12 @@ describe('AnalyseService', () => {
     });
 
     it('should compute event KPIs correctly', async () => {
+      const pastDate = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const futureDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
       mockPrisma.event.findMany.mockResolvedValue([
-        { revenue: 5000, transactionCount: 200, eventDate: '2024-01-01', status: 'success' },
-        { revenue: 3000, transactionCount: 100, eventDate: '2025-12-01', status: 'pending' },
+        { revenue: 5000, transactionCount: 200, eventDate: pastDate, status: 'success' },
+        { revenue: 3000, transactionCount: 100, eventDate: futureDate, status: 'pending' },
       ]);
 
       const result = await service.getEventKpis('tenant-1');

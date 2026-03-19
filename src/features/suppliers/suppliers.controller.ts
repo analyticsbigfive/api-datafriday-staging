@@ -18,7 +18,7 @@ import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 
 @ApiTags('Suppliers')
-@ApiBearerAuth()
+@ApiBearerAuth('supabase-jwt')
 @UseGuards(JwtDatabaseGuard)
 @Controller('suppliers')
 export class SuppliersController {

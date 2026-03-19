@@ -22,10 +22,7 @@ describe('HealthController', () => {
 
       expect(result).toEqual({
         status: 'ok',
-        message: 'API is running',
         timestamp: expect.any(String),
-        version: '1.0.0',
-        phase: 'HEOS Architecture - Redis + BullMQ',
       });
     });
 

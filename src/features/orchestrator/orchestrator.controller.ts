@@ -1,10 +1,12 @@
 import { Controller, Get, Post, Body, UseGuards, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiBody, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { OrchestratorService } from './orchestrator.service';
 import { JwtGuard } from '../../core/auth/guards/jwt.guard';
+import { InvalidateCacheDto } from './dto/invalidate-cache.dto';
+import { GetStrategyQueryDto } from './dto/get-strategy-query.dto';
 
 @ApiTags('Orchestrator')
-@ApiBearerAuth()
+@ApiBearerAuth('supabase-jwt')
 @Controller('orchestrator')
 export class OrchestratorController {
   constructor(private readonly orchestratorService: OrchestratorService) {}
@@ -19,9 +21,10 @@ export class OrchestratorController {
   @Post('invalidate-cache')
   @UseGuards(JwtGuard)
   @ApiOperation({ summary: 'Invalidate cache for a tenant' })
+  @ApiBody({ type: InvalidateCacheDto })
   @ApiResponse({ status: 200, description: 'Cache invalidated successfully' })
   async invalidateCache(
-    @Body() body: { tenantId: string; spaceId?: string },
+    @Body() body: InvalidateCacheDto,
   ) {
     await this.orchestratorService.invalidateCache(body.tenantId, body.spaceId);
     return { success: true, message: 'Cache invalidated' };
@@ -30,18 +33,17 @@ export class OrchestratorController {
   @Get('strategy')
   @UseGuards(JwtGuard)
   @ApiOperation({ summary: 'Get recommended processing strategy for a context' })
+  @ApiQuery({ name: 'tenantId', required: true, type: String })
+  @ApiQuery({ name: 'operation', required: true, type: String })
+  @ApiQuery({ name: 'estimatedItems', required: false, type: Number })
+  @ApiQuery({ name: 'priority', required: false, type: String })
   @ApiResponse({ status: 200, description: 'Processing strategy recommendation' })
-  getStrategy(
-    @Query('tenantId') tenantId: string,
-    @Query('operation') operation: 'sync' | 'analytics' | 'export' | 'report',
-    @Query('estimatedItems') estimatedItems?: string,
-    @Query('priority') priority?: 'high' | 'normal' | 'low',
-  ) {
+  getStrategy(@Query() query: GetStrategyQueryDto) {
     return this.orchestratorService.decideStrategy({
-      tenantId,
-      operation,
-      estimatedItems: estimatedItems ? parseInt(estimatedItems, 10) : undefined,
-      priority,
+      tenantId: query.tenantId,
+      operation: query.operation,
+      estimatedItems: query.estimatedItems,
+      priority: query.priority,
     });
   }
 }

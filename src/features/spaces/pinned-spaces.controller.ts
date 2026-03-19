@@ -16,6 +16,7 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { SpacesService } from './spaces.service';
+import { SetPinnedSpacesDto } from './dto/set-pinned-spaces.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RolesGuard } from '../../core/auth/guards/roles.guard';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
@@ -111,7 +112,7 @@ export class PinnedSpacesController {
   })
   async setPinnedSpaces(
     @CurrentUser() user: any,
-    @Body() body: { spaceIds: string[] },
+    @Body() body: SetPinnedSpacesDto,
   ) {
     if (!user.tenantId) {
       throw new ForbiddenException('Organisation requise. Veuillez compléter l\'onboarding.');

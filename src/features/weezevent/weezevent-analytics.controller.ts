@@ -1,8 +1,11 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../../core/database/prisma.service';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 
+@ApiTags('Weezevent Analytics')
+@ApiBearerAuth('supabase-jwt')
 @Controller('weezevent/analytics')
 @UseGuards(JwtDatabaseGuard)
 export class WeezeventAnalyticsController {
@@ -12,6 +15,11 @@ export class WeezeventAnalyticsController {
      * Get sales by product
      */
     @Get('sales-by-product')
+    @ApiOperation({ summary: 'Analyser les ventes par produit Weezevent' })
+    @ApiQuery({ name: 'eventId', required: false, type: String })
+    @ApiQuery({ name: 'fromDate', required: false, type: String })
+    @ApiQuery({ name: 'toDate', required: false, type: String })
+    @ApiResponse({ status: 200, description: 'Analyse des ventes par produit' })
     async getSalesByProduct(
         @CurrentUser() user: any,
         @Query('eventId') eventId?: string,
@@ -86,6 +94,10 @@ export class WeezeventAnalyticsController {
      * Get sales by event
      */
     @Get('sales-by-event')
+    @ApiOperation({ summary: 'Analyser les ventes par événement Weezevent' })
+    @ApiQuery({ name: 'fromDate', required: false, type: String })
+    @ApiQuery({ name: 'toDate', required: false, type: String })
+    @ApiResponse({ status: 200, description: 'Analyse des ventes par événement' })
     async getSalesByEvent(
         @CurrentUser() user: any,
         @Query('fromDate') fromDate?: string,
@@ -152,6 +164,11 @@ export class WeezeventAnalyticsController {
      * Get margin analysis (sales vs costs)
      */
     @Get('margin-analysis')
+    @ApiOperation({ summary: 'Analyser la marge Weezevent' })
+    @ApiQuery({ name: 'eventId', required: false, type: String })
+    @ApiQuery({ name: 'fromDate', required: false, type: String })
+    @ApiQuery({ name: 'toDate', required: false, type: String })
+    @ApiResponse({ status: 200, description: 'Analyse des marges Weezevent' })
     async getMarginAnalysis(
         @CurrentUser() user: any,
         @Query('eventId') eventId?: string,
@@ -254,6 +271,12 @@ export class WeezeventAnalyticsController {
      * Get top products by revenue
      */
     @Get('top-products')
+    @ApiOperation({ summary: 'Lister les meilleurs produits Weezevent par chiffre d’affaires' })
+    @ApiQuery({ name: 'limit', required: false, type: Number })
+    @ApiQuery({ name: 'eventId', required: false, type: String })
+    @ApiQuery({ name: 'fromDate', required: false, type: String })
+    @ApiQuery({ name: 'toDate', required: false, type: String })
+    @ApiResponse({ status: 200, description: 'Top produits Weezevent par revenu' })
     async getTopProducts(
         @CurrentUser() user: any,
         @Query('limit') limit: number = 10,

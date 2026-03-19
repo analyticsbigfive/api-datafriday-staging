@@ -27,6 +27,8 @@ import { CreateSpaceDto } from './dto/create-space.dto';
 import { UpdateSpaceDto } from './dto/update-space.dto';
 import { QuerySpaceDto } from './dto/query-space.dto';
 import { CreateConfigDto } from './dto/create-config.dto';
+import { UpdateSpaceImageDto } from './dto/update-space-image.dto';
+import { GrantSpaceAccessDto } from './dto/grant-space-access.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RolesGuard } from '../../core/auth/guards/roles.guard';
 import { Roles } from '../../core/auth/decorators/roles.decorator';
@@ -288,21 +290,13 @@ export class SpacesController {
     description: 'Met à jour l\'image d\'un espace. Réservé aux ADMIN et MANAGER.',
   })
   @ApiParam({ name: 'id', description: 'ID de l\'espace' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      required: ['image'],
-      properties: {
-        image: { type: 'string', description: 'URL ou data URL de l\'image' },
-      },
-    },
-  })
+  @ApiBody({ type: UpdateSpaceImageDto })
   @ApiResponse({ status: 200, description: 'Image mise à jour' })
   @ApiResponse({ status: 404, description: 'Espace non trouvé' })
   async updateImage(
     @Param('id') id: string,
     @CurrentUser() user: any,
-    @Body() body: { image: string },
+    @Body() body: UpdateSpaceImageDto,
   ) {
     return this.spacesService.updateImage(id, user.tenantId, body.image);
   }
@@ -440,25 +434,12 @@ export class SpacesController {
       'Accorde un accès spécifique à un utilisateur sur cet espace. Réservé aux ADMIN et MANAGER.',
   })
   @ApiParam({ name: 'id', description: 'ID de l\'espace' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      required: ['userId', 'role'],
-      properties: {
-        userId: { type: 'string', example: 'user-123' },
-        role: {
-          type: 'string',
-          enum: ['ADMIN', 'MANAGER', 'STAFF', 'VIEWER'],
-          example: 'STAFF',
-        },
-      },
-    },
-  })
+  @ApiBody({ type: GrantSpaceAccessDto })
   @ApiResponse({ status: 200, description: 'Accès accordé' })
   @ApiResponse({ status: 404, description: 'Espace ou utilisateur non trouvé' })
   async grantAccess(
     @Param('id') id: string,
-    @Body() body: { userId: string; role: 'ADMIN' | 'MANAGER' | 'STAFF' | 'VIEWER' },
+    @Body() body: GrantSpaceAccessDto,
     @CurrentUser() user: any,
   ) {
     return this.spacesService.grantAccess(id, body.userId, body.role, user.tenantId);

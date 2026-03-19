@@ -1,12 +1,13 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Logger } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { PackagingService } from './packaging.service';
+import { CreatePackagingDto } from './dto/create-packaging.dto';
 
 @ApiTags('Packaging')
-@ApiBearerAuth()
+@ApiBearerAuth('supabase-jwt')
 @UseGuards(JwtDatabaseGuard)
 @Controller('packaging')
 export class PackagingController {
@@ -17,13 +18,15 @@ export class PackagingController {
   @Post()
   @ApiOperation({ summary: 'Créer un packaging' })
   @ApiResponse({ status: 201, description: 'Packaging créé' })
-  create(@Body() dto: any, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+  create(@Body() dto: CreatePackagingDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`POST /packaging - User: ${user?.id}, Tenant: ${tenantId}`);
     return this.packagingService.create(dto, tenantId);
   }
 
   @Get()
   @ApiOperation({ summary: 'Lister tous les packagings' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Numéro de page' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Nombre d’éléments par page' })
   @ApiResponse({ status: 200, description: 'Liste des packagings' })
   findAll(
     @CurrentUser() user: any,
@@ -37,6 +40,7 @@ export class PackagingController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Obtenir un packaging par ID' })
+  @ApiParam({ name: 'id', description: 'ID du packaging' })
   @ApiResponse({ status: 200, description: 'Détails du packaging' })
   findOne(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     return this.packagingService.findOne(id, tenantId);
@@ -44,13 +48,15 @@ export class PackagingController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour un packaging' })
+  @ApiParam({ name: 'id', description: 'ID du packaging' })
   @ApiResponse({ status: 200, description: 'Packaging mis à jour' })
-  update(@Param('id') id: string, @Body() dto: any, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+  update(@Param('id') id: string, @Body() dto: Partial<CreatePackagingDto>, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     return this.packagingService.update(id, dto, tenantId);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer un packaging' })
+  @ApiParam({ name: 'id', description: 'ID du packaging' })
   @ApiResponse({ status: 200, description: 'Packaging supprimé' })
   remove(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     return this.packagingService.remove(id, tenantId);

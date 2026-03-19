@@ -19,7 +19,7 @@ import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 
 @ApiTags('Market Prices')
-@ApiBearerAuth()
+@ApiBearerAuth('supabase-jwt')
 @UseGuards(JwtDatabaseGuard)
 @Controller('market-prices')
 export class MarketPricesController {

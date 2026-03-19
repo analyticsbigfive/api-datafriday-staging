@@ -10,11 +10,13 @@ import {
     BadRequestException,
     UnauthorizedException,
 } from '@nestjs/common';
+import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../../core/database/prisma.service';
 import { WebhookSignatureService } from './services/webhook-signature.service';
 import { WebhookEventHandler } from './services/webhook-event.handler';
 import { WeezeventWebhookPayloadDto } from './dto/webhook-payload.dto';
 
+@ApiTags('Weezevent Webhooks')
 @Controller('webhooks/weezevent')
 export class WebhookController {
     private readonly logger = new Logger(WebhookController.name);
@@ -31,6 +33,10 @@ export class WebhookController {
      */
     @Post(':tenantId')
     @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: 'Recevoir un webhook Weezevent' })
+    @ApiParam({ name: 'tenantId', description: 'ID du tenant destinataire du webhook' })
+    @ApiBody({ type: WeezeventWebhookPayloadDto })
+    @ApiResponse({ status: 200, description: 'Webhook reçu et enregistré pour traitement' })
     async receiveWebhook(
         @Param('tenantId') tenantId: string,
         @Headers('x-weezevent-signature') signature: string,

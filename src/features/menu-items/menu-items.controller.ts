@@ -11,17 +11,18 @@ import {
   Logger,
   Query,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery, ApiParam } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { MenuItemsService } from './menu-items.service';
 import { CreateMenuItemDto, ReplaceMenuItemComponentsDto, ReplaceMenuItemIngredientsDto, ReplaceMenuItemPackagingsDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 import { CreateProductCategoryDto } from './dto/create-product-category.dto';
+import { CreateProductTypeDto } from './dto/create-product-type.dto';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 
 @ApiTags('Menu Items')
-@ApiBearerAuth()
+@ApiBearerAuth('supabase-jwt')
 @UseGuards(JwtDatabaseGuard)
 @Controller('menu-items')
 export class MenuItemsController {
@@ -73,6 +74,7 @@ export class MenuItemsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Obtenir un article par ID' })
+  @ApiParam({ name: 'id', description: 'ID de l’article de menu' })
   @ApiResponse({ status: 200, description: 'Détails de l\'article' })
   findOne(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /menu-items/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
@@ -81,6 +83,7 @@ export class MenuItemsController {
 
   @Put(':id/components')
   @ApiOperation({ summary: "Remplacer les composants d'un menu item" })
+  @ApiParam({ name: 'id', description: 'ID de l’article de menu' })
   @ApiResponse({ status: 200, description: 'Composants mis à jour' })
   replaceComponents(
     @Param('id') id: string,
@@ -94,6 +97,7 @@ export class MenuItemsController {
 
   @Put(':id/ingredients')
   @ApiOperation({ summary: "Remplacer les ingrédients d'un menu item" })
+  @ApiParam({ name: 'id', description: 'ID de l’article de menu' })
   @ApiResponse({ status: 200, description: 'Ingrédients mis à jour' })
   replaceIngredients(
     @Param('id') id: string,
@@ -107,6 +111,7 @@ export class MenuItemsController {
 
   @Put(':id/packagings')
   @ApiOperation({ summary: "Remplacer les packagings d'un menu item" })
+  @ApiParam({ name: 'id', description: 'ID de l’article de menu' })
   @ApiResponse({ status: 200, description: 'Packagings mis à jour' })
   replacePackagings(
     @Param('id') id: string,
@@ -120,6 +125,7 @@ export class MenuItemsController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour un article' })
+  @ApiParam({ name: 'id', description: 'ID de l’article de menu' })
   @ApiResponse({ status: 200, description: 'Article mis à jour' })
   update(@Param('id') id: string, @Body() dto: UpdateMenuItemDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`PATCH /menu-items/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
@@ -128,6 +134,7 @@ export class MenuItemsController {
 
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer un article' })
+  @ApiParam({ name: 'id', description: 'ID de l’article de menu' })
   @ApiResponse({ status: 200, description: 'Article supprimé' })
   remove(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`DELETE /menu-items/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
@@ -136,7 +143,7 @@ export class MenuItemsController {
 }
 
 @ApiTags('Product Types')
-@ApiBearerAuth()
+@ApiBearerAuth('supabase-jwt')
 @UseGuards(JwtDatabaseGuard)
 @Controller('product-types')
 export class ProductTypesController {
@@ -146,6 +153,7 @@ export class ProductTypesController {
 
   @Get()
   @ApiOperation({ summary: 'Lister tous les types de produits' })
+  @ApiResponse({ status: 200, description: 'Liste des types de produits' })
   findAll(@CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /product-types - User: ${user?.id}`);
     return this.menuItemsService.getProductTypes(tenantId);
@@ -153,14 +161,15 @@ export class ProductTypesController {
 
   @Post()
   @ApiOperation({ summary: 'Créer un type de produit' })
-  create(@Body() body: { name: string }, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+  @ApiResponse({ status: 201, description: 'Type de produit créé' })
+  create(@Body() body: CreateProductTypeDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`POST /product-types - User: ${user?.id}`);
     return this.menuItemsService.createProductType(body.name, tenantId);
   }
 }
 
 @ApiTags('Product Categories')
-@ApiBearerAuth()
+@ApiBearerAuth('supabase-jwt')
 @UseGuards(JwtDatabaseGuard)
 @Controller('product-categories')
 export class ProductCategoriesController {
@@ -171,6 +180,7 @@ export class ProductCategoriesController {
   @Get()
   @ApiOperation({ summary: 'Lister toutes les catégories de produits' })
   @ApiQuery({ name: 'typeId', required: false })
+  @ApiResponse({ status: 200, description: 'Liste des catégories de produits' })
   findAll(@Query('typeId') typeId: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /product-categories - User: ${user?.id}`);
     return this.menuItemsService.getProductCategories(tenantId, typeId);
@@ -178,6 +188,7 @@ export class ProductCategoriesController {
 
   @Post()
   @ApiOperation({ summary: 'Créer une catégorie de produit' })
+  @ApiResponse({ status: 201, description: 'Catégorie de produit créée' })
   create(@Body() body: CreateProductCategoryDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`POST /product-categories - User: ${user?.id}`);
     return this.menuItemsService.createProductCategory(

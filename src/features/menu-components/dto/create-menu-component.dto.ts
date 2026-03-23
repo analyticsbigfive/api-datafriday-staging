@@ -34,6 +34,11 @@ export enum StorageType {
   NA = 'NA',
 }
 
+/**
+ * DTO pour définir une ligne d'ingrédient dans un composant.
+ * Note: Les champs supplémentaires envoyés sont automatiquement ignorés par le ValidationPipe.
+ * Seuls les champs définis ci-dessous sont utilisés pour créer la relation ComponentIngredient.
+ */
 export class MenuComponentIngredientLineDto {
   @ApiProperty({ description: "ID de l'ingrédient" })
   @IsString()
@@ -62,6 +67,13 @@ export class MenuComponentIngredientLineDto {
   cost?: number;
 }
 
+/**
+ * DTO pour définir une ligne de sous-composant (relation parent → child).
+ * Note: Les champs supplémentaires envoyés (storageType, itemName, etc.) sont automatiquement
+ * ignorés par le ValidationPipe. Seuls les champs définis ci-dessous sont utilisés pour créer
+ * la relation ComponentComponent. Les autres informations du composant enfant sont accessibles
+ * via la relation child.
+ */
 export class MenuComponentChildLineDto {
   @ApiProperty({ description: 'ID du sous-composant (child MenuComponent)' })
   @IsString()

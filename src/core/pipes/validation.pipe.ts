@@ -21,7 +21,7 @@ export class ValidationPipe implements PipeTransform<any> {
     const object = plainToInstance(metatype, value);
     const errors = await validate(object, {
       whitelist: true, // Strip properties that don't have decorators
-      forbidNonWhitelisted: true, // Throw error if non-whitelisted properties
+      forbidNonWhitelisted: false, // Allow extra properties (will be stripped by whitelist)
       transform: true, // Automatically transform to the correct type
     });
 

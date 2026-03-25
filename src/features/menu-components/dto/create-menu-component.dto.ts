@@ -44,10 +44,16 @@ export class MenuComponentIngredientLineDto {
   @IsString()
   ingredientId: string;
 
-  @ApiProperty({ description: 'Quantité utilisée' })
+  @ApiProperty({ description: 'Quantité utilisée (accepte aussi numberOfUnits)' })
   @IsNumber()
   @Type(() => Number)
-  quantity: number;
+  quantity?: number;
+
+  @ApiPropertyOptional({ description: 'Nombre d\'unités (alias de quantity pour compatibilité frontend)' })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  numberOfUnits?: number;
 
   @ApiPropertyOptional({ description: 'Unité (optionnelle)' })
   @IsOptional()

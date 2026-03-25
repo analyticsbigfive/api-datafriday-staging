@@ -33,7 +33,7 @@ export class MenuComponentsService {
             deleteMany: {},
             create: lines.map((l: any) => ({
               ingredientId: l.ingredientId,
-              quantity: Number(l.quantity),
+              quantity: Number(l.quantity ?? l.numberOfUnits),
               unit: l.unit,
               unitCost: this.toDecimalOrUndefined((l as any).unitCost),
               cost: this.toDecimalOrUndefined((l as any).cost),
@@ -166,7 +166,7 @@ export class MenuComponentsService {
                 ingredients: {
                   create: ingredientsLines.map((l: any) => ({
                     ingredientId: l.ingredientId,
-                    quantity: Number(l.quantity),
+                    quantity: Number(l.quantity ?? l.numberOfUnits),
                     unit: l.unit,
                     unitCost: this.toDecimalOrUndefined(l.unitCost),
                     cost: this.toDecimalOrUndefined(l.cost),
@@ -274,7 +274,7 @@ export class MenuComponentsService {
         deleteMany: {},
         create: ingredientsLines.map((l: any) => ({
           ingredientId: l.ingredientId,
-          quantity: Number(l.quantity),
+          quantity: Number(l.quantity ?? l.numberOfUnits),
           unit: l.unit,
           unitCost: this.toDecimalOrUndefined(l.unitCost),
           cost: this.toDecimalOrUndefined(l.cost),

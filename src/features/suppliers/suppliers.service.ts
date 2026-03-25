@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
@@ -34,6 +34,12 @@ export class SuppliersService {
       return supplier;
     } catch (error) {
       this.logger.error(`Failed to create supplier: ${error.message}`, error.stack);
+      if (error.code === 'P2003') {
+        throw new BadRequestException(`Invalid tenantId provided`);
+      }
+      if (error.code === 'P2002') {
+        throw new BadRequestException(`A supplier with this name already exists`);
+      }
       throw error;
     }
   }
@@ -103,6 +109,9 @@ export class SuppliersService {
       return supplier;
     } catch (error) {
       this.logger.error(`Failed to update supplier ${id}: ${error.message}`, error.stack);
+      if (error.code === 'P2025') {
+        throw new NotFoundException(`Supplier with ID ${id} not found`);
+      }
       throw error;
     }
   }
@@ -120,6 +129,9 @@ export class SuppliersService {
       return result;
     } catch (error) {
       this.logger.error(`Failed to delete supplier ${id}: ${error.message}`, error.stack);
+      if (error.code === 'P2025') {
+        throw new NotFoundException(`Supplier with ID ${id} not found`);
+      }
       throw error;
     }
   }

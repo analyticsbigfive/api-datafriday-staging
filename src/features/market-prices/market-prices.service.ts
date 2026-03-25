@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateMarketPriceDto } from './dto/create-market-price.dto';
 import { UpdateMarketPriceDto } from './dto/update-market-price.dto';
@@ -40,6 +40,12 @@ export class MarketPricesService {
       return price;
     } catch (error) {
       this.logger.error(`Failed to create market price: ${error.message}`, error.stack);
+      if (error.code === 'P2003') {
+        throw new BadRequestException(`Invalid supplierId provided`);
+      }
+      if (error.code === 'P2002') {
+        throw new BadRequestException(`A market price with this item name already exists`);
+      }
       throw error;
     }
   }
@@ -118,6 +124,12 @@ export class MarketPricesService {
       return price;
     } catch (error) {
       this.logger.error(`Failed to update market price ${id}: ${error.message}`, error.stack);
+      if (error.code === 'P2003') {
+        throw new BadRequestException(`Invalid supplierId provided`);
+      }
+      if (error.code === 'P2025') {
+        throw new NotFoundException(`Market price with ID ${id} not found`);
+      }
       throw error;
     }
   }
@@ -132,6 +144,9 @@ export class MarketPricesService {
       return result;
     } catch (error) {
       this.logger.error(`Failed to delete market price ${id}: ${error.message}`, error.stack);
+      if (error.code === 'P2025') {
+        throw new NotFoundException(`Market price with ID ${id} not found`);
+      }
       throw error;
     }
   }

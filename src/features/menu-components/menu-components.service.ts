@@ -25,24 +25,32 @@ export class MenuComponentsService {
 
     const lines = Array.isArray(ingredients) ? ingredients : [];
 
-    await this.prisma.menuComponent.update({
-      where: { id: componentId },
-      data: {
-        ingredients: {
-          deleteMany: {},
-          create: lines.map((l: any) => ({
-            ingredientId: l.ingredientId,
-            quantity: Number(l.quantity),
-            unit: l.unit,
-            unitCost: this.toDecimalOrUndefined((l as any).unitCost),
-            cost: this.toDecimalOrUndefined((l as any).cost),
-          })),
+    try {
+      await this.prisma.menuComponent.update({
+        where: { id: componentId },
+        data: {
+          ingredients: {
+            deleteMany: {},
+            create: lines.map((l: any) => ({
+              ingredientId: l.ingredientId,
+              quantity: Number(l.quantity),
+              unit: l.unit,
+              unitCost: this.toDecimalOrUndefined((l as any).unitCost),
+              cost: this.toDecimalOrUndefined((l as any).cost),
+            })),
+          },
         },
-      },
-    });
+      });
 
-    await this.refreshCosts(tenantId, { componentIds: [componentId] });
-    return this.findOne(componentId, tenantId);
+      await this.refreshCosts(tenantId, { componentIds: [componentId] });
+      return this.findOne(componentId, tenantId);
+    } catch (error) {
+      this.logger.error(`Failed to replace ingredients for component ${componentId}: ${error.message}`, error.stack);
+      if (error.code === 'P2003') {
+        throw new BadRequestException(`Invalid ingredient ID in the provided list`);
+      }
+      throw error;
+    }
   }
 
   async replaceChildren(
@@ -55,23 +63,31 @@ export class MenuComponentsService {
 
     const lines = Array.isArray(children) ? children : [];
 
-    await this.prisma.menuComponent.update({
-      where: { id: componentId },
-      data: {
-        children: {
-          deleteMany: {},
-          create: lines.map((l: any) => ({
-            childId: l.childId,
-            quantity: Number(l.quantity),
-            unit: l.unit,
-            cost: this.toDecimalOrUndefined((l as any).cost),
-          })),
+    try {
+      await this.prisma.menuComponent.update({
+        where: { id: componentId },
+        data: {
+          children: {
+            deleteMany: {},
+            create: lines.map((l: any) => ({
+              childId: l.childId,
+              quantity: Number(l.quantity),
+              unit: l.unit,
+              cost: this.toDecimalOrUndefined((l as any).cost),
+            })),
+          },
         },
-      },
-    });
+      });
 
-    await this.refreshCosts(tenantId, { componentIds: [componentId] });
-    return this.findOne(componentId, tenantId);
+      await this.refreshCosts(tenantId, { componentIds: [componentId] });
+      return this.findOne(componentId, tenantId);
+    } catch (error) {
+      this.logger.error(`Failed to replace children for component ${componentId}: ${error.message}`, error.stack);
+      if (error.code === 'P2003') {
+        throw new BadRequestException(`Invalid child component ID in the provided list`);
+      }
+      throw error;
+    }
   }
 
   private async resolveIngredientUnitCost(ingredientId: string, tenantId: string): Promise<number> {
@@ -184,6 +200,12 @@ export class MenuComponentsService {
       return component;
     } catch (error) {
       this.logger.error(`Failed to create menu component: ${error.message}`, error.stack);
+      if (error.code === 'P2003') {
+        throw new BadRequestException(`Invalid ingredient or child component ID in the provided data`);
+      }
+      if (error.code === 'P2002') {
+        throw new BadRequestException(`A component with this name already exists`);
+      }
       throw error;
     }
   }
@@ -288,6 +310,12 @@ export class MenuComponentsService {
       return component;
     } catch (error) {
       this.logger.error(`Failed to update menu component ${id}: ${error.message}`, error.stack);
+      if (error.code === 'P2003') {
+        throw new BadRequestException(`Invalid ingredient or child component ID in the provided data`);
+      }
+      if (error.code === 'P2025') {
+        throw new NotFoundException(`Menu component with ID ${id} not found`);
+      }
       throw error;
     }
   }
@@ -362,6 +390,9 @@ export class MenuComponentsService {
       return result;
     } catch (error) {
       this.logger.error(`Failed to delete menu component ${id}: ${error.message}`, error.stack);
+      if (error.code === 'P2025') {
+        throw new NotFoundException(`Menu component with ID ${id} not found`);
+      }
       throw error;
     }
   }

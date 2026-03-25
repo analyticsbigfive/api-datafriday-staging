@@ -181,6 +181,12 @@ export class MenuItemsService {
       return refreshed;
     } catch (error) {
       this.logger.error(`Failed to create menu item: ${error.message}`, error.stack);
+      if (error.code === 'P2003') {
+        throw new BadRequestException(`Invalid typeId, categoryId, componentId, ingredientId, or packagingId provided`);
+      }
+      if (error.code === 'P2002') {
+        throw new BadRequestException(`A menu item with this name already exists`);
+      }
       throw error;
     }
   }
@@ -295,6 +301,12 @@ export class MenuItemsService {
       return this.findOne(id, tenantId);
     } catch (error) {
       this.logger.error(`Failed to update menu item ${id}: ${error.message}`, error.stack);
+      if (error.code === 'P2003') {
+        throw new BadRequestException(`Invalid typeId, categoryId, componentId, ingredientId, or packagingId provided`);
+      }
+      if (error.code === 'P2025') {
+        throw new NotFoundException(`Menu item with ID ${id} not found`);
+      }
       throw error;
     }
   }
@@ -304,22 +316,30 @@ export class MenuItemsService {
     await this.findOne(menuItemId, tenantId);
     const lines = Array.isArray(components) ? components : [];
 
-    await this.prisma.menuItem.update({
-      where: { id: menuItemId },
-      data: {
-        components: {
-          deleteMany: {},
-          create: lines.map((l: any) => ({
-            componentId: l.componentId,
-            numberOfUnits: this.toNumber(l.numberOfUnits),
-          })),
+    try {
+      await this.prisma.menuItem.update({
+        where: { id: menuItemId },
+        data: {
+          components: {
+            deleteMany: {},
+            create: lines.map((l: any) => ({
+              componentId: l.componentId,
+              numberOfUnits: this.toNumber(l.numberOfUnits),
+            })),
+          },
         },
-      },
-    });
+      });
 
-    await this.refreshCosts(tenantId, { itemIds: [menuItemId] });
-    await this.invalidateCache(tenantId);
-    return this.findOne(menuItemId, tenantId);
+      await this.refreshCosts(tenantId, { itemIds: [menuItemId] });
+      await this.invalidateCache(tenantId);
+      return this.findOne(menuItemId, tenantId);
+    } catch (error) {
+      this.logger.error(`Failed to replace components for menu item ${menuItemId}: ${error.message}`, error.stack);
+      if (error.code === 'P2003') {
+        throw new BadRequestException(`Invalid componentId in the provided list`);
+      }
+      throw error;
+    }
   }
 
   async replaceIngredients(menuItemId: string, ingredients: CreateMenuItemDto['ingredients'], tenantId: string) {
@@ -327,22 +347,30 @@ export class MenuItemsService {
     await this.findOne(menuItemId, tenantId);
     const lines = Array.isArray(ingredients) ? ingredients : [];
 
-    await this.prisma.menuItem.update({
-      where: { id: menuItemId },
-      data: {
-        ingredients: {
-          deleteMany: {},
-          create: lines.map((l: any) => ({
-            ingredientId: l.ingredientId,
-            numberOfUnits: this.toNumber(l.numberOfUnits),
-          })),
+    try {
+      await this.prisma.menuItem.update({
+        where: { id: menuItemId },
+        data: {
+          ingredients: {
+            deleteMany: {},
+            create: lines.map((l: any) => ({
+              ingredientId: l.ingredientId,
+              numberOfUnits: this.toNumber(l.numberOfUnits),
+            })),
+          },
         },
-      },
-    });
+      });
 
-    await this.refreshCosts(tenantId, { itemIds: [menuItemId] });
-    await this.invalidateCache(tenantId);
-    return this.findOne(menuItemId, tenantId);
+      await this.refreshCosts(tenantId, { itemIds: [menuItemId] });
+      await this.invalidateCache(tenantId);
+      return this.findOne(menuItemId, tenantId);
+    } catch (error) {
+      this.logger.error(`Failed to replace ingredients for menu item ${menuItemId}: ${error.message}`, error.stack);
+      if (error.code === 'P2003') {
+        throw new BadRequestException(`Invalid ingredientId in the provided list`);
+      }
+      throw error;
+    }
   }
 
   async replacePackagings(menuItemId: string, packagings: CreateMenuItemDto['packagings'], tenantId: string) {
@@ -350,22 +378,30 @@ export class MenuItemsService {
     await this.findOne(menuItemId, tenantId);
     const lines = Array.isArray(packagings) ? packagings : [];
 
-    await this.prisma.menuItem.update({
-      where: { id: menuItemId },
-      data: {
-        packagings: {
-          deleteMany: {},
-          create: lines.map((l: any) => ({
-            packagingId: l.packagingId,
-            numberOfUnits: this.toNumber(l.numberOfUnits),
-          })),
+    try {
+      await this.prisma.menuItem.update({
+        where: { id: menuItemId },
+        data: {
+          packagings: {
+            deleteMany: {},
+            create: lines.map((l: any) => ({
+              packagingId: l.packagingId,
+              numberOfUnits: this.toNumber(l.numberOfUnits),
+            })),
+          },
         },
-      },
-    });
+      });
 
-    await this.refreshCosts(tenantId, { itemIds: [menuItemId] });
-    await this.invalidateCache(tenantId);
-    return this.findOne(menuItemId, tenantId);
+      await this.refreshCosts(tenantId, { itemIds: [menuItemId] });
+      await this.invalidateCache(tenantId);
+      return this.findOne(menuItemId, tenantId);
+    } catch (error) {
+      this.logger.error(`Failed to replace packagings for menu item ${menuItemId}: ${error.message}`, error.stack);
+      if (error.code === 'P2003') {
+        throw new BadRequestException(`Invalid packagingId in the provided list`);
+      }
+      throw error;
+    }
   }
 
   async remove(id: string, tenantId: string) {
@@ -378,6 +414,9 @@ export class MenuItemsService {
       return result;
     } catch (error) {
       this.logger.error(`Failed to delete menu item ${id}: ${error.message}`, error.stack);
+      if (error.code === 'P2025') {
+        throw new NotFoundException(`Menu item with ID ${id} not found`);
+      }
       throw error;
     }
   }

@@ -15,6 +15,7 @@ docs/
 │
 ├── 🚀 getting-started/            ← DÉMARRAGE
 │   ├── SETUP.md                   ← Installation
+│   ├── DEPLOYMENT.md              ← Déploiement (staging/prod)
 │   ├── DEVELOPMENT.md             ← Guide développeur
 │   └── ENVIRONMENTS.md            ← Environnements
 │

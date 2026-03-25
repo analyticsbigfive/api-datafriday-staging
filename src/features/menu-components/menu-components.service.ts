@@ -15,6 +15,60 @@ export class MenuComponentsService {
     return Number.isFinite(n) ? n : undefined;
   }
 
+  private uniqueStringList(values: unknown[]): string[] {
+    const result: string[] = [];
+    const seen = new Set<string>();
+    for (const v of values) {
+      if (typeof v !== 'string') continue;
+      const id = v.trim();
+      if (!id) continue;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      result.push(id);
+    }
+    return result;
+  }
+
+  private async assertIngredientsExist(ingredientIds: unknown[], tenantId: string) {
+    const ids = this.uniqueStringList(ingredientIds);
+    if (!ids.length) return;
+
+    const found = await this.prisma.ingredient.findMany({
+      where: {
+        id: { in: ids },
+        tenantId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+
+    const foundIds = new Set(found.map((i) => i.id));
+    const missing = ids.filter((id) => !foundIds.has(id));
+    if (missing.length) {
+      throw new BadRequestException(`Invalid ingredientId(s): ${missing.join(', ')}`);
+    }
+  }
+
+  private async assertChildrenExist(childIds: unknown[], tenantId: string) {
+    const ids = this.uniqueStringList(childIds);
+    if (!ids.length) return;
+
+    const found = await this.prisma.menuComponent.findMany({
+      where: {
+        id: { in: ids },
+        tenantId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+
+    const foundIds = new Set(found.map((c) => c.id));
+    const missing = ids.filter((id) => !foundIds.has(id));
+    if (missing.length) {
+      throw new BadRequestException(`Invalid childId(s): ${missing.join(', ')}`);
+    }
+  }
+
   async replaceIngredients(
     componentId: string,
     ingredients: CreateMenuComponentDto['ingredients'],
@@ -24,6 +78,11 @@ export class MenuComponentsService {
     await this.findOne(componentId, tenantId);
 
     const lines = Array.isArray(ingredients) ? ingredients : [];
+
+    await this.assertIngredientsExist(
+      lines.map((l: any) => l?.ingredientId),
+      tenantId,
+    );
 
     try {
       await this.prisma.menuComponent.update({
@@ -47,7 +106,8 @@ export class MenuComponentsService {
     } catch (error) {
       this.logger.error(`Failed to replace ingredients for component ${componentId}: ${error.message}`, error.stack);
       if (error.code === 'P2003') {
-        throw new BadRequestException(`Invalid ingredient ID in the provided list`);
+        const field = (error as any)?.meta?.field_name;
+        throw new BadRequestException(field ? `Invalid reference: ${field}` : `Invalid ingredient ID in the provided list`);
       }
       throw error;
     }
@@ -62,6 +122,11 @@ export class MenuComponentsService {
     await this.findOne(componentId, tenantId);
 
     const lines = Array.isArray(children) ? children : [];
+
+    await this.assertChildrenExist(
+      lines.map((l: any) => l?.childId),
+      tenantId,
+    );
 
     try {
       await this.prisma.menuComponent.update({
@@ -84,7 +149,8 @@ export class MenuComponentsService {
     } catch (error) {
       this.logger.error(`Failed to replace children for component ${componentId}: ${error.message}`, error.stack);
       if (error.code === 'P2003') {
-        throw new BadRequestException(`Invalid child component ID in the provided list`);
+        const field = (error as any)?.meta?.field_name;
+        throw new BadRequestException(field ? `Invalid reference: ${field}` : `Invalid child component ID in the provided list`);
       }
       throw error;
     }
@@ -147,6 +213,17 @@ export class MenuComponentsService {
       const ingredientsLines = Array.isArray((dto as any).ingredients) ? (dto as any).ingredients : undefined;
       const childrenLines = Array.isArray((dto as any).children) ? (dto as any).children : undefined;
 
+      await Promise.all([
+        this.assertIngredientsExist(
+          (ingredientsLines || []).map((l: any) => l?.ingredientId),
+          tenantId,
+        ),
+        this.assertChildrenExist(
+          (childrenLines || []).map((l: any) => l?.childId),
+          tenantId,
+        ),
+      ]);
+
       const component = await this.prisma.menuComponent.create({
         data: {
           tenantId,
@@ -201,7 +278,8 @@ export class MenuComponentsService {
     } catch (error) {
       this.logger.error(`Failed to create menu component: ${error.message}`, error.stack);
       if (error.code === 'P2003') {
-        throw new BadRequestException(`Invalid ingredient or child component ID in the provided data`);
+        const field = (error as any)?.meta?.field_name;
+        throw new BadRequestException(field ? `Invalid reference: ${field}` : `Invalid ingredient or child component ID in the provided data`);
       }
       if (error.code === 'P2002') {
         throw new BadRequestException(`A component with this name already exists`);
@@ -269,6 +347,17 @@ export class MenuComponentsService {
     const ingredientsLines = Array.isArray((dto as any).ingredients) ? (dto as any).ingredients : undefined;
     const childrenLines = Array.isArray((dto as any).children) ? (dto as any).children : undefined;
 
+    await Promise.all([
+      this.assertIngredientsExist(
+        (ingredientsLines || []).map((l: any) => l?.ingredientId),
+        tenantId,
+      ),
+      this.assertChildrenExist(
+        (childrenLines || []).map((l: any) => l?.childId),
+        tenantId,
+      ),
+    ]);
+
     if (ingredientsLines) {
       updateData.ingredients = {
         deleteMany: {},
@@ -311,7 +400,8 @@ export class MenuComponentsService {
     } catch (error) {
       this.logger.error(`Failed to update menu component ${id}: ${error.message}`, error.stack);
       if (error.code === 'P2003') {
-        throw new BadRequestException(`Invalid ingredient or child component ID in the provided data`);
+        const field = (error as any)?.meta?.field_name;
+        throw new BadRequestException(field ? `Invalid reference: ${field}` : `Invalid ingredient or child component ID in the provided data`);
       }
       if (error.code === 'P2025') {
         throw new NotFoundException(`Menu component with ID ${id} not found`);

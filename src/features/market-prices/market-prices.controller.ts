@@ -51,6 +51,14 @@ export class MarketPricesController {
     return this.marketPricesService.deduplicate(tenantId);
   }
 
+  @Post('sync-ingredients')
+  @ApiOperation({ summary: 'Synchroniser les ingrédients depuis les prix du marché (Food/Beverage)' })
+  @ApiResponse({ status: 200, description: 'Synchronisation effectuée' })
+  syncIngredients(@CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+    this.logger.log(`POST /market-prices/sync-ingredients - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.marketPricesService.syncIngredients(tenantId);
+  }
+
   @Get()
   @ApiOperation({ summary: 'Lister tous les prix du marché' })
   @ApiResponse({ status: 200, description: 'Liste des prix' })

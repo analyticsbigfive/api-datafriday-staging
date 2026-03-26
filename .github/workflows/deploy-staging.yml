@@ -141,20 +141,30 @@ jobs:
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
-          IMAGE_TAG: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging-latest
         run: |
           ssh $SSH_USER@$SSH_HOST << 'ENDSSH'
             set -e
-            cd /opt/datafriday
+            DEPLOY_PATH="${{ vars.DEPLOY_PATH }}"
+            if [ -z "$DEPLOY_PATH" ]; then DEPLOY_PATH="/opt/datafriday"; fi
+
+            cd "$DEPLOY_PATH"
+
+            API_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging-latest"
+            GHCR_USERNAME="${{ secrets.GHCR_USERNAME }}"
+            GHCR_PAT="${{ secrets.GHCR_PAT }}"
+
+            if [ -n "$GHCR_USERNAME" ] && [ -n "$GHCR_PAT" ]; then
+              echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+            fi
             
             echo "🔄 Pulling latest image..."
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging-latest
+            docker pull "$API_IMAGE"
             
             echo "🛑 Stopping current containers..."
-            docker-compose -f docker-compose.staging.yml down || true
+            API_IMAGE="$API_IMAGE" docker-compose -f docker-compose.staging.yml --env-file envFiles/.env.staging down || true
             
             echo "🚀 Starting new containers..."
-            docker-compose -f docker-compose.staging.yml up -d
+            API_IMAGE="$API_IMAGE" docker-compose -f docker-compose.staging.yml --env-file envFiles/.env.staging up -d --no-build
             
             echo "🧹 Cleaning old images..."
             docker image prune -f

@@ -37,6 +37,12 @@ export class MarketPricesService {
         include: { supplierRel: true },
       });
       this.logger.log(`Market price created: ${price.id}`);
+
+      // Auto-create a corresponding Ingredient for Food/Beverage types
+      if (dto.goodType === 'Food' || dto.goodType === 'Beverage') {
+        await this.ensureIngredientForMarketPrice(price, tenantId);
+      }
+
       return price;
     } catch (error) {
       this.logger.error(`Failed to create market price: ${error.message}`, error.stack);
@@ -193,6 +199,10 @@ export class MarketPricesService {
             packingLength: dto.packingLength,
           },
         });
+        // Auto-create a corresponding Ingredient for Food/Beverage types
+        if (dto.goodType === 'Food' || dto.goodType === 'Beverage') {
+          await this.ensureIngredientForMarketPrice(price, tenantId);
+        }
         results.push(price);
       }
       this.logger.log(`Bulk created ${results.length} market prices`);
@@ -201,6 +211,78 @@ export class MarketPricesService {
       this.logger.error(`Failed to bulk create: ${error.message}`, error.stack);
       throw error;
     }
+  }
+
+  /**
+   * Ensures a corresponding Ingredient exists for a given MarketPrice.
+   * Creates one if missing, linking it via marketPriceId.
+   */
+  private async ensureIngredientForMarketPrice(marketPrice: any, tenantId: string) {
+    try {
+      const existing = await this.prisma.ingredient.findFirst({
+        where: { marketPriceId: marketPrice.id, tenantId, deletedAt: null },
+      });
+      if (existing) {
+        this.logger.log(`Ingredient already exists for market price ${marketPrice.id}: ${existing.id}`);
+        return existing;
+      }
+
+      const ingredient = await this.prisma.ingredient.create({
+        data: {
+          tenantId,
+          name: marketPrice.itemName,
+          recipeUnit: marketPrice.recipeUnit || marketPrice.unit,
+          purchaseUnit: marketPrice.unit,
+          supplier: marketPrice.supplier || undefined,
+          marketPriceId: marketPrice.id,
+          costPerPurchaseUnit: Number(marketPrice.price) || undefined,
+          costPerRecipeUnit: marketPrice.pricePerUnit
+            ? Number(marketPrice.pricePerUnit)
+            : marketPrice.purchaseUnitConversion
+              ? Math.round((Number(marketPrice.price) / marketPrice.purchaseUnitConversion) * 10000) / 10000
+              : Number(marketPrice.price) || undefined,
+          purchaseUnitsPerRecipeUnit: marketPrice.purchaseUnitConversion || undefined,
+          active: true,
+        },
+      });
+      this.logger.log(`Auto-created ingredient ${ingredient.id} for market price ${marketPrice.id}`);
+      return ingredient;
+    } catch (error) {
+      // Non-blocking: log the error but don't fail the market price creation
+      this.logger.warn(`Failed to auto-create ingredient for market price ${marketPrice.id}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Sync: create missing Ingredients for all MarketPrices (Food/Beverage) that don't have one.
+   */
+  async syncIngredients(tenantId: string) {
+    this.logger.log(`Syncing ingredients for market prices of tenant ${tenantId}`);
+
+    const marketPrices = await this.prisma.marketPrice.findMany({
+      where: {
+        tenantId,
+        goodType: { in: ['Food', 'Beverage'] },
+      },
+      include: { ingredients: { where: { deletedAt: null }, select: { id: true } } },
+    });
+
+    let created = 0;
+    let skipped = 0;
+
+    for (const mp of marketPrices) {
+      if (mp.ingredients && mp.ingredients.length > 0) {
+        skipped++;
+        continue;
+      }
+      const result = await this.ensureIngredientForMarketPrice(mp, tenantId);
+      if (result) created++;
+      else skipped++;
+    }
+
+    this.logger.log(`Sync complete: ${created} ingredients created, ${skipped} skipped (already exist or failed)`);
+    return { created, skipped, total: marketPrices.length };
   }
 
   async deduplicate(tenantId: string) {

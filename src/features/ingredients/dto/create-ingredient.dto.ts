@@ -7,15 +7,13 @@ export class CreateIngredientDto {
   @IsString()
   name: string;
 
-  @ApiPropertyOptional({ description: 'Unité recette', example: 'kg' })
-  @IsOptional()
+  @ApiProperty({ description: 'Unité recette', example: 'kg' })
   @IsString()
-  recipeUnit?: string;
+  recipeUnit: string;
 
-  @ApiPropertyOptional({ description: 'Unité d’achat', example: 'sac' })
-  @IsOptional()
+  @ApiProperty({ description: 'Unité d’achat', example: 'sac' })
   @IsString()
-  purchaseUnit?: string;
+  purchaseUnit: string;
 
   @ApiPropertyOptional({ description: 'Nom du fournisseur', example: 'Metro' })
   @IsOptional()

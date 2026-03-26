@@ -1,6 +1,7 @@
 # Staging Environment - Supabase
 services:
   api:
+    image: ${API_IMAGE:-datafriday-api:staging}
     build:
       context: .
       dockerfile: Dockerfile

@@ -1,6 +1,6 @@
 import { Controller, Get, UseGuards, Inject, Optional } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-import { JwtGuard } from '../core/auth/guards/jwt.guard';
+import { JwtDatabaseGuard } from '../core/auth/guards/jwt-db.guard';
 import { RolesGuard } from '../core/auth/guards/roles.guard';
 import { Roles } from '../core/auth/decorators/roles.decorator';
 import { CurrentUser } from '../core/auth/decorators/current-user.decorator';
@@ -108,7 +108,7 @@ export class HealthController {
    * Protected endpoint - requires JWT authentication
    */
   @Get('protected')
-  @UseGuards(JwtGuard)
+  @UseGuards(JwtDatabaseGuard)
   @ApiBearerAuth('supabase-jwt')
   @ApiOperation({
     summary: 'Test endpoint protégé',
@@ -136,7 +136,7 @@ export class HealthController {
    * Admin-only endpoint - requires JWT + ADMIN role
    */
   @Get('admin')
-  @UseGuards(JwtGuard, RolesGuard)
+  @UseGuards(JwtDatabaseGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiBearerAuth('supabase-jwt')
   @ApiOperation({

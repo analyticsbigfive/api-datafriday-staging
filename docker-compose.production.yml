@@ -1,6 +1,7 @@
 # Production Environment - Supabase
 services:
   api:
+    image: ${API_IMAGE:-datafriday-api:production}
     build:
       context: .
       dockerfile: Dockerfile

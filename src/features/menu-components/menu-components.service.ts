@@ -45,7 +45,11 @@ export class MenuComponentsService {
     const foundIds = new Set(found.map((i) => i.id));
     const missing = ids.filter((id) => !foundIds.has(id));
     if (missing.length) {
-      throw new BadRequestException(`Invalid ingredientId(s): ${missing.join(', ')}`);
+      throw new BadRequestException(
+        `Unknown ingredient ID(s): ${missing.join(', ')}. ` +
+        `Make sure these IDs belong to the "ingredients" table, not "market_prices". ` +
+        `Use POST /market-prices/sync-ingredients to auto-create missing ingredients from market prices.`,
+      );
     }
   }
 

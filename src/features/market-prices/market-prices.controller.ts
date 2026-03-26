@@ -6,10 +6,11 @@ import {
   Patch,
   Param,
   Delete,
+  Query,
   UseGuards,
   Logger,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { MarketPricesService } from './market-prices.service';
 import { CreateMarketPriceDto } from './dto/create-market-price.dto';
@@ -65,6 +66,36 @@ export class MarketPricesController {
   findAll(@CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /market-prices - User: ${user?.id}, Tenant: ${tenantId}`);
     return this.marketPricesService.findAll(tenantId);
+  }
+
+  @Get('with-ingredients')
+  @ApiOperation({ summary: 'Lister tous les prix du marché avec leurs ingrédients' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Numéro de page' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Nombre d\'éléments par page' })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Recherche par nom, catégorie ou fournisseur' })
+  @ApiQuery({ name: 'scope', required: false, enum: ['tenant', 'global', 'all'], description: 'Portée: tenant (client), global, ou all (tous)' })
+  @ApiQuery({ name: 'goodType', required: false, type: String, description: 'Type de produit: Food, Beverage, Packaging, Other' })
+  @ApiResponse({ status: 200, description: 'Liste des prix avec ingrédients' })
+  findAllWithIngredients(
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+    @Query('scope') scope?: 'tenant' | 'global' | 'all',
+    @Query('goodType') goodType?: string,
+  ) {
+    this.logger.log(
+      `GET /market-prices/with-ingredients - User: ${user?.id}, Tenant: ${tenantId}, ` +
+      `page=${page}, limit=${limit}, search="${search}", scope=${scope}, goodType=${goodType}`,
+    );
+    return this.marketPricesService.findAllWithIngredients(tenantId, {
+      page: page ? +page : undefined,
+      limit: limit ? +limit : undefined,
+      search,
+      scope,
+      goodType,
+    });
   }
 
   @Get(':id')

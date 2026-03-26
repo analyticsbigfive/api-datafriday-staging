@@ -60,6 +60,26 @@ export class IngredientsService {
     }
   }
 
+  async findByMarketPriceId(marketPriceId: string, tenantId: string) {
+    this.logger.log(`Fetching ingredients for marketPriceId ${marketPriceId} (tenant ${tenantId})`);
+    try {
+      const ingredients = await this.prisma.ingredient.findMany({
+        where: {
+          marketPriceId,
+          tenantId,
+          deletedAt: null,
+        },
+        orderBy: { name: 'asc' },
+        include: { marketPrice: true },
+      });
+      this.logger.log(`Found ${ingredients.length} ingredients for marketPriceId ${marketPriceId}`);
+      return ingredients;
+    } catch (error) {
+      this.logger.error(`Failed to fetch ingredients by marketPriceId: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
   async findOne(id: string, tenantId: string) {
     this.logger.log(`Fetching ingredient ${id} for tenant ${tenantId}`);
     const ingredient = await this.prisma.ingredient.findFirst({

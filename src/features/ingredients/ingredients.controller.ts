@@ -38,6 +38,19 @@ export class IngredientsController {
     return this.ingredientsService.findAll(tenantId, page ? +page : 1, limit ? +limit : 100);
   }
 
+  @Get('by-market-price/:marketPriceId')
+  @ApiOperation({ summary: 'Obtenir tous les ingrédients liés à un MarketPrice' })
+  @ApiParam({ name: 'marketPriceId', description: 'ID du MarketPrice' })
+  @ApiResponse({ status: 200, description: 'Liste des ingrédients pour ce MarketPrice' })
+  findByMarketPriceId(
+    @Param('marketPriceId') marketPriceId: string,
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+  ) {
+    this.logger.log(`GET /ingredients/by-market-price/${marketPriceId} - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.ingredientsService.findByMarketPriceId(marketPriceId, tenantId);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Obtenir un ingrédient par ID' })
   @ApiParam({ name: 'id', description: 'ID de l’ingrédient' })

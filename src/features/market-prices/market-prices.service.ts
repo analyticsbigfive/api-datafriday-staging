@@ -81,6 +81,85 @@ export class MarketPricesService {
     }
   }
 
+  async findAllWithIngredients(
+    tenantId: string,
+    options: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      scope?: 'tenant' | 'global' | 'all';
+      goodType?: string;
+    } = {},
+  ) {
+    const { page = 1, limit = 100, search, scope = 'all', goodType } = options;
+    this.logger.log(
+      `Fetching market prices with ingredients for tenant ${tenantId} ` +
+      `(page=${page}, limit=${limit}, search="${search}", scope=${scope}, goodType=${goodType})`,
+    );
+
+    try {
+      const skip = (page - 1) * limit;
+
+      // Build where clause
+      const where: any = {};
+
+      // Scope filter (tenant/global/all)
+      if (scope === 'tenant') {
+        where.tenantId = tenantId;
+      } else if (scope === 'global') {
+        where.tenantId = null;
+      } else {
+        // 'all' - both tenant and global
+        where.OR = [{ tenantId }, { tenantId: null }];
+      }
+
+      // Search filter
+      if (search && search.trim()) {
+        where.AND = [
+          ...(where.AND || []),
+          {
+            OR: [
+              { itemName: { contains: search.trim(), mode: 'insensitive' } },
+              { category: { contains: search.trim(), mode: 'insensitive' } },
+              { supplier: { contains: search.trim(), mode: 'insensitive' } },
+            ],
+          },
+        ];
+      }
+
+      // GoodType filter
+      if (goodType) {
+        where.goodType = goodType;
+      }
+
+      const [data, total] = await Promise.all([
+        this.prisma.marketPrice.findMany({
+          where,
+          orderBy: { itemName: 'asc' },
+          include: {
+            supplierRel: true,
+            ingredients: {
+              where: { deletedAt: null },
+              orderBy: { name: 'asc' },
+            },
+          },
+          skip,
+          take: limit,
+        }),
+        this.prisma.marketPrice.count({ where }),
+      ]);
+
+      this.logger.log(`Found ${data.length}/${total} market prices with ingredients`);
+      return {
+        data,
+        meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      };
+    } catch (error) {
+      this.logger.error(`Failed to fetch market prices with ingredients: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
   async findOne(id: string, tenantId: string) {
     this.logger.log(`Fetching market price ${id} for tenant ${tenantId}`);
     const price = await this.prisma.marketPrice.findFirst({

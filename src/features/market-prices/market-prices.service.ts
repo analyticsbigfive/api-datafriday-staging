@@ -102,6 +102,7 @@ export class MarketPricesService {
 
       // Build where clause
       const where: any = {};
+      const andConditions: any[] = [];
 
       // Scope filter (tenant/global/all)
       if (scope === 'tenant') {
@@ -115,21 +116,23 @@ export class MarketPricesService {
 
       // Search filter
       if (search && search.trim()) {
-        where.AND = [
-          ...(where.AND || []),
-          {
-            OR: [
-              { itemName: { contains: search.trim(), mode: 'insensitive' } },
-              { category: { contains: search.trim(), mode: 'insensitive' } },
-              { supplier: { contains: search.trim(), mode: 'insensitive' } },
-            ],
-          },
-        ];
+        andConditions.push({
+          OR: [
+            { itemName: { contains: search.trim(), mode: 'insensitive' } },
+            { category: { contains: search.trim(), mode: 'insensitive' } },
+            { supplier: { contains: search.trim(), mode: 'insensitive' } },
+          ],
+        });
       }
 
       // GoodType filter
       if (goodType) {
-        where.goodType = goodType;
+        andConditions.push({ goodType });
+      }
+
+      // Add AND conditions only if there are any
+      if (andConditions.length > 0) {
+        where.AND = andConditions;
       }
 
       const [data, total] = await Promise.all([

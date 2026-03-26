@@ -147,12 +147,12 @@ Ce document clarifie la distinction entre les trois entités principales du syst
 
 ---
 
-## Endpoints importants
+## Endpoints API
 
-### Auto-synchronisation (pour les données existantes)
+### 1. Auto-synchronisation (pour les données existantes)
 
 ```http
-POST /market-prices/sync-ingredients
+POST /api/v1/market-prices/sync-ingredients
 ```
 
 **Fonction** : Crée automatiquement les `Ingredient` manquants pour tous les `MarketPrice` existants (Food/Beverage).
@@ -169,6 +169,156 @@ POST /market-prices/sync-ingredients
 **Utilisation** :
 - À exécuter une fois après le déploiement pour synchroniser les données existantes
 - Accessible depuis le frontend via `menuStore.syncMarketPriceIngredients()`
+
+---
+
+### 2. Récupérer les ingrédients d'un MarketPrice spécifique
+
+```http
+GET /api/v1/ingredients/by-market-price/:marketPriceId
+```
+
+**Fonction** : Récupère tous les `Ingredient` liés à un `MarketPrice` spécifique.
+
+**Paramètres** :
+- `marketPriceId` (path, required) : ID du MarketPrice
+
+**Réponse** :
+```json
+[
+  {
+    "id": "ing_123",
+    "name": "Oignon blanc",
+    "recipeUnit": "kg",
+    "purchaseUnit": "kg",
+    "supplier": "Metro",
+    "marketPriceId": "mp_456",
+    "costPerRecipeUnit": 90.00,
+    "costPerPurchaseUnit": 90.00,
+    "purchaseUnitsPerRecipeUnit": 1,
+    "active": true,
+    "marketPrice": {
+      "id": "mp_456",
+      "itemName": "Oignon",
+      "unit": "kg",
+      "price": 90.00,
+      "goodType": "Food",
+      "category": "Vegetable",
+      "supplier": "Metro"
+    }
+  }
+]
+```
+
+**Utilisation frontend** :
+```javascript
+import { getIngredientsByMarketPriceId } from '@/api'
+
+const ingredients = await getIngredientsByMarketPriceId('mp_456')
+```
+
+---
+
+### 3. Récupérer tous les MarketPrices avec leurs ingrédients
+
+```http
+GET /api/v1/market-prices/with-ingredients
+```
+
+**Fonction** : Récupère tous les `MarketPrice` avec leurs `Ingredient` associés, avec pagination, recherche et filtres.
+
+**Query Parameters** :
+- `page` (number, optional) : Numéro de page (défaut: 1)
+- `limit` (number, optional) : Nombre d'éléments par page (défaut: 100)
+- `search` (string, optional) : Recherche par nom, catégorie ou fournisseur
+- `scope` (enum, optional) : Portée des données
+  - `tenant` : Uniquement les MarketPrices du client
+  - `global` : Uniquement les MarketPrices globaux
+  - `all` : Les deux (défaut)
+- `goodType` (string, optional) : Type de produit (`Food`, `Beverage`, `Packaging`, `Other`)
+
+**Exemples de requêtes** :
+```http
+# Page 1, 50 éléments
+GET /api/v1/market-prices/with-ingredients?page=1&limit=50
+
+# Recherche "oignon" dans les produits du client
+GET /api/v1/market-prices/with-ingredients?search=oignon&scope=tenant
+
+# Uniquement les produits Food
+GET /api/v1/market-prices/with-ingredients?goodType=Food
+
+# Recherche "Metro" dans tous les produits (client + global)
+GET /api/v1/market-prices/with-ingredients?search=Metro&scope=all
+```
+
+**Réponse** :
+```json
+{
+  "data": [
+    {
+      "id": "mp_123",
+      "itemName": "Oignon",
+      "unit": "kg",
+      "price": 90.00,
+      "goodType": "Food",
+      "category": "Vegetable",
+      "supplier": "Metro",
+      "supplierId": "sup_789",
+      "tenantId": "tenant_456",
+      "supplierRel": {
+        "id": "sup_789",
+        "name": "Metro"
+      },
+      "ingredients": [
+        {
+          "id": "ing_001",
+          "name": "Oignon blanc",
+          "recipeUnit": "kg",
+          "purchaseUnit": "kg",
+          "marketPriceId": "mp_123",
+          "costPerRecipeUnit": 90.00
+        },
+        {
+          "id": "ing_002",
+          "name": "Oignon rouge",
+          "recipeUnit": "kg",
+          "purchaseUnit": "kg",
+          "marketPriceId": "mp_123",
+          "costPerRecipeUnit": 95.00
+        }
+      ]
+    }
+  ],
+  "meta": {
+    "total": 150,
+    "page": 1,
+    "limit": 50,
+    "totalPages": 3
+  }
+}
+```
+
+**Utilisation frontend** :
+```javascript
+import { getMarketPricesWithIngredients } from '@/api'
+
+const result = await getMarketPricesWithIngredients({
+  page: 1,
+  limit: 50,
+  search: 'oignon',
+  scope: 'all',
+  goodType: 'Food'
+})
+
+// Afficher les MarketPrices et leurs ingrédients
+result.data.forEach(mp => {
+  console.log(`${mp.itemName} - ${mp.ingredients.length} ingrédient(s)`)
+  mp.ingredients.forEach(ing => {
+    console.log(`  - ${ing.name} (ID: ${ing.id})`)
+  })
+})
+```
 
 ---
 

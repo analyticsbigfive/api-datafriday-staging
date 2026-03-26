@@ -166,6 +166,15 @@ export class ProductTypesController {
     this.logger.log(`POST /product-types - User: ${user?.id}`);
     return this.menuItemsService.createProductType(body.name, tenantId);
   }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Supprimer un type de produit' })
+  @ApiResponse({ status: 200, description: 'Type de produit supprimé' })
+  @ApiResponse({ status: 404, description: 'Type de produit non trouvé' })
+  remove(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+    this.logger.log(`DELETE /product-types/${id} - User: ${user?.id}`);
+    return this.menuItemsService.deleteProductType(id, tenantId);
+  }
 }
 
 @ApiTags('Product Categories')
@@ -197,5 +206,14 @@ export class ProductCategoriesController {
       tenantId,
       body.productTypeId,
     );
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Supprimer une catégorie de produit' })
+  @ApiResponse({ status: 200, description: 'Catégorie de produit supprimée' })
+  @ApiResponse({ status: 404, description: 'Catégorie de produit non trouvée' })
+  remove(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+    this.logger.log(`DELETE /product-categories/${id} - User: ${user?.id}`);
+    return this.menuItemsService.deleteProductCategory(id, tenantId);
   }
 }

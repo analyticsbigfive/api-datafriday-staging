@@ -570,6 +570,23 @@ export class MenuItemsService {
     return this.prisma.productType.create({ data: { name, tenantId }, include: { categories: true } });
   }
 
+  async deleteProductType(id: string, tenantId: string) {
+    const productType = await this.prisma.productType.findFirst({
+      where: { id, OR: [{ tenantId }, { tenantId: null }] },
+    });
+
+    if (!productType) {
+      throw new NotFoundException(`Product type with ID ${id} not found`);
+    }
+
+    if (productType.tenantId === null) {
+      throw new BadRequestException(`Cannot delete global product type`);
+    }
+
+    await this.prisma.productType.delete({ where: { id } });
+    this.logger.log(`Product type ${id} deleted`);
+  }
+
   async getProductCategories(tenantId: string, typeId?: string) {
     return this.prisma.productCategory.findMany({
       where: {
@@ -644,5 +661,22 @@ export class MenuItemsService {
       },
       include: { type: true },
     });
+  }
+
+  async deleteProductCategory(id: string, tenantId: string) {
+    const productCategory = await this.prisma.productCategory.findFirst({
+      where: { id, OR: [{ tenantId }, { tenantId: null }] },
+    });
+
+    if (!productCategory) {
+      throw new NotFoundException(`Product category with ID ${id} not found`);
+    }
+
+    if (productCategory.tenantId === null) {
+      throw new BadRequestException(`Cannot delete global product category`);
+    }
+
+    await this.prisma.productCategory.delete({ where: { id } });
+    this.logger.log(`Product category ${id} deleted`);
   }
 }

@@ -101,17 +101,19 @@ export class MarketPricesService {
       const skip = (page - 1) * limit;
 
       // Build where clause
-      const where: any = {};
       const andConditions: any[] = [];
 
       // Scope filter (tenant/global/all)
+      let scopeCondition: any;
       if (scope === 'tenant') {
-        where.tenantId = tenantId;
+        scopeCondition = { tenantId };
       } else if (scope === 'global') {
-        where.tenantId = null;
+        scopeCondition = { tenantId: null };
       } else {
         // 'all' - both tenant and global
-        where.OR = [{ tenantId }, { tenantId: null }];
+        scopeCondition = {
+          OR: [{ tenantId }, { tenantId: null }],
+        };
       }
 
       // Search filter
@@ -130,10 +132,10 @@ export class MarketPricesService {
         andConditions.push({ goodType });
       }
 
-      // Add AND conditions only if there are any
-      if (andConditions.length > 0) {
-        where.AND = andConditions;
-      }
+      // Combine all conditions
+      const where: any = andConditions.length > 0
+        ? { AND: [scopeCondition, ...andConditions] }
+        : scopeCondition;
 
       const [data, total] = await Promise.all([
         this.prisma.marketPrice.findMany({

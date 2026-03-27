@@ -225,16 +225,14 @@ const ingredients = await getIngredientsByMarketPriceId('mp_456')
 GET /api/v1/market-prices/with-ingredients
 ```
 
-**Fonction** : Récupère tous les `MarketPrice` avec leurs `Ingredient` associés, avec pagination, recherche et filtres.
+**Fonction** : Récupère tous les `MarketPrice` avec leurs `Ingredient` associés pour le **tenant actuel uniquement** (isolation des données), avec pagination, recherche et filtres.
+
+**Sécurité** : Le `tenantId` est automatiquement extrait du token JWT. Chaque client ne peut accéder qu'à ses propres données.
 
 **Query Parameters** :
 - `page` (number, optional) : Numéro de page (défaut: 1)
 - `limit` (number, optional) : Nombre d'éléments par page (défaut: 100)
 - `search` (string, optional) : Recherche par nom, catégorie ou fournisseur
-- `scope` (enum, optional) : Portée des données
-  - `tenant` : Uniquement les MarketPrices du client
-  - `global` : Uniquement les MarketPrices globaux
-  - `all` : Les deux (défaut)
 - `goodType` (string, optional) : Type de produit (`Food`, `Beverage`, `Packaging`, `Other`)
 
 **Exemples de requêtes** :
@@ -242,14 +240,14 @@ GET /api/v1/market-prices/with-ingredients
 # Page 1, 50 éléments
 GET /api/v1/market-prices/with-ingredients?page=1&limit=50
 
-# Recherche "oignon" dans les produits du client
-GET /api/v1/market-prices/with-ingredients?search=oignon&scope=tenant
+# Recherche "oignon"
+GET /api/v1/market-prices/with-ingredients?search=oignon
 
 # Uniquement les produits Food
 GET /api/v1/market-prices/with-ingredients?goodType=Food
 
-# Recherche "Metro" dans tous les produits (client + global)
-GET /api/v1/market-prices/with-ingredients?search=Metro&scope=all
+# Recherche "Metro" avec filtre Food
+GET /api/v1/market-prices/with-ingredients?search=Metro&goodType=Food
 ```
 
 **Réponse** :

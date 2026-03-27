@@ -87,55 +87,40 @@ export class MarketPricesService {
       page?: number;
       limit?: number;
       search?: string;
-      scope?: 'tenant' | 'global' | 'all';
+      category?: string;
       goodType?: string;
     } = {},
   ) {
-    const { page = 1, limit = 100, search, scope = 'all', goodType } = options;
+    const { page = 1, limit = 100, search, category, goodType } = options;
     this.logger.log(
       `Fetching market prices with ingredients for tenant ${tenantId} ` +
-      `(page=${page}, limit=${limit}, search="${search}", scope=${scope}, goodType=${goodType})`,
+      `(page=${page}, limit=${limit}, search="${search}", category="${category}", goodType=${goodType})`,
     );
 
     try {
       const skip = (page - 1) * limit;
 
-      // Build where clause
-      const andConditions: any[] = [];
-
-      // Scope filter (tenant/global/all)
-      let scopeCondition: any;
-      if (scope === 'tenant') {
-        scopeCondition = { tenantId };
-      } else if (scope === 'global') {
-        scopeCondition = { tenantId: null };
-      } else {
-        // 'all' - both tenant and global
-        scopeCondition = {
-          OR: [{ tenantId }, { tenantId: null }],
-        };
-      }
+      // Build where clause - always filter by tenantId for security
+      const where: any = { tenantId };
 
       // Search filter
       if (search && search.trim()) {
-        andConditions.push({
-          OR: [
-            { itemName: { contains: search.trim(), mode: 'insensitive' } },
-            { category: { contains: search.trim(), mode: 'insensitive' } },
-            { supplier: { contains: search.trim(), mode: 'insensitive' } },
-          ],
-        });
+        where.OR = [
+          { itemName: { contains: search.trim(), mode: 'insensitive' } },
+          { category: { contains: search.trim(), mode: 'insensitive' } },
+          { supplier: { contains: search.trim(), mode: 'insensitive' } },
+        ];
+      }
+
+      // Category filter
+      if (category && category.trim()) {
+        where.category = { contains: category.trim(), mode: 'insensitive' };
       }
 
       // GoodType filter
       if (goodType) {
-        andConditions.push({ goodType });
+        where.goodType = goodType;
       }
-
-      // Combine all conditions
-      const where: any = andConditions.length > 0
-        ? { AND: [scopeCondition, ...andConditions] }
-        : scopeCondition;
 
       const [data, total] = await Promise.all([
         this.prisma.marketPrice.findMany({

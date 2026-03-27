@@ -69,11 +69,11 @@ export class MarketPricesController {
   }
 
   @Get('with-ingredients')
-  @ApiOperation({ summary: 'Lister tous les prix du marché avec leurs ingrédients' })
+  @ApiOperation({ summary: 'Lister tous les prix du marché avec leurs ingrédients (tenant actuel uniquement)' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Numéro de page' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Nombre d\'éléments par page' })
   @ApiQuery({ name: 'search', required: false, type: String, description: 'Recherche par nom, catégorie ou fournisseur' })
-  @ApiQuery({ name: 'scope', required: false, enum: ['tenant', 'global', 'all'], description: 'Portée: tenant (client), global, ou all (tous)' })
+  @ApiQuery({ name: 'category', required: false, type: String, description: 'Filtrer par catégorie' })
   @ApiQuery({ name: 'goodType', required: false, type: String, description: 'Type de produit: Food, Beverage, Packaging, Other' })
   @ApiResponse({ status: 200, description: 'Liste des prix avec ingrédients' })
   findAllWithIngredients(
@@ -82,18 +82,18 @@ export class MarketPricesController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('search') search?: string,
-    @Query('scope') scope?: 'tenant' | 'global' | 'all',
+    @Query('category') category?: string,
     @Query('goodType') goodType?: string,
   ) {
     this.logger.log(
       `GET /market-prices/with-ingredients - User: ${user?.id}, Tenant: ${tenantId}, ` +
-      `page=${page}, limit=${limit}, search="${search}", scope=${scope}, goodType=${goodType}`,
+      `page=${page}, limit=${limit}, search="${search}", category="${category}", goodType=${goodType}`,
     );
     return this.marketPricesService.findAllWithIngredients(tenantId, {
       page: page ? +page : undefined,
       limit: limit ? +limit : undefined,
       search,
-      scope,
+      category,
       goodType,
     });
   }

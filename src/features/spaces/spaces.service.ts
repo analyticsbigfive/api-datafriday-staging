@@ -666,9 +666,18 @@ export class SpacesService {
     await this.findOne(dto.spaceId, tenantId);
 
     if (dto.id) {
-      const existingConfig = await this.getConfiguration(dto.id, tenantId);
+      // Check if config exists without throwing exception
+      const existingConfig = await this.prisma.config.findFirst({
+        where: {
+          id: dto.id,
+          space: {
+            tenantId,
+          },
+        },
+      });
 
-      if (existingConfig.spaceId !== dto.spaceId) {
+      // If config exists, verify it belongs to the correct space
+      if (existingConfig && existingConfig.spaceId !== dto.spaceId) {
         throw new ForbiddenException('Configuration does not belong to the provided space');
       }
     }

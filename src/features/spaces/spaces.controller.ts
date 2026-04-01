@@ -12,6 +12,7 @@ import {
   HttpCode,
   HttpStatus,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -515,6 +516,8 @@ export class SpacesController {
 @Controller('configurations')
 @UseGuards(JwtDatabaseGuard, RolesGuard)
 export class ConfigurationsController {
+  private readonly logger = new Logger(ConfigurationsController.name);
+  
   constructor(private readonly spacesService: SpacesService) {}
 
   /**
@@ -556,6 +559,7 @@ export class ConfigurationsController {
     @Body() dto: CreateConfigDto,
     @CurrentTenant() tenantId: string,
   ) {
+    this.logger.log(`POST /configurations - Tenant: ${tenantId}, SpaceId: ${dto.spaceId}, ConfigName: ${dto.name}`);
     return this.spacesService.saveConfiguration(dto, tenantId);
   }
 

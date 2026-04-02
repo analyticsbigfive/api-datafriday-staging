@@ -8,7 +8,7 @@ import {
   IsEnum,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 
 export enum ComponentCategory {
   Food = 'Food',
@@ -48,16 +48,36 @@ export class MenuComponentIngredientLineDto {
     description: "ID de l'ingrédient. Accepte: string, number, ou {ingredientId/marketPriceId: string}",
     example: 'ingredient-123'
   })
-  @IsString({ message: 'ingredientId doit être une chaîne de caractères. Reçu: $value. Vérifiez que vous envoyez bien un ID d\'ingrédient valide.' })
-  @Type(() => String)
+  @Transform(({ value }) => {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value.trim();
+    if (typeof value === 'number') return String(value);
+    if (typeof value === 'object' && value !== null) {
+      return String(value.ingredientId || value.marketPriceId || value.id || '').trim();
+    }
+    return String(value).trim();
+  })
+  @IsString({ message: 'ingredientId doit être une chaîne de caractères non vide. Reçu: $value. Vérifiez que vous envoyez bien un ID d\'ingrédient valide (string, number, ou objet avec ingredientId/marketPriceId).' })
   ingredientId: string;
 
   @ApiProperty({ 
     description: 'Quantité utilisée (accepte aussi numberOfUnits). Accepte: number ou string convertible',
     example: 1.5
   })
-  @IsNumber({}, { message: 'quantity doit être un nombre. Reçu: $value. Vérifiez que vous envoyez bien une valeur numérique.' })
-  @Type(() => Number)
+  @Transform(({ value }) => {
+    if (value === null || value === undefined) return 0;
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      const parsed = parseFloat(value);
+      return isNaN(parsed) ? 0 : parsed;
+    }
+    if (typeof value === 'object' && value !== null) {
+      const qty = value.quantity ?? value.numberOfUnits ?? 0;
+      return typeof qty === 'number' ? qty : parseFloat(String(qty)) || 0;
+    }
+    return parseFloat(String(value)) || 0;
+  })
+  @IsNumber({}, { message: 'quantity doit être un nombre valide. Reçu: $value. Vérifiez que vous envoyez bien une valeur numérique (number, string convertible, ou objet avec quantity/numberOfUnits).' })
   quantity?: number;
 
   @ApiPropertyOptional({ description: 'Nombre d\'unités (alias de quantity pour compatibilité frontend)' })
@@ -101,16 +121,36 @@ export class MenuComponentChildLineDto {
     description: 'ID du sous-composant (child MenuComponent). Accepte: string, number, ou {id/childId: string}',
     example: 'component-123'
   })
-  @IsString({ message: 'childId doit être une chaîne de caractères. Reçu: $value (type: $constraint1). Vérifiez que vous envoyez bien un ID valide.' })
-  @Type(() => String)
+  @Transform(({ value }) => {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value.trim();
+    if (typeof value === 'number') return String(value);
+    if (typeof value === 'object' && value !== null) {
+      return String(value.childId || value.id || '').trim();
+    }
+    return String(value).trim();
+  })
+  @IsString({ message: 'childId doit être une chaîne de caractères non vide. Reçu: $value. Vérifiez que vous envoyez bien un ID valide (string, number, ou objet avec childId/id).' })
   childId: string;
 
   @ApiProperty({ 
     description: 'Quantité utilisée. Accepte: number, string convertible en number, ou {quantity/numberOfUnits: number}',
     example: 2.5
   })
-  @IsNumber({}, { message: 'quantity doit être un nombre. Reçu: $value (type: $constraint1). Vérifiez que vous envoyez bien une valeur numérique.' })
-  @Type(() => Number)
+  @Transform(({ value }) => {
+    if (value === null || value === undefined) return 0;
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      const parsed = parseFloat(value);
+      return isNaN(parsed) ? 0 : parsed;
+    }
+    if (typeof value === 'object' && value !== null) {
+      const qty = value.quantity ?? value.numberOfUnits ?? 0;
+      return typeof qty === 'number' ? qty : parseFloat(String(qty)) || 0;
+    }
+    return parseFloat(String(value)) || 0;
+  })
+  @IsNumber({}, { message: 'quantity doit être un nombre valide. Reçu: $value. Vérifiez que vous envoyez bien une valeur numérique (number, string convertible, ou objet avec quantity/numberOfUnits).' })
   quantity: number;
 
   @ApiPropertyOptional({ description: 'Unité (optionnelle)' })

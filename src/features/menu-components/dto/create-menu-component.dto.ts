@@ -141,7 +141,8 @@ export class MenuComponentChildLineDto {
     if (typeof value === 'string') return value.trim();
     if (typeof value === 'number') return String(value);
     if (typeof value === 'object' && value !== null) {
-      return String(value.childId || value.id || '').trim();
+      // Frontend sends componentId, not childId
+      return String(value.componentId || value.childId || value.id || '').trim();
     }
     return String(value).trim();
   })
@@ -165,7 +166,8 @@ export class MenuComponentChildLineDto {
       return isNaN(parsed) ? 0 : parsed;
     }
     if (typeof value === 'object' && value !== null) {
-      const qty = value.quantity ?? value.numberOfUnits ?? 0;
+      // Frontend sends numberOfUnits, not quantity
+      const qty = value.numberOfUnits ?? value.quantity ?? 0;
       return typeof qty === 'number' ? qty : parseFloat(String(qty)) || 0;
     }
     return parseFloat(String(value)) || 0;

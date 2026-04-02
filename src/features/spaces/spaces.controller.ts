@@ -223,13 +223,26 @@ export class SpacesController {
         },
         configs: {
           type: 'array',
+          description: 'Liste complète des configurations avec leurs données (floors, forecourt, externalMerch)',
           items: {
             type: 'object',
             properties: {
               id: { type: 'string' },
               name: { type: 'string' },
+              spaceId: { type: 'string' },
               capacity: { type: 'number', nullable: true },
+              data: { 
+                type: 'object', 
+                nullable: true,
+                description: 'Données complètes de la configuration (floors, forecourt, externalMerch)',
+                properties: {
+                  floors: { type: 'array', description: 'Liste des étages avec leurs éléments' },
+                  forecourt: { type: 'object', nullable: true, description: 'Configuration du parvis' },
+                  externalMerch: { type: 'object', nullable: true, description: 'Configuration merchandising externe' },
+                },
+              },
               createdAt: { type: 'string', format: 'date-time' },
+              updatedAt: { type: 'string', format: 'date-time' },
             },
           },
         },

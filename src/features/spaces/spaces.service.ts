@@ -185,8 +185,11 @@ export class SpacesService {
           select: {
             id: true,
             name: true,
+            spaceId: true,
             capacity: true,
+            data: true,  // Include full configuration data (floors, forecourt, externalMerch)
             createdAt: true,
+            updatedAt: true,
           },
           orderBy: {
             createdAt: 'desc',

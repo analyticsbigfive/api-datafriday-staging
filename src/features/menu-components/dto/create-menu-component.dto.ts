@@ -38,14 +38,25 @@ export enum StorageType {
  * DTO pour définir une ligne d'ingrédient dans un composant.
  * Note: Les champs supplémentaires envoyés sont automatiquement ignorés par le ValidationPipe.
  * Seuls les champs définis ci-dessous sont utilisés pour créer la relation ComponentIngredient.
+ * 
+ * Transformation automatique:
+ * - ingredientId: accepte string, number, ou objet avec 'ingredientId' ou 'marketPriceId'
+ * - quantity/numberOfUnits: accepte number ou string convertible en number
  */
 export class MenuComponentIngredientLineDto {
-  @ApiProperty({ description: "ID de l'ingrédient" })
-  @IsString()
+  @ApiProperty({ 
+    description: "ID de l'ingrédient. Accepte: string, number, ou {ingredientId/marketPriceId: string}",
+    example: 'ingredient-123'
+  })
+  @IsString({ message: 'ingredientId doit être une chaîne de caractères. Reçu: $value. Vérifiez que vous envoyez bien un ID d\'ingrédient valide.' })
+  @Type(() => String)
   ingredientId: string;
 
-  @ApiProperty({ description: 'Quantité utilisée (accepte aussi numberOfUnits)' })
-  @IsNumber()
+  @ApiProperty({ 
+    description: 'Quantité utilisée (accepte aussi numberOfUnits). Accepte: number ou string convertible',
+    example: 1.5
+  })
+  @IsNumber({}, { message: 'quantity doit être un nombre. Reçu: $value. Vérifiez que vous envoyez bien une valeur numérique.' })
   @Type(() => Number)
   quantity?: number;
 
@@ -58,6 +69,7 @@ export class MenuComponentIngredientLineDto {
   @ApiPropertyOptional({ description: 'Unité (optionnelle)' })
   @IsOptional()
   @IsString()
+  @Type(() => String)
   unit?: string;
 
   @ApiPropertyOptional({ description: 'Coût unitaire (optionnel, peut être recalculé)' })
@@ -79,20 +91,32 @@ export class MenuComponentIngredientLineDto {
  * ignorés par le ValidationPipe. Seuls les champs définis ci-dessous sont utilisés pour créer
  * la relation ComponentComponent. Les autres informations du composant enfant sont accessibles
  * via la relation child.
+ * 
+ * Transformation automatique:
+ * - childId: accepte string, number, ou objet avec propriété 'id' ou 'childId'
+ * - quantity: accepte number, string (converti en number), ou objet avec 'quantity' ou 'numberOfUnits'
  */
 export class MenuComponentChildLineDto {
-  @ApiProperty({ description: 'ID du sous-composant (child MenuComponent)' })
-  @IsString()
+  @ApiProperty({ 
+    description: 'ID du sous-composant (child MenuComponent). Accepte: string, number, ou {id/childId: string}',
+    example: 'component-123'
+  })
+  @IsString({ message: 'childId doit être une chaîne de caractères. Reçu: $value (type: $constraint1). Vérifiez que vous envoyez bien un ID valide.' })
+  @Type(() => String)
   childId: string;
 
-  @ApiProperty({ description: 'Quantité utilisée' })
-  @IsNumber()
+  @ApiProperty({ 
+    description: 'Quantité utilisée. Accepte: number, string convertible en number, ou {quantity/numberOfUnits: number}',
+    example: 2.5
+  })
+  @IsNumber({}, { message: 'quantity doit être un nombre. Reçu: $value (type: $constraint1). Vérifiez que vous envoyez bien une valeur numérique.' })
   @Type(() => Number)
   quantity: number;
 
   @ApiPropertyOptional({ description: 'Unité (optionnelle)' })
   @IsOptional()
   @IsString()
+  @Type(() => String)
   unit?: string;
 
   @ApiPropertyOptional({ description: 'Coût total de la ligne (optionnel, peut être recalculé)' })

@@ -117,19 +117,26 @@ export class MenuComponentIngredientLineDto {
 
 /**
  * DTO pour définir une ligne de sous-composant (relation parent → child).
- * Note: Les champs supplémentaires envoyés (storageType, itemName, etc.) sont automatiquement
- * ignorés par le ValidationPipe. Seuls les champs définis ci-dessous sont utilisés pour créer
- * la relation ComponentComponent. Les autres informations du composant enfant sont accessibles
- * via la relation child.
  * 
- * Transformation automatique:
- * - childId: accepte string, number, ou objet avec propriété 'id' ou 'childId'
- * - quantity: accepte number, string (converti en number), ou objet avec 'quantity' ou 'numberOfUnits'
+ * FORMAT ATTENDU DU FRONTEND:
+ * {
+ *   "componentId": "cmnheiwkl0008u8fn0fnd7hkd",  // ID du MenuComponent enfant
+ *   "numberOfUnits": 1,                          // Quantité utilisée dans la recette
+ *   "unit": "kg"                                 // (Optionnel) Surcharge l'unité du composant
+ * }
+ * 
+ * TRANSFORMATION AUTOMATIQUE:
+ * - componentId/childId/id → childId (string)
+ * - numberOfUnits/quantity → quantity (number)
+ * 
+ * Note: Les champs supplémentaires (itemType, itemName, category, storageType, etc.) 
+ * sont automatiquement ignorés par le ValidationPipe.
  */
 export class MenuComponentChildLineDto {
   @ApiProperty({ 
-    description: 'ID du sous-composant (child MenuComponent). Accepte: string, number, ou {id/childId: string}',
-    example: 'component-123'
+    description: 'ID du sous-composant (MenuComponent). Le frontend peut envoyer "componentId", "childId" ou "id".',
+    example: 'cmnheiwkl0008u8fn0fnd7hkd',
+    required: true
   })
   @Transform(({ value, obj }) => {
     // Store the original object for error messages
@@ -155,8 +162,9 @@ export class MenuComponentChildLineDto {
   childId: string;
 
   @ApiProperty({ 
-    description: 'Quantité utilisée. Accepte: number, string convertible en number, ou {quantity/numberOfUnits: number}',
-    example: 2.5
+    description: 'Quantité utilisée dans la recette parent. Le frontend peut envoyer "numberOfUnits" ou "quantity".',
+    example: 1,
+    required: true
   })
   @Transform(({ value }) => {
     if (value === null || value === undefined) return 0;
@@ -180,13 +188,19 @@ export class MenuComponentChildLineDto {
   })
   quantity: number;
 
-  @ApiPropertyOptional({ description: 'Unité (optionnelle)' })
+  @ApiPropertyOptional({ 
+    description: 'Unité (optionnelle). Si non fournie, hérite de l\'unité du composant enfant. Permet de surcharger l\'unité si nécessaire.',
+    example: 'kg'
+  })
   @IsOptional()
   @IsString()
   @Type(() => String)
   unit?: string;
 
-  @ApiPropertyOptional({ description: 'Coût total de la ligne (optionnel, peut être recalculé)' })
+  @ApiPropertyOptional({ 
+    description: 'Coût total de la ligne (optionnel, sera recalculé automatiquement si non fourni)',
+    example: 150
+  })
   @IsOptional()
   @IsNumber()
   @Type(() => Number)
@@ -255,7 +269,17 @@ export class CreateMenuComponentDto {
   @Type(() => MenuComponentIngredientLineDto)
   ingredients?: MenuComponentIngredientLineDto[];
 
-  @ApiPropertyOptional({ description: 'Sous-composants (relation parent→child) (source de vérité)', type: [MenuComponentChildLineDto] })
+  @ApiPropertyOptional({ 
+    description: 'Sous-composants (relation parent→child). Format: [{componentId: "id", numberOfUnits: 1, unit?: "kg"}]',
+    type: [MenuComponentChildLineDto],
+    example: [
+      {
+        componentId: "cmnheiwkl0008u8fn0fnd7hkd",
+        numberOfUnits: 1,
+        unit: "kg"
+      }
+    ]
+  })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

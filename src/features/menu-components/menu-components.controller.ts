@@ -9,6 +9,7 @@ import {
   Delete,
   UseGuards,
   Logger,
+  UseInterceptors,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
@@ -17,6 +18,7 @@ import { CreateMenuComponentDto, ReplaceMenuComponentChildrenDto, ReplaceMenuCom
 import { UpdateMenuComponentDto } from './dto/update-menu-component.dto';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
+import { ValidationErrorEnricherInterceptor } from './interceptors/validation-error-enricher.interceptor';
 
 @ApiTags('Menu Components')
 @ApiBearerAuth('supabase-jwt')
@@ -28,6 +30,7 @@ export class MenuComponentsController {
   constructor(private readonly menuComponentsService: MenuComponentsService) {}
 
   @Post()
+  @UseInterceptors(ValidationErrorEnricherInterceptor)
   @ApiOperation({ summary: 'Créer un composant de menu' })
   @ApiResponse({ status: 201, description: 'Composant créé' })
   create(@Body() dto: CreateMenuComponentDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {

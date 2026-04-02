@@ -57,7 +57,12 @@ export class MenuComponentIngredientLineDto {
     }
     return String(value).trim();
   })
-  @IsString({ message: 'ingredientId doit être une chaîne de caractères non vide. Reçu: $value. Vérifiez que vous envoyez bien un ID d\'ingrédient valide (string, number, ou objet avec ingredientId/marketPriceId).' })
+  @IsString({ 
+    message: '❌ INGRÉDIENT (ingredients) - ingredientId invalide. ' +
+             'Il s\'agit de l\'ID d\'un Ingredient (matière première comme "Tomate", "Fromage", "Farine", etc.), PAS d\'un sous-composant. ' +
+             'Reçu: "$value". ' +
+             'Formats acceptés: string ("ingredient-123"), number (123), ou objet ({ingredientId: "...", marketPriceId: "...", id: "..."}).'
+  })
   ingredientId: string;
 
   @ApiProperty({ 
@@ -77,7 +82,12 @@ export class MenuComponentIngredientLineDto {
     }
     return parseFloat(String(value)) || 0;
   })
-  @IsNumber({}, { message: 'quantity doit être un nombre valide. Reçu: $value. Vérifiez que vous envoyez bien une valeur numérique (number, string convertible, ou objet avec quantity/numberOfUnits).' })
+  @IsNumber({}, { 
+    message: '❌ INGRÉDIENT (ingredients) - quantity invalide. ' +
+             'La quantité de l\'ingrédient doit être un nombre. ' +
+             'Reçu: "$value". ' +
+             'Formats acceptés: number (1.5), string ("1.5"), ou objet ({quantity: 1.5, numberOfUnits: 1.5}).'
+  })
   quantity?: number;
 
   @ApiPropertyOptional({ description: 'Nombre d\'unités (alias de quantity pour compatibilité frontend)' })
@@ -121,7 +131,12 @@ export class MenuComponentChildLineDto {
     description: 'ID du sous-composant (child MenuComponent). Accepte: string, number, ou {id/childId: string}',
     example: 'component-123'
   })
-  @Transform(({ value }) => {
+  @Transform(({ value, obj }) => {
+    // Store the original object for error messages
+    if (typeof value === 'object' && value !== null) {
+      obj._originalChildData = value;
+    }
+    
     if (value === null || value === undefined) return '';
     if (typeof value === 'string') return value.trim();
     if (typeof value === 'number') return String(value);
@@ -130,7 +145,12 @@ export class MenuComponentChildLineDto {
     }
     return String(value).trim();
   })
-  @IsString({ message: 'childId doit être une chaîne de caractères non vide. Reçu: $value. Vérifiez que vous envoyez bien un ID valide (string, number, ou objet avec childId/id).' })
+  @IsString({ 
+    message: '❌ SOUS-COMPOSANT (children) - childId invalide. ' +
+             'Composant concerné: "$property" avec données = $value. ' +
+             'Il s\'agit de l\'ID d\'un MenuComponent (sous-composant), PAS d\'un ingrédient. ' +
+             'Vérifiez que vous envoyez bien un ID de composant existant.'
+  })
   childId: string;
 
   @ApiProperty({ 
@@ -150,7 +170,12 @@ export class MenuComponentChildLineDto {
     }
     return parseFloat(String(value)) || 0;
   })
-  @IsNumber({}, { message: 'quantity doit être un nombre valide. Reçu: $value. Vérifiez que vous envoyez bien une valeur numérique (number, string convertible, ou objet avec quantity/numberOfUnits).' })
+  @IsNumber({}, { 
+    message: '❌ SOUS-COMPOSANT (children) - quantity invalide. ' +
+             'La quantité du sous-composant doit être un nombre. ' +
+             'Reçu: "$value". ' +
+             'Formats acceptés: number (2.5), string ("2.5"), ou objet ({quantity: 2.5, numberOfUnits: 2.5}).'
+  })
   quantity: number;
 
   @ApiPropertyOptional({ description: 'Unité (optionnelle)' })

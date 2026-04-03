@@ -35,6 +35,10 @@ export class MenuComponentsController {
   @ApiResponse({ status: 201, description: 'Composant créé' })
   create(@Body() dto: CreateMenuComponentDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`POST /menu-components - User: ${user?.id}, Tenant: ${tenantId}`);
+    this.logger.debug('DTO après transformation:', JSON.stringify(dto, null, 2));
+    if (dto.children && dto.children.length > 0) {
+      this.logger.debug('Children transformés:', JSON.stringify(dto.children, null, 2));
+    }
     return this.menuComponentsService.create(dto, tenantId);
   }
 

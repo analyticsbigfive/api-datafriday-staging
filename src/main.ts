@@ -1,9 +1,9 @@
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './core/exceptions/all-exceptions.filter';
-import { ValidationPipe } from './core/pipes/validation.pipe';
 import helmet from 'helmet';
 const compression = require('compression');
 
@@ -40,7 +40,10 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter());
 
   // Global validation pipe for automatic DTO validation
-  app.useGlobalPipes(new ValidationPipe());
+  app.useGlobalPipes(new ValidationPipe({
+    transform: true,  // Enable transformation using class-transformer
+    whitelist: true,  // Strip properties that don't have decorators
+  }));
 
   // P0: CORS configuration (strict in production)
   const allowedOrigins = process.env.CORS_ORIGIN 

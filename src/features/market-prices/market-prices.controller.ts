@@ -60,6 +60,14 @@ export class MarketPricesController {
     return this.marketPricesService.syncIngredients(tenantId);
   }
 
+  @Post('sync-packagings')
+  @ApiOperation({ summary: 'Synchroniser les packagings depuis les prix du marché (Packaging)' })
+  @ApiResponse({ status: 200, description: 'Synchronisation effectuée' })
+  syncPackagings(@CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+    this.logger.log(`POST /market-prices/sync-packagings - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.marketPricesService.syncPackagings(tenantId);
+  }
+
   @Get()
   @ApiOperation({ summary: 'Lister tous les prix du marché' })
   @ApiResponse({ status: 200, description: 'Liste des prix' })

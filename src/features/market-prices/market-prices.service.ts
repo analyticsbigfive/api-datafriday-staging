@@ -43,6 +43,11 @@ export class MarketPricesService {
         await this.ensureIngredientForMarketPrice(price, tenantId);
       }
 
+      // Auto-create a corresponding Packaging for Packaging type
+      if (dto.goodType === 'Packaging') {
+        await this.ensurePackagingForMarketPrice(price, tenantId);
+      }
+
       return price;
     } catch (error) {
       this.logger.error(`Failed to create market price: ${error.message}`, error.stack);
@@ -272,6 +277,10 @@ export class MarketPricesService {
         if (dto.goodType === 'Food' || dto.goodType === 'Beverage') {
           await this.ensureIngredientForMarketPrice(price, tenantId);
         }
+        // Auto-create a corresponding Packaging for Packaging type
+        if (dto.goodType === 'Packaging') {
+          await this.ensurePackagingForMarketPrice(price, tenantId);
+        }
         results.push(price);
       }
       this.logger.log(`Bulk created ${results.length} market prices`);
@@ -324,6 +333,52 @@ export class MarketPricesService {
   }
 
   /**
+   * Ensures a corresponding Packaging exists for a given MarketPrice with goodType=Packaging.
+   * Creates one if missing, linking it via marketPriceId.
+   */
+  private async ensurePackagingForMarketPrice(marketPrice: any, tenantId: string) {
+    try {
+      const existing = await this.prisma.packaging.findFirst({
+        where: { marketPriceId: marketPrice.id, tenantId, deletedAt: null },
+      });
+      if (existing) {
+        this.logger.log(`Packaging already exists for market price ${marketPrice.id}: ${existing.id}`);
+        return existing;
+      }
+
+      const costPerRecipeUnit = marketPrice.pricePerUnit
+        ? Number(marketPrice.pricePerUnit)
+        : marketPrice.purchaseUnitConversion && Number(marketPrice.purchaseUnitConversion) > 0
+          ? Math.round((Number(marketPrice.price) / Number(marketPrice.purchaseUnitConversion)) * 10000) / 10000
+          : Number(marketPrice.price) || undefined;
+
+      const packaging = await this.prisma.packaging.create({
+        data: {
+          tenantId,
+          name: marketPrice.itemName,
+          recipeUnit: marketPrice.recipeUnit || marketPrice.unit,
+          purchaseUnit: marketPrice.unit,
+          supplier: marketPrice.supplier || undefined,
+          marketPriceId: marketPrice.id,
+          costPerPurchaseUnit: Number(marketPrice.price) || undefined,
+          costPerRecipeUnit: costPerRecipeUnit,
+          purchaseUnitsPerRecipeUnit: marketPrice.purchaseUnitConversion
+            ? Number(marketPrice.purchaseUnitConversion)
+            : undefined,
+          ingredientCategory: marketPrice.category || undefined,
+          active: true,
+        },
+      });
+      this.logger.log(`Auto-created packaging ${packaging.id} for market price ${marketPrice.id}`);
+      return packaging;
+    } catch (error) {
+      // Non-blocking: log the error but don't fail the market price creation
+      this.logger.warn(`Failed to auto-create packaging for market price ${marketPrice.id}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
    * Sync: create missing Ingredients for all MarketPrices (Food/Beverage) that don't have one.
    */
   async syncIngredients(tenantId: string) {
@@ -351,6 +406,34 @@ export class MarketPricesService {
     }
 
     this.logger.log(`Sync complete: ${created} ingredients created, ${skipped} skipped (already exist or failed)`);
+    return { created, skipped, total: marketPrices.length };
+  }
+
+  /**
+   * Sync: create missing Packagings for all MarketPrices (Packaging) that don't have one.
+   */
+  async syncPackagings(tenantId: string) {
+    this.logger.log(`Syncing packagings for market prices of tenant ${tenantId}`);
+
+    const marketPrices = await this.prisma.marketPrice.findMany({
+      where: { tenantId, goodType: 'Packaging' },
+      include: { packagings: { where: { deletedAt: null }, select: { id: true } } },
+    });
+
+    let created = 0;
+    let skipped = 0;
+
+    for (const mp of marketPrices) {
+      if (mp.packagings && mp.packagings.length > 0) {
+        skipped++;
+        continue;
+      }
+      const result = await this.ensurePackagingForMarketPrice(mp, tenantId);
+      if (result) created++;
+      else skipped++;
+    }
+
+    this.logger.log(`Sync complete: ${created} packagings created, ${skipped} skipped`);
     return { created, skipped, total: marketPrices.length };
   }
 

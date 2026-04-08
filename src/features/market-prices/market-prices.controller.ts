@@ -61,8 +61,20 @@ export class MarketPricesController {
   }
 
   @Post('sync-packagings')
-  @ApiOperation({ summary: 'Synchroniser les packagings depuis les prix du marché (Packaging)' })
-  @ApiResponse({ status: 200, description: 'Synchronisation effectuée' })
+  @ApiOperation({
+    summary: 'Synchroniser les packagings depuis les prix du marché (Packaging)',
+    description:
+      'Crée automatiquement un enregistrement Packaging pour chaque MarketPrice de type Packaging ' +
+      'qui n\'en possède pas encore. Utile pour le backfill initial ou après une import CSV.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Synchronisation effectuée',
+    schema: {
+      example: { created: 5, skipped: 2, total: 7 },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
   syncPackagings(@CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`POST /market-prices/sync-packagings - User: ${user?.id}, Tenant: ${tenantId}`);
     return this.marketPricesService.syncPackagings(tenantId);
@@ -77,12 +89,45 @@ export class MarketPricesController {
   }
 
   @Get('with-packagings')
-  @ApiOperation({ summary: 'Lister tous les prix du marché de type Packaging avec leurs packagings (tenant actuel uniquement)' })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Numéro de page' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Nombre d\'éléments par page' })
-  @ApiQuery({ name: 'search', required: false, type: String, description: 'Recherche par nom, catégorie ou fournisseur' })
-  @ApiQuery({ name: 'category', required: false, type: String, description: 'Filtrer par catégorie' })
-  @ApiResponse({ status: 200, description: 'Liste des prix de type Packaging avec leurs packagings' })
+  @ApiOperation({
+    summary: 'Lister les MarketPrices de type Packaging avec leurs Packagings liés',
+    description:
+      'Retourne uniquement les MarketPrice dont le goodType est "Packaging", ' +
+      'chacun enrichi de la liste de ses Packaging associés (table Packaging, filtrés deletedAt=null). ' +
+      'Utilisé par le sélecteur de packaging dans la création de MenuItem.',
+  })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Numéro de page (défaut: 1)' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Nombre d\'éléments par page (défaut: 100)' })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Recherche sur itemName, category ou supplier' })
+  @ApiQuery({ name: 'category', required: false, type: String, description: 'Filtrer par catégorie (insensible à la casse)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Liste paginée des MarketPrices Packaging avec leurs Packagings',
+    schema: {
+      example: {
+        data: [
+          {
+            id: 'mp_123',
+            itemName: 'Boîte carton 1L',
+            goodType: 'Packaging',
+            category: 'Boîtes',
+            supplierRel: { id: 'sup_1', name: 'Fournisseur A' },
+            packagings: [
+              {
+                id: 'pkg_456',
+                name: 'Boîte carton 1L',
+                recipeUnit: 'unité',
+                costPerRecipeUnit: 0.35,
+                active: true,
+              },
+            ],
+          },
+        ],
+        meta: { total: 10, page: 1, limit: 100, totalPages: 1 },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
   findAllWithPackagings(
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,

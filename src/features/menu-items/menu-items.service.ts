@@ -111,10 +111,22 @@ export class MenuItemsService {
 
   async create(dto: CreateMenuItemDto, tenantId: string) {
     this.logger.log(`Creating menu item "${dto.name}" for tenant ${tenantId}`);
+    this.logger.debug(`Validating IDs - typeId: ${dto.typeId}, categoryId: ${dto.categoryId}`);
+    
     try {
       const componentsLines = Array.isArray((dto as any).components) ? (dto as any).components : undefined;
       const ingredientsLines = Array.isArray((dto as any).ingredients) ? (dto as any).ingredients : undefined;
       const packagingsLines = Array.isArray((dto as any).packagings) ? (dto as any).packagings : undefined;
+      
+      if (ingredientsLines) {
+        this.logger.debug(`Ingredient IDs: ${ingredientsLines.map((i: any) => i.ingredientId).join(', ')}`);
+      }
+      if (packagingsLines) {
+        this.logger.debug(`Packaging IDs: ${packagingsLines.map((p: any) => p.packagingId).join(', ')}`);
+      }
+      if (componentsLines) {
+        this.logger.debug(`Component IDs: ${componentsLines.map((c: any) => c.componentId).join(', ')}`);
+      }
 
       const item = await this.prisma.menuItem.create({
         data: {
@@ -182,7 +194,12 @@ export class MenuItemsService {
     } catch (error) {
       this.logger.error(`Failed to create menu item: ${error.message}`, error.stack);
       if (error.code === 'P2003') {
-        throw new BadRequestException(`Invalid typeId, categoryId, componentId, ingredientId, or packagingId provided`);
+        const fieldName = error.meta?.field_name || 'unknown field';
+        this.logger.error(`Foreign key constraint failed on: ${fieldName}`);
+        throw new BadRequestException(
+          `Invalid ID provided. Foreign key constraint failed on: ${fieldName}. ` +
+          `Please verify that the typeId, categoryId, componentId, ingredientId, or packagingId exists in the database.`
+        );
       }
       if (error.code === 'P2002') {
         throw new BadRequestException(`A menu item with this name already exists`);

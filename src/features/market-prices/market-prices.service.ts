@@ -155,6 +155,66 @@ export class MarketPricesService {
     }
   }
 
+  async findAllWithPackagings(
+    tenantId: string,
+    options: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      category?: string;
+    } = {},
+  ) {
+    const { page = 1, limit = 100, search, category } = options;
+    this.logger.log(
+      `Fetching market prices with packagings for tenant ${tenantId} ` +
+      `(page=${page}, limit=${limit}, search="${search}", category="${category}")`,
+    );
+
+    try {
+      const skip = (page - 1) * limit;
+
+      const where: any = { tenantId, goodType: 'Packaging' };
+
+      if (search && search.trim()) {
+        where.OR = [
+          { itemName: { contains: search.trim(), mode: 'insensitive' } },
+          { category: { contains: search.trim(), mode: 'insensitive' } },
+          { supplier: { contains: search.trim(), mode: 'insensitive' } },
+        ];
+      }
+
+      if (category && category.trim()) {
+        where.category = { contains: category.trim(), mode: 'insensitive' };
+      }
+
+      const [data, total] = await Promise.all([
+        this.prisma.marketPrice.findMany({
+          where,
+          orderBy: { itemName: 'asc' },
+          include: {
+            supplierRel: true,
+            packagings: {
+              where: { deletedAt: null },
+              orderBy: { name: 'asc' },
+            },
+          },
+          skip,
+          take: limit,
+        }),
+        this.prisma.marketPrice.count({ where }),
+      ]);
+
+      this.logger.log(`Found ${data.length}/${total} market prices with packagings`);
+      return {
+        data,
+        meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      };
+    } catch (error) {
+      this.logger.error(`Failed to fetch market prices with packagings: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
   async findOne(id: string, tenantId: string) {
     this.logger.log(`Fetching market price ${id} for tenant ${tenantId}`);
     const price = await this.prisma.marketPrice.findFirst({

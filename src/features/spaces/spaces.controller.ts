@@ -356,29 +356,37 @@ export class SpacesController {
   }
 
   /**
-   * Get shop details for a space (granular sales data)
+   * Get shop details for a space (all shops created in configurations)
    */
   @Get(':id/shop-details')
   @ApiOperation({
-    summary: 'Obtenir les détails granulaires des ventes par espace',
+    summary: 'Obtenir tous les shops (points de vente) d\'un espace',
     description:
-      'Retourne les données détaillées des ventes F&B, merchandising et autres pour un espace.',
+      'Retourne tous les SpaceElements de type shop créés dans les configurations de cet espace, avec leurs données de vente agrégées si mappés à Weezevent.',
   })
   @ApiParam({ name: 'id', description: 'ID de l\'espace' })
   @ApiResponse({
     status: 200,
-    description: 'Détails granulaires des ventes',
+    description: 'Liste des shops avec leurs détails et données de vente',
     schema: {
       type: 'array',
       items: {
         type: 'object',
         properties: {
-          shopId: { type: 'string' },
-          shopName: { type: 'string' },
-          revenue: { type: 'number' },
-          transactionCount: { type: 'number' },
-          eventId: { type: 'string', nullable: true },
-          date: { type: 'string', format: 'date-time' },
+          shopId: { type: 'string', description: 'ID du SpaceElement (shop)' },
+          shopName: { type: 'string', description: 'Nom du shop' },
+          shopType: { type: 'string', description: 'Type du shop (fnb-food, fnb-bar, merchshop, etc.)' },
+          shopSubTypes: { type: 'array', items: { type: 'string' }, description: 'Sous-types spécifiques' },
+          configId: { type: 'string', description: 'ID de la configuration' },
+          configName: { type: 'string', description: 'Nom de la configuration' },
+          locationId: { type: 'string', description: 'ID du floor ou forecourt' },
+          locationName: { type: 'string', description: 'Nom du floor ou forecourt' },
+          locationType: { type: 'string', enum: ['floor', 'forecourt'], description: 'Type de localisation' },
+          revenue: { type: 'number', description: 'Revenu total HT (si mappé à Weezevent)' },
+          transactionCount: { type: 'number', description: 'Nombre de transactions (si mappé à Weezevent)' },
+          itemsCount: { type: 'number', description: 'Nombre d\'items vendus (si mappé à Weezevent)' },
+          isMappedToWeezevent: { type: 'boolean', description: 'Indique si le shop est mappé à un merchant Weezevent' },
+          weezeventMerchantId: { type: 'string', nullable: true, description: 'ID du merchant Weezevent mappé' },
         },
       },
     },

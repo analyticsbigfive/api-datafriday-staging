@@ -640,25 +640,165 @@ export class SpacesService {
 
   /**
    * Get shop details (granular sales data) for a space
-   * TODO: Implement based on your actual sales/shop data structure
-   * For now, returns empty array as placeholder
+   * Returns all SpaceElements (shops) created in configurations for this space
+   * with their aggregated sales data if available from Weezevent
    */
   async getShopDetails(spaceId: string, tenantId: string) {
     // Verify space exists and belongs to tenant
     await this.findOne(spaceId, tenantId);
 
-    // TODO: Query your actual shop/sales data tables
-    // Example structure (adapt to your schema):
-    // const shopDetails = await this.prisma.shopSales.findMany({
-    //   where: { spaceId },
-    //   include: {
-    //     shop: true,
-    //     event: true,
-    //   },
-    // });
+    // Get all configurations for this space
+    const configs = await this.prisma.config.findMany({
+      where: {
+        space: {
+          id: spaceId,
+          tenantId,
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
 
-    // Placeholder: Return empty array until sales tables are implemented
-    return [];
+    const configIds = configs.map(c => c.id);
+
+    // Get all SpaceElements (shops) from floors in these configurations
+    const shopsFromFloors = await this.prisma.spaceElement.findMany({
+      where: {
+        floor: {
+          configId: { in: configIds },
+        },
+        type: {
+          in: ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack', 'fnb_icecream', 'merchshop'],
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        shopTypes: true,
+        attributes: true,
+        floor: {
+          select: {
+            id: true,
+            name: true,
+            config: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Get all SpaceElements (shops) from forecourt in these configurations
+    const shopsFromForecourt = await this.prisma.spaceElement.findMany({
+      where: {
+        forecourt: {
+          configId: { in: configIds },
+        },
+        type: {
+          in: ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack', 'fnb_icecream', 'merchshop'],
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        shopTypes: true,
+        attributes: true,
+        forecourt: {
+          select: {
+            id: true,
+            name: true,
+            config: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Combine all shops
+    const allShops = [...shopsFromFloors, ...shopsFromForecourt];
+
+    // Get revenue data for these shops (if mapped to Weezevent)
+    const shopIds = allShops.map(s => s.id);
+    
+    const revenueData = await this.prisma.spaceRevenueDailyAgg.groupBy({
+      by: ['spaceElementId'],
+      where: {
+        tenantId,
+        spaceId,
+        spaceElementId: { in: shopIds },
+      },
+      _sum: {
+        revenueHt: true,
+        transactionsCount: true,
+        itemsCount: true,
+      },
+    });
+
+    // Create a map of revenue by shop
+    const revenueByShop = new Map(
+      revenueData.map(r => [
+        r.spaceElementId!,
+        {
+          revenue: Number(r._sum.revenueHt || 0),
+          transactionCount: r._sum.transactionsCount || 0,
+          itemsCount: r._sum.itemsCount || 0,
+        },
+      ]),
+    );
+
+    // Get Weezevent merchant mappings for these shops
+    const merchantMappings = await this.prisma.weezeventMerchantElementMapping.findMany({
+      where: {
+        tenantId,
+        spaceElementId: { in: shopIds },
+      },
+      select: {
+        spaceElementId: true,
+        weezeventMerchantId: true,
+      },
+    });
+
+    const mappingByShop = new Map(
+      merchantMappings.map(m => [m.spaceElementId, m.weezeventMerchantId]),
+    );
+
+    // Build response with shop details
+    return allShops.map(shop => {
+      const revenue = revenueByShop.get(shop.id);
+      const weezeventMerchantId = mappingByShop.get(shop.id);
+      const location = 'floor' in shop ? shop.floor : shop.forecourt;
+      const attrs = shop.attributes as any;
+
+      return {
+        shopId: shop.id,
+        shopName: shop.name,
+        shopType: attrs?.originalType || this.reverseMapElementType(shop.type),
+        shopSubTypes: shop.shopTypes,
+        configId: location.config.id,
+        configName: location.config.name,
+        locationId: location.id,
+        locationName: location.name,
+        locationType: 'floor' in shop ? 'floor' : 'forecourt',
+        // Revenue data (from Weezevent if mapped)
+        revenue: revenue?.revenue || 0,
+        transactionCount: revenue?.transactionCount || 0,
+        itemsCount: revenue?.itemsCount || 0,
+        // Weezevent mapping status
+        isMappedToWeezevent: !!weezeventMerchantId,
+        weezeventMerchantId: weezeventMerchantId || null,
+      };
+    });
   }
 
   /**

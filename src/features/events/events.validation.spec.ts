@@ -64,6 +64,47 @@ describe('Events validation', () => {
 
       expect(result).toBeDefined();
     });
+
+    it('accepts sessions as an array', async () => {
+      const result = await pipe.transform(
+        {
+          name: 'Test Event',
+          eventDate: '2026-03-13',
+          sessions: [{ time: '14:00', duration: 120 }],
+        },
+        { metatype: CreateEventDto } as ArgumentMetadata,
+      );
+
+      expect(result).toBeDefined();
+      expect(result.sessions).toEqual([{ time: '14:00', duration: 120 }]);
+    });
+
+    it('accepts sessions as an empty array', async () => {
+      const result = await pipe.transform(
+        {
+          name: 'Test Event',
+          eventDate: '2026-03-13',
+          sessions: [],
+        },
+        { metatype: CreateEventDto } as ArgumentMetadata,
+      );
+
+      expect(result).toBeDefined();
+      expect(result.sessions).toEqual([]);
+    });
+
+    it('rejects sessions as a string', async () => {
+      const error = await expectValidationError(
+        { name: 'Test Event', eventDate: '2026-03-13', sessions: 'invalid' },
+        CreateEventDto,
+      );
+
+      expect((error.getResponse() as any).errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ property: 'sessions' }),
+        ]),
+      );
+    });
   });
 
   describe('CreateEventTypeDto', () => {

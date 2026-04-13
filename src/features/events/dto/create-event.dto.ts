@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, IsDateString, IsInt, IsBoolean } from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsInt, IsBoolean, IsArray } from 'class-validator';
 
 export class CreateEventDto {
   @ApiProperty() @IsString() name: string;
@@ -11,7 +11,7 @@ export class CreateEventDto {
   @ApiPropertyOptional() @IsOptional() @IsString() eventSubcategoryId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() location?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() spaceName?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() sessions?: string;
+  @ApiPropertyOptional() @IsOptional() @IsArray() sessions?: any[];
   @ApiPropertyOptional() @IsOptional() @IsInt() numberOfSessions?: number;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() hasOpeningAct?: boolean;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() hasIntermission?: boolean;

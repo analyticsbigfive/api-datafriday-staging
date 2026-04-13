@@ -1,0 +1,9 @@
+{
+  "js/ts.tsdk.path": "node_modules/typescript/lib",
+  "js/ts.tsdk.promptToUseWorkspaceVersion": true,
+  "files.associations": {
+    "*.spec.ts": "typescript"
+  },
+  "jest.autoRun": "off",
+  "jest.jestCommandLine": "npm test --"
+}

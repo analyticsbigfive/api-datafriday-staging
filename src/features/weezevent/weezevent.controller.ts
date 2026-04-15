@@ -261,6 +261,91 @@ export class WeezeventController {
     }
 
     /**
+     * Get locations
+     */
+    @Get('locations')
+    @ApiOperation({ summary: 'Lister les locations Weezevent synchronisées' })
+    @ApiResponse({ status: 200, description: 'Liste des locations Weezevent' })
+    async getLocations(
+        @CurrentUser() user: any,
+        @Query('page') page: number = 1,
+        @Query('perPage') perPage: number = 100,
+    ) {
+        const tenantId = user.tenantId;
+        const [locations, total] = await Promise.all([
+            this.prisma.weezeventLocation.findMany({
+                where: { tenantId },
+                orderBy: { name: 'asc' },
+                skip: (page - 1) * perPage,
+                take: perPage,
+            }),
+            this.prisma.weezeventLocation.count({ where: { tenantId } }),
+        ]);
+
+        return {
+            data: locations,
+            meta: {
+                current_page: page,
+                per_page: perPage,
+                total,
+                total_pages: Math.ceil(total / perPage),
+            },
+        };
+    }
+
+    /**
+     * Get merchants
+     */
+    @Get('merchants')
+    @ApiOperation({ summary: 'Lister les merchants Weezevent synchronisés' })
+    @ApiResponse({ status: 200, description: 'Liste des merchants Weezevent' })
+    async getMerchants(
+        @CurrentUser() user: any,
+        @Query('page') page: number = 1,
+        @Query('perPage') perPage: number = 100,
+        @Query('locationId') locationId?: string,
+    ) {
+        const tenantId = user.tenantId;
+
+        // If locationId provided, find merchants via transactions at that location
+        if (locationId) {
+            const merchantIds = await this.prisma.weezeventTransaction.findMany({
+                where: { tenantId, locationId, merchantId: { not: null } },
+                select: { merchantId: true },
+                distinct: ['merchantId'],
+            });
+            const ids = merchantIds.map(m => m.merchantId).filter(Boolean);
+
+            const merchants = await this.prisma.weezeventMerchant.findMany({
+                where: { tenantId, id: { in: ids } },
+                orderBy: { name: 'asc' },
+            });
+
+            return { data: merchants, meta: { total: merchants.length } };
+        }
+
+        const [merchants, total] = await Promise.all([
+            this.prisma.weezeventMerchant.findMany({
+                where: { tenantId },
+                orderBy: { name: 'asc' },
+                skip: (page - 1) * perPage,
+                take: perPage,
+            }),
+            this.prisma.weezeventMerchant.count({ where: { tenantId } }),
+        ]);
+
+        return {
+            data: merchants,
+            meta: {
+                current_page: page,
+                per_page: perPage,
+                total,
+                total_pages: Math.ceil(total / perPage),
+            },
+        };
+    }
+
+    /**
      * Get products
      */
     @Get('products')

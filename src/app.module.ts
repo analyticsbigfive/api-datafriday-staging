@@ -30,6 +30,8 @@ import { IngredientsModule } from './features/ingredients/ingredients.module';
 import { PackagingModule } from './features/packaging/packaging.module';
 import { EventsModule } from './features/events/events.module';
 import { AnalyseModule } from './features/analyse/analyse.module';
+import { MappingsModule } from './features/mappings/mappings.module';
+import { AggregationModule } from './features/aggregation/aggregation.module';
 import { AuditModule } from './core/audit/audit.module';
 import { WebhooksModule } from './core/webhooks/webhooks.module';
 import { TenantThrottlerGuard } from './core/throttle/tenant-throttler.guard';
@@ -73,6 +75,8 @@ import { TenantThrottlerGuard } from './core/throttle/tenant-throttler.guard';
     PackagingModule,
     EventsModule,
     AnalyseModule,
+    MappingsModule,
+    AggregationModule,
   ],
   controllers: [AppController],
   providers: [

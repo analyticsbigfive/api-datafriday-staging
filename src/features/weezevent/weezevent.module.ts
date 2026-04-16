@@ -34,6 +34,6 @@ import { WeezeventIncrementalSyncService } from './services/weezevent-incrementa
         SyncTrackerService,
         WeezeventCronService,
     ],
-    exports: [WeezeventClientService, WeezeventSyncService, WeezeventIncrementalSyncService],
+    exports: [WeezeventClientService, WeezeventSyncService, WeezeventIncrementalSyncService, WeezeventAuthService],
 })
 export class WeezeventModule { }

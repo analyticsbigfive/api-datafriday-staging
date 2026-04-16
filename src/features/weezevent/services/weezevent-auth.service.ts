@@ -50,6 +50,41 @@ export class WeezeventAuthService {
     }
 
     /**
+     * Test Weezevent credentials without saving them
+     * Returns { valid: true } on success, { valid: false, error: string } on failure
+     */
+    async testCredentials(
+        clientId: string,
+        clientSecret: string,
+    ): Promise<{ valid: boolean; error?: string }> {
+        try {
+            const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+
+            await this.httpService.axiosRef.post(
+                this.authUrl,
+                new URLSearchParams({ grant_type: 'client_credentials' }),
+                {
+                    headers: {
+                        'Authorization': `Basic ${credentials}`,
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    timeout: 10000,
+                },
+            );
+
+            this.logger.log('Weezevent credential test successful');
+            return { valid: true };
+        } catch (error) {
+            const msg =
+                error.response?.data?.error_description ||
+                error.response?.data?.error ||
+                error.message;
+            this.logger.warn(`Weezevent credential test failed: ${msg}`);
+            return { valid: false, error: msg };
+        }
+    }
+
+    /**
      * Request a new access token from Weezevent
      */
     private async requestNewToken(tenantId: string): Promise<string> {

@@ -4,9 +4,10 @@ import { IntegrationsService } from './integrations.service';
 import { WeezeventIntegrationService } from './services/weezevent-integration.service';
 import { WebhookIntegrationService } from './services/webhook-integration.service';
 import { EncryptionModule } from '../../core/encryption/encryption.module';
+import { WeezeventModule } from '../weezevent/weezevent.module';
 
 @Module({
-  imports: [EncryptionModule],
+  imports: [EncryptionModule, WeezeventModule],
   controllers: [IntegrationsController],
   providers: [
     IntegrationsService,

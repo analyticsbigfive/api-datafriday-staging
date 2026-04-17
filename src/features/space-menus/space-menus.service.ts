@@ -72,15 +72,17 @@ export class SpaceMenusService {
                         name: true,
                         unit: true,
                         unitCost: true,
-                        totalCost: true,
                         storageType: true,
+                        category: true,
+                        allergens: true,
+                        description: true,
                         // Nested ingredients in components
                         ingredients: {
                           select: {
                             id: true,
-                            numberOfUnits: true,
+                            quantity: true,
                             unitCost: true,
-                            totalCost: true,
+                            cost: true,
                             ingredient: {
                               select: {
                                 id: true,
@@ -159,12 +161,11 @@ export class SpaceMenusService {
         component: {
           ...comp.component,
           unitCost: Number(comp.component.unitCost || 0),
-          totalCost: Number(comp.component.totalCost || 0),
           ingredients: comp.component.ingredients.map((ing: any) => ({
             id: ing.id,
-            numberOfUnits: ing.numberOfUnits,
+            quantity: ing.quantity,
             unitCost: Number(ing.unitCost || 0),
-            totalCost: Number(ing.totalCost || 0),
+            cost: Number(ing.cost || 0),
             ingredient: {
               ...ing.ingredient,
               unitCost: Number(ing.ingredient.unitCost || 0),

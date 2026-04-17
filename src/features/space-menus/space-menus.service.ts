@@ -27,6 +27,10 @@ export class SpaceMenusService {
         id: true,
         name: true,
         type: true,
+        notes: true,
+        image: true,
+        attributes: true,
+        shopTypes: true,
         menuAssignments: {
           select: {
             menuItemId: true,
@@ -58,7 +62,7 @@ export class SpaceMenusService {
                     name: true,
                   },
                 },
-                // Components with their details
+                // Components with their details (MenuItemComponent)
                 components: {
                   select: {
                     id: true,
@@ -76,20 +80,27 @@ export class SpaceMenusService {
                         category: true,
                         allergens: true,
                         description: true,
-                        // Nested ingredients in components
+                        componentCategory: true,
+                        numberOfUnitsRecipe: true,
+                        // Nested ingredients in components (ComponentIngredient)
                         ingredients: {
                           select: {
                             id: true,
                             quantity: true,
+                            unit: true,
                             unitCost: true,
                             cost: true,
                             ingredient: {
                               select: {
                                 id: true,
                                 name: true,
-                                unit: true,
-                                unitCost: true,
+                                recipeUnit: true,
+                                purchaseUnit: true,
+                                costPerRecipeUnit: true,
+                                costPerPurchaseUnit: true,
                                 storageType: true,
+                                ingredientCategory: true,
+                                supplier: true,
                               },
                             },
                           },
@@ -98,7 +109,7 @@ export class SpaceMenusService {
                     },
                   },
                 },
-                // Direct ingredients
+                // Direct ingredients (MenuItemIngredient)
                 ingredients: {
                   select: {
                     id: true,
@@ -110,14 +121,18 @@ export class SpaceMenusService {
                       select: {
                         id: true,
                         name: true,
-                        unit: true,
-                        unitCost: true,
+                        recipeUnit: true,
+                        purchaseUnit: true,
+                        costPerRecipeUnit: true,
+                        costPerPurchaseUnit: true,
                         storageType: true,
+                        ingredientCategory: true,
+                        supplier: true,
                       },
                     },
                   },
                 },
-                // Packagings
+                // Packagings (MenuItemPackaging)
                 packagings: {
                   select: {
                     id: true,
@@ -129,9 +144,12 @@ export class SpaceMenusService {
                       select: {
                         id: true,
                         name: true,
-                        unit: true,
-                        unitCost: true,
+                        recipeUnit: true,
+                        purchaseUnit: true,
+                        costPerRecipeUnit: true,
+                        costPerPurchaseUnit: true,
                         storageType: true,
+                        supplier: true,
                       },
                     },
                   },
@@ -147,65 +165,117 @@ export class SpaceMenusService {
       throw new NotFoundException(`Shop with ID ${shopId} not found`);
     }
 
+    const shopAny = shop as any;
+
     // Transform the data to a cleaner format
-    const menuItems = (shop as any).menuAssignments.map((assignment: any) => ({
-      ...assignment.menuItem,
-      enabled: assignment.enabled,
-      // Transform components to include nested structure
-      components: assignment.menuItem.components.map((comp: any) => ({
-        id: comp.id,
-        numberOfUnits: comp.numberOfUnits,
-        unitCost: Number(comp.unitCost || 0),
-        totalCost: Number(comp.totalCost || 0),
-        storageType: comp.storageType,
-        component: {
-          ...comp.component,
-          unitCost: Number(comp.component.unitCost || 0),
-          ingredients: comp.component.ingredients.map((ing: any) => ({
-            id: ing.id,
-            quantity: ing.quantity,
-            unitCost: Number(ing.unitCost || 0),
-            cost: Number(ing.cost || 0),
-            ingredient: {
-              ...ing.ingredient,
-              unitCost: Number(ing.ingredient.unitCost || 0),
-            },
-          })),
-        },
-      })),
-      // Transform direct ingredients
-      ingredients: assignment.menuItem.ingredients.map((ing: any) => ({
-        id: ing.id,
-        numberOfUnits: ing.numberOfUnits,
-        unitCost: Number(ing.unitCost || 0),
-        totalCost: Number(ing.totalCost || 0),
-        storageType: ing.storageType,
-        ingredient: {
-          ...ing.ingredient,
-          unitCost: Number(ing.ingredient.unitCost || 0),
-        },
-      })),
-      // Transform packagings
-      packagings: assignment.menuItem.packagings.map((pack: any) => ({
-        id: pack.id,
-        numberOfUnits: pack.numberOfUnits,
-        unitCost: Number(pack.unitCost || 0),
-        totalCost: Number(pack.totalCost || 0),
-        storageType: pack.storageType,
-        packaging: {
-          ...pack.packaging,
-          unitCost: Number(pack.packaging.unitCost || 0),
-        },
-      })),
-      // Convert Decimal to number for prices
-      basePrice: Number(assignment.menuItem.basePrice),
-      totalCost: Number(assignment.menuItem.totalCost || 0),
-    }));
+    const menuItems = shopAny.menuAssignments.map((assignment: any) => {
+      const mi = assignment.menuItem;
+      return {
+        id: mi.id,
+        name: mi.name,
+        description: mi.description,
+        picture: mi.picture,
+        basePrice: Number(mi.basePrice || 0),
+        totalCost: Number(mi.totalCost || 0),
+        margin: mi.margin,
+        diet: mi.diet || [],
+        allergens: mi.allergens || [],
+        storageType: mi.storageType || [],
+        readyForSale: mi.readyForSale,
+        comboItem: mi.comboItem,
+        numberOfPiecesRecipe: mi.numberOfPiecesRecipe,
+        enabled: assignment.enabled,
+        productType: mi.productType,
+        productCategory: mi.productCategory,
+
+        // Components with nested ingredients
+        components: (mi.components || []).map((comp: any) => ({
+          id: comp.id,
+          numberOfUnits: comp.numberOfUnits,
+          unitCost: Number(comp.unitCost || 0),
+          totalCost: Number(comp.totalCost || 0),
+          storageType: comp.storageType,
+          component: {
+            id: comp.component.id,
+            name: comp.component.name,
+            unit: comp.component.unit,
+            unitCost: Number(comp.component.unitCost || 0),
+            storageType: comp.component.storageType,
+            category: comp.component.category,
+            componentCategory: comp.component.componentCategory,
+            allergens: comp.component.allergens || [],
+            description: comp.component.description,
+            numberOfUnitsRecipe: comp.component.numberOfUnitsRecipe,
+            ingredients: (comp.component.ingredients || []).map((ing: any) => ({
+              id: ing.id,
+              quantity: ing.quantity,
+              unit: ing.unit,
+              unitCost: Number(ing.unitCost || 0),
+              cost: Number(ing.cost || 0),
+              ingredient: {
+                id: ing.ingredient.id,
+                name: ing.ingredient.name,
+                recipeUnit: ing.ingredient.recipeUnit,
+                purchaseUnit: ing.ingredient.purchaseUnit,
+                costPerRecipeUnit: Number(ing.ingredient.costPerRecipeUnit || 0),
+                costPerPurchaseUnit: Number(ing.ingredient.costPerPurchaseUnit || 0),
+                storageType: ing.ingredient.storageType,
+                ingredientCategory: ing.ingredient.ingredientCategory,
+                supplier: ing.ingredient.supplier,
+              },
+            })),
+          },
+        })),
+
+        // Direct ingredients
+        ingredients: (mi.ingredients || []).map((ing: any) => ({
+          id: ing.id,
+          numberOfUnits: ing.numberOfUnits,
+          unitCost: Number(ing.unitCost || 0),
+          totalCost: Number(ing.totalCost || 0),
+          storageType: ing.storageType,
+          ingredient: {
+            id: ing.ingredient.id,
+            name: ing.ingredient.name,
+            recipeUnit: ing.ingredient.recipeUnit,
+            purchaseUnit: ing.ingredient.purchaseUnit,
+            costPerRecipeUnit: Number(ing.ingredient.costPerRecipeUnit || 0),
+            costPerPurchaseUnit: Number(ing.ingredient.costPerPurchaseUnit || 0),
+            storageType: ing.ingredient.storageType,
+            ingredientCategory: ing.ingredient.ingredientCategory,
+            supplier: ing.ingredient.supplier,
+          },
+        })),
+
+        // Packagings
+        packagings: (mi.packagings || []).map((pack: any) => ({
+          id: pack.id,
+          numberOfUnits: pack.numberOfUnits,
+          unitCost: Number(pack.unitCost || 0),
+          totalCost: Number(pack.totalCost || 0),
+          storageType: pack.storageType,
+          packaging: {
+            id: pack.packaging.id,
+            name: pack.packaging.name,
+            recipeUnit: pack.packaging.recipeUnit,
+            purchaseUnit: pack.packaging.purchaseUnit,
+            costPerRecipeUnit: Number(pack.packaging.costPerRecipeUnit || 0),
+            costPerPurchaseUnit: Number(pack.packaging.costPerPurchaseUnit || 0),
+            storageType: pack.packaging.storageType,
+            supplier: pack.packaging.supplier,
+          },
+        })),
+      };
+    });
 
     return {
-      shopId: shop.id,
-      shopName: shop.name,
-      shopType: shop.type,
+      shopId: shopAny.id,
+      shopName: shopAny.name,
+      shopType: shopAny.type,
+      shopSubTypes: shopAny.shopTypes || [],
+      notes: shopAny.notes,
+      image: shopAny.image,
+      attributes: shopAny.attributes,
       menuItems,
     };
   }

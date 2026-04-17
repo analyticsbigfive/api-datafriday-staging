@@ -27,7 +27,11 @@ export class SpaceMenusController {
       properties: {
         shopId: { type: 'string', example: 'clx1a2b3c4d5e6f7g8h9i0j1k' },
         shopName: { type: 'string', example: 'Bar Principal' },
-        shopType: { type: 'string', example: 'fnb_bar' },
+        shopType: { type: 'string', example: 'fnb_bar', description: 'Type enum du shop' },
+        shopSubTypes: { type: 'array', items: { type: 'string' }, example: ['cafe'], description: 'Sous-types du shop' },
+        notes: { type: 'string', nullable: true, description: 'Notes/description du shop' },
+        image: { type: 'string', nullable: true, description: 'Image du shop' },
+        attributes: { type: 'object', nullable: true, description: 'Attributs additionnels (JSON flexible)' },
         menuItems: {
           type: 'array',
           items: {
@@ -86,32 +90,41 @@ export class SpaceMenusController {
                     storageType: { type: 'string', nullable: true, example: 'FROZEN' },
                     component: {
                       type: 'object',
-                      description: 'Détails du composant',
+                      description: 'Détails du composant (MenuComponent)',
                       properties: {
                         id: { type: 'string' },
                         name: { type: 'string', example: 'Pain burger brioche' },
                         unit: { type: 'string', example: 'piece' },
                         unitCost: { type: 'number', example: 0.80 },
-                        totalCost: { type: 'number', example: 0.80 },
-                        storageType: { type: 'array', items: { type: 'string' } },
+                        storageType: { type: 'string', nullable: true, example: 'DRY' },
+                        category: { type: 'string', example: 'Food' },
+                        componentCategory: { type: 'string', nullable: true, example: 'Bread' },
+                        allergens: { type: 'array', items: { type: 'string' }, example: ['GLUTEN'] },
+                        description: { type: 'string', nullable: true },
+                        numberOfUnitsRecipe: { type: 'number', nullable: true },
                         ingredients: {
                           type: 'array',
-                          description: 'Ingrédients contenus dans le composant',
+                          description: 'Ingrédients contenus dans le composant (ComponentIngredient)',
                           items: {
                             type: 'object',
                             properties: {
                               id: { type: 'string' },
-                              numberOfUnits: { type: 'number', example: 0.08 },
+                              quantity: { type: 'number', example: 0.08, description: 'Quantité utilisée' },
+                              unit: { type: 'string', nullable: true, example: 'kg' },
                               unitCost: { type: 'number', example: 2.50 },
-                              totalCost: { type: 'number', example: 0.20 },
+                              cost: { type: 'number', example: 0.20, description: 'Coût total' },
                               ingredient: {
                                 type: 'object',
                                 properties: {
                                   id: { type: 'string' },
                                   name: { type: 'string', example: 'Farine T55' },
-                                  unit: { type: 'string', example: 'kg' },
-                                  unitCost: { type: 'number', example: 2.50 },
-                                  storageType: { type: 'array', items: { type: 'string' } }
+                                  recipeUnit: { type: 'string', example: 'kg', description: 'Unité de recette' },
+                                  purchaseUnit: { type: 'string', example: 'sac 25kg', description: 'Unité d\'achat' },
+                                  costPerRecipeUnit: { type: 'number', example: 2.50 },
+                                  costPerPurchaseUnit: { type: 'number', example: 62.50 },
+                                  storageType: { type: 'string', nullable: true, example: 'DRY' },
+                                  ingredientCategory: { type: 'string', nullable: true },
+                                  supplier: { type: 'string', nullable: true }
                                 }
                               }
                             }
@@ -124,7 +137,7 @@ export class SpaceMenusController {
               },
               ingredients: {
                 type: 'array',
-                description: 'Ingrédients directs (matières premières)',
+                description: 'Ingrédients directs (MenuItemIngredient)',
                 items: {
                   type: 'object',
                   properties: {
@@ -135,12 +148,17 @@ export class SpaceMenusController {
                     storageType: { type: 'string', nullable: true, example: 'FROZEN' },
                     ingredient: {
                       type: 'object',
+                      description: 'Matière première (Ingredient)',
                       properties: {
                         id: { type: 'string' },
                         name: { type: 'string', example: 'Steak haché 15% MG' },
-                        unit: { type: 'string', example: 'kg' },
-                        unitCost: { type: 'number', example: 12.00 },
-                        storageType: { type: 'array', items: { type: 'string' } }
+                        recipeUnit: { type: 'string', example: 'kg', description: 'Unité de recette' },
+                        purchaseUnit: { type: 'string', example: 'kg', description: 'Unité d\'achat' },
+                        costPerRecipeUnit: { type: 'number', example: 12.00 },
+                        costPerPurchaseUnit: { type: 'number', example: 12.00 },
+                        storageType: { type: 'string', nullable: true, example: 'FROZEN' },
+                        ingredientCategory: { type: 'string', nullable: true, example: 'MEAT' },
+                        supplier: { type: 'string', nullable: true }
                       }
                     }
                   }
@@ -148,7 +166,7 @@ export class SpaceMenusController {
               },
               packagings: {
                 type: 'array',
-                description: 'Emballages utilisés pour servir le produit',
+                description: 'Emballages utilisés pour servir le produit (MenuItemPackaging)',
                 items: {
                   type: 'object',
                   properties: {
@@ -159,12 +177,16 @@ export class SpaceMenusController {
                     storageType: { type: 'string', nullable: true, example: 'DRY' },
                     packaging: {
                       type: 'object',
+                      description: 'Emballage (Packaging)',
                       properties: {
                         id: { type: 'string' },
                         name: { type: 'string', example: 'Boîte burger carton recyclable' },
-                        unit: { type: 'string', example: 'piece' },
-                        unitCost: { type: 'number', example: 0.35 },
-                        storageType: { type: 'array', items: { type: 'string' } }
+                        recipeUnit: { type: 'string', example: 'piece' },
+                        purchaseUnit: { type: 'string', example: 'carton 500' },
+                        costPerRecipeUnit: { type: 'number', example: 0.35 },
+                        costPerPurchaseUnit: { type: 'number', example: 175.00 },
+                        storageType: { type: 'string', nullable: true, example: 'DRY' },
+                        supplier: { type: 'string', nullable: true }
                       }
                     }
                   }

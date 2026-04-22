@@ -1,0 +1,376 @@
+{
+  "shopId": "clx1a2b3c4d5e6f7g8h9i0j1k",
+  "shopName": "Bar Principal - Niveau 1",
+  "shopType": "fnb_bar",
+  "menuItems": [
+    {
+      "id": "menuitem-burger-classic",
+      "name": "Burger Classic",
+      "basePrice": 12.50,
+      "totalCost": 4.25,
+      "margin": 65.6,
+      "description": "Notre burger signature avec steak haché, cheddar, tomate, salade et sauce maison",
+      "picture": "https://cdn.datafriday.com/products/burger-classic.jpg",
+      "diet": ["NONE"],
+      "allergens": ["GLUTEN", "LACTOSE", "EGGS"],
+      "storageType": ["FROZEN", "REFRIGERATED"],
+      "readyForSale": "Yes",
+      "comboItem": "No",
+      "numberOfPiecesRecipe": 1,
+      "enabled": true,
+      "productType": {
+        "id": "type-food",
+        "name": "Food"
+      },
+      "productCategory": {
+        "id": "cat-burgers",
+        "name": "Burgers"
+      },
+      "components": [
+        {
+          "id": "comp-link-pain-burger",
+          "numberOfUnits": 1,
+          "unitCost": 0.80,
+          "totalCost": 0.80,
+          "storageType": "FROZEN",
+          "component": {
+            "id": "comp-pain-burger",
+            "name": "Pain burger brioche",
+            "unit": "piece",
+            "unitCost": 0.80,
+            "totalCost": 0.80,
+            "storageType": ["FROZEN"],
+            "ingredients": [
+              {
+                "id": "ing-link-farine",
+                "numberOfUnits": 0.08,
+                "unitCost": 2.50,
+                "totalCost": 0.20,
+                "ingredient": {
+                  "id": "ing-farine",
+                  "name": "Farine T55",
+                  "unit": "kg",
+                  "unitCost": 2.50,
+                  "storageType": ["DRY"]
+                }
+              },
+              {
+                "id": "ing-link-beurre",
+                "numberOfUnits": 0.01,
+                "unitCost": 8.00,
+                "totalCost": 0.08,
+                "ingredient": {
+                  "id": "ing-beurre",
+                  "name": "Beurre doux",
+                  "unit": "kg",
+                  "unitCost": 8.00,
+                  "storageType": ["REFRIGERATED"]
+                }
+              },
+              {
+                "id": "ing-link-oeufs",
+                "numberOfUnits": 0.02,
+                "unitCost": 12.00,
+                "totalCost": 0.24,
+                "ingredient": {
+                  "id": "ing-oeufs",
+                  "name": "Œufs frais",
+                  "unit": "kg",
+                  "unitCost": 12.00,
+                  "storageType": ["REFRIGERATED"]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "comp-link-sauce-maison",
+          "numberOfUnits": 0.03,
+          "unitCost": 15.00,
+          "totalCost": 0.45,
+          "storageType": "REFRIGERATED",
+          "component": {
+            "id": "comp-sauce-maison",
+            "name": "Sauce burger maison",
+            "unit": "L",
+            "unitCost": 15.00,
+            "totalCost": 15.00,
+            "storageType": ["REFRIGERATED"],
+            "ingredients": [
+              {
+                "id": "ing-link-mayo",
+                "numberOfUnits": 0.5,
+                "unitCost": 8.00,
+                "totalCost": 4.00,
+                "ingredient": {
+                  "id": "ing-mayo",
+                  "name": "Mayonnaise",
+                  "unit": "L",
+                  "unitCost": 8.00,
+                  "storageType": ["REFRIGERATED"]
+                }
+              },
+              {
+                "id": "ing-link-ketchup",
+                "numberOfUnits": 0.3,
+                "unitCost": 6.00,
+                "totalCost": 1.80,
+                "ingredient": {
+                  "id": "ing-ketchup",
+                  "name": "Ketchup",
+                  "unit": "L",
+                  "unitCost": 6.00,
+                  "storageType": ["DRY"]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "ingredients": [
+        {
+          "id": "ing-link-steak",
+          "numberOfUnits": 0.15,
+          "unitCost": 12.00,
+          "totalCost": 1.80,
+          "storageType": "FROZEN",
+          "ingredient": {
+            "id": "ing-steak",
+            "name": "Steak haché 15% MG",
+            "unit": "kg",
+            "unitCost": 12.00,
+            "storageType": ["FROZEN"]
+          }
+        },
+        {
+          "id": "ing-link-cheddar",
+          "numberOfUnits": 0.03,
+          "unitCost": 18.00,
+          "totalCost": 0.54,
+          "storageType": "REFRIGERATED",
+          "ingredient": {
+            "id": "ing-cheddar",
+            "name": "Cheddar en tranches",
+            "unit": "kg",
+            "unitCost": 18.00,
+            "storageType": ["REFRIGERATED"]
+          }
+        },
+        {
+          "id": "ing-link-tomate",
+          "numberOfUnits": 0.05,
+          "unitCost": 4.00,
+          "totalCost": 0.20,
+          "storageType": "REFRIGERATED",
+          "ingredient": {
+            "id": "ing-tomate",
+            "name": "Tomates fraîches",
+            "unit": "kg",
+            "unitCost": 4.00,
+            "storageType": ["REFRIGERATED"]
+          }
+        },
+        {
+          "id": "ing-link-salade",
+          "numberOfUnits": 0.02,
+          "unitCost": 6.00,
+          "totalCost": 0.12,
+          "storageType": "REFRIGERATED",
+          "ingredient": {
+            "id": "ing-salade",
+            "name": "Salade iceberg",
+            "unit": "kg",
+            "unitCost": 6.00,
+            "storageType": ["REFRIGERATED"]
+          }
+        }
+      ],
+      "packagings": [
+        {
+          "id": "pack-link-boite-burger",
+          "numberOfUnits": 1,
+          "unitCost": 0.35,
+          "totalCost": 0.35,
+          "storageType": "DRY",
+          "packaging": {
+            "id": "pack-boite-burger",
+            "name": "Boîte burger carton recyclable",
+            "unit": "piece",
+            "unitCost": 0.35,
+            "storageType": ["DRY"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "menuitem-coca-cola",
+      "name": "Coca-Cola 33cl",
+      "basePrice": 3.50,
+      "totalCost": 0.85,
+      "margin": 75.7,
+      "description": "Coca-Cola classique en canette",
+      "picture": "https://cdn.datafriday.com/products/coca-cola.jpg",
+      "diet": ["VEGAN"],
+      "allergens": [],
+      "storageType": ["DRY"],
+      "readyForSale": "Yes",
+      "comboItem": "Yes",
+      "numberOfPiecesRecipe": 1,
+      "enabled": true,
+      "productType": {
+        "id": "type-beverage",
+        "name": "Beverage"
+      },
+      "productCategory": {
+        "id": "cat-soft-drinks",
+        "name": "Soft Drinks"
+      },
+      "components": [],
+      "ingredients": [
+        {
+          "id": "ing-link-coca",
+          "numberOfUnits": 1,
+          "unitCost": 0.65,
+          "totalCost": 0.65,
+          "storageType": "DRY",
+          "ingredient": {
+            "id": "ing-coca",
+            "name": "Coca-Cola canette 33cl",
+            "unit": "piece",
+            "unitCost": 0.65,
+            "storageType": ["DRY"]
+          }
+        }
+      ],
+      "packagings": [
+        {
+          "id": "pack-link-paille",
+          "numberOfUnits": 1,
+          "unitCost": 0.05,
+          "totalCost": 0.05,
+          "storageType": "DRY",
+          "packaging": {
+            "id": "pack-paille",
+            "name": "Paille papier biodégradable",
+            "unit": "piece",
+            "unitCost": 0.05,
+            "storageType": ["DRY"]
+          }
+        },
+        {
+          "id": "pack-link-gobelet",
+          "numberOfUnits": 1,
+          "unitCost": 0.15,
+          "totalCost": 0.15,
+          "storageType": "DRY",
+          "packaging": {
+            "id": "pack-gobelet",
+            "name": "Gobelet carton 40cl",
+            "unit": "piece",
+            "unitCost": 0.15,
+            "storageType": ["DRY"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "menuitem-frites",
+      "name": "Frites maison",
+      "basePrice": 4.50,
+      "totalCost": 1.20,
+      "margin": 73.3,
+      "description": "Frites fraîches coupées maison",
+      "picture": "https://cdn.datafriday.com/products/frites.jpg",
+      "diet": ["VEGAN", "VEGETARIAN"],
+      "allergens": [],
+      "storageType": ["REFRIGERATED"],
+      "readyForSale": "Yes",
+      "comboItem": "Yes",
+      "numberOfPiecesRecipe": 1,
+      "enabled": true,
+      "productType": {
+        "id": "type-food",
+        "name": "Food"
+      },
+      "productCategory": {
+        "id": "cat-sides",
+        "name": "Sides"
+      },
+      "components": [],
+      "ingredients": [
+        {
+          "id": "ing-link-pommes-terre",
+          "numberOfUnits": 0.25,
+          "unitCost": 2.00,
+          "totalCost": 0.50,
+          "storageType": "REFRIGERATED",
+          "ingredient": {
+            "id": "ing-pommes-terre",
+            "name": "Pommes de terre Bintje",
+            "unit": "kg",
+            "unitCost": 2.00,
+            "storageType": ["REFRIGERATED"]
+          }
+        },
+        {
+          "id": "ing-link-huile-friture",
+          "numberOfUnits": 0.05,
+          "unitCost": 8.00,
+          "totalCost": 0.40,
+          "storageType": "DRY",
+          "ingredient": {
+            "id": "ing-huile-friture",
+            "name": "Huile de tournesol",
+            "unit": "L",
+            "unitCost": 8.00,
+            "storageType": ["DRY"]
+          }
+        },
+        {
+          "id": "ing-link-sel",
+          "numberOfUnits": 0.005,
+          "unitCost": 2.00,
+          "totalCost": 0.01,
+          "storageType": "DRY",
+          "ingredient": {
+            "id": "ing-sel",
+            "name": "Sel fin",
+            "unit": "kg",
+            "unitCost": 2.00,
+            "storageType": ["DRY"]
+          }
+        }
+      ],
+      "packagings": [
+        {
+          "id": "pack-link-cornet-frites",
+          "numberOfUnits": 1,
+          "unitCost": 0.25,
+          "totalCost": 0.25,
+          "storageType": "DRY",
+          "packaging": {
+            "id": "pack-cornet-frites",
+            "name": "Cornet frites carton",
+            "unit": "piece",
+            "unitCost": 0.25,
+            "storageType": ["DRY"]
+          }
+        },
+        {
+          "id": "pack-link-serviette",
+          "numberOfUnits": 2,
+          "unitCost": 0.02,
+          "totalCost": 0.04,
+          "storageType": "DRY",
+          "packaging": {
+            "id": "pack-serviette",
+            "name": "Serviette papier",
+            "unit": "piece",
+            "unitCost": 0.02,
+            "storageType": ["DRY"]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -204,11 +204,30 @@ model Tenant {
   weezeventOrders           WeezeventOrder[]
   weezeventPrices           WeezeventPrice[]
   weezeventAttendees        WeezeventAttendee[]
+  weezeventIntegrations     WeezeventIntegration[]
 
   @@index([slug])
   @@index([status])
   @@index([weezeventEnabled])
   @@index([weezeventWebhookEnabled])
+}
+
+// Multiple Weezevent API credentials per tenant (one per event / organization)
+model WeezeventIntegration {
+  id             String   @id @default(cuid())
+  tenantId       String
+  name           String // User-defined label, e.g. "Stande", "Hellfest 2025"
+  clientId       String
+  clientSecret   String // Encrypted
+  organizationId String? // Weezevent Organization ID
+  enabled        Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, enabled])
 }
 
 enum TenantPlan {

@@ -5,144 +5,169 @@ import { PrismaService } from '../../../core/database/prisma.service';
 import { EncryptionService } from '../../../core/encryption/encryption.service';
 
 describe('WeezeventIntegrationService', () => {
-  let service: WeezeventIntegrationService;
-  let prisma: PrismaService;
-  let encryptionService: EncryptionService;
+    let service: WeezeventIntegrationService;
 
-  const mockTenant = {
-    id: 'org-123',
-    name: 'Test Organization',
-    slug: 'test-org',
-    weezeventClientId: 'client-123',
-    weezeventOrganizationId: 'weez-org-456',
-    weezeventEnabled: true,
-  };
-
-  const mockPrismaService = {
-    tenant: {
-      findUnique: jest.fn(),
-      update: jest.fn(),
-    },
-  };
-
-  const mockEncryptionService = {
-    encrypt: jest.fn().mockReturnValue('encrypted-secret'),
-  };
-
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        WeezeventIntegrationService,
-        {
-          provide: PrismaService,
-          useValue: mockPrismaService,
+    const mockPrismaService: any = {
+        tenant: {
+            findUnique: jest.fn(),
+            update: jest.fn().mockResolvedValue({}),
         },
-        {
-          provide: EncryptionService,
-          useValue: mockEncryptionService,
+        weezeventIntegration: {
+            findFirst: jest.fn(),
+            findMany: jest.fn(),
+            create: jest.fn(),
+            update: jest.fn(),
+            updateMany: jest.fn(),
+            delete: jest.fn(),
         },
-      ],
-    }).compile();
+    };
 
-    service = module.get<WeezeventIntegrationService>(WeezeventIntegrationService);
-    prisma = module.get<PrismaService>(PrismaService);
-    encryptionService = module.get<EncryptionService>(EncryptionService);
+    const mockEncryptionService = {
+        encrypt: jest.fn().mockReturnValue('encrypted-secret'),
+        decrypt: jest.fn().mockReturnValue('decrypted-secret'),
+    };
 
-    jest.clearAllMocks();
-  });
+    beforeEach(async () => {
+        const module: TestingModule = await Test.createTestingModule({
+            providers: [
+                WeezeventIntegrationService,
+                { provide: PrismaService, useValue: mockPrismaService },
+                { provide: EncryptionService, useValue: mockEncryptionService },
+            ],
+        }).compile();
 
-  it('should be defined', () => {
-    expect(service).toBeDefined();
-  });
-
-  describe('updateConfig', () => {
-    it('should update Weezevent configuration', async () => {
-      const config = {
-        weezeventClientId: 'new-client-id',
-        weezeventOrganizationId: 'new-org-id',
-        weezeventEnabled: true,
-      };
-
-      mockPrismaService.tenant.findUnique.mockResolvedValue(mockTenant);
-      mockPrismaService.tenant.update.mockResolvedValue({
-        ...mockTenant,
-        ...config,
-      });
-
-      const result = await service.updateConfig('org-123', config);
-
-      expect(result.weezeventClientId).toBe('new-client-id');
-      expect(mockPrismaService.tenant.update).toHaveBeenCalledWith({
-        where: { id: 'org-123' },
-        data: expect.objectContaining({
-          weezeventClientId: 'new-client-id',
-          weezeventOrganizationId: 'new-org-id',
-          weezeventEnabled: true,
-        }),
-        select: expect.any(Object),
-      });
+        service = module.get<WeezeventIntegrationService>(WeezeventIntegrationService);
+        jest.clearAllMocks();
     });
 
-    it('should encrypt client secret when provided', async () => {
-      const config = {
-        weezeventClientSecret: 'my-secret',
-      };
-
-      mockPrismaService.tenant.findUnique.mockResolvedValue(mockTenant);
-      mockPrismaService.tenant.update.mockResolvedValue(mockTenant);
-
-      await service.updateConfig('org-123', config);
-
-      expect(mockEncryptionService.encrypt).toHaveBeenCalledWith('my-secret');
-      expect(mockPrismaService.tenant.update).toHaveBeenCalledWith({
-        where: { id: 'org-123' },
-        data: expect.objectContaining({
-          weezeventClientSecret: 'encrypted-secret',
-        }),
-        select: expect.any(Object),
-      });
+    it('should be defined', () => {
+        expect(service).toBeDefined();
     });
 
-    it('should throw NotFoundException when organization not found', async () => {
-      mockPrismaService.tenant.findUnique.mockResolvedValue(null);
+    describe('createInstance', () => {
+        it('creates a new instance and mirrors to tenant', async () => {
+            mockPrismaService.tenant.findUnique.mockResolvedValue({ id: 'org-123' });
+            const created = {
+                id: 'inst-1',
+                name: 'My Event',
+                clientId: 'client-1',
+                organizationId: 'weez-1',
+                enabled: true,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            };
+            mockPrismaService.weezeventIntegration.create.mockResolvedValue(created);
+            mockPrismaService.weezeventIntegration.findFirst.mockResolvedValue({
+                ...created,
+                clientSecret: 'encrypted-secret',
+            });
 
-      await expect(
-        service.updateConfig('non-existent', { weezeventClientId: 'test' }),
-      ).rejects.toThrow(NotFoundException);
+            const result = await service.createInstance('org-123', {
+                name: 'My Event',
+                clientId: 'client-1',
+                clientSecret: 'secret',
+                organizationId: 'weez-1',
+            });
+
+            expect(result.id).toBe('inst-1');
+            expect(mockEncryptionService.encrypt).toHaveBeenCalledWith('secret');
+            expect(mockPrismaService.tenant.update).toHaveBeenCalled();
+        });
+
+        it('throws NotFound when tenant missing', async () => {
+            mockPrismaService.tenant.findUnique.mockResolvedValue(null);
+            await expect(
+                service.createInstance('missing', {
+                    name: 'X',
+                    clientId: 'c',
+                    clientSecret: 's',
+                }),
+            ).rejects.toThrow(NotFoundException);
+        });
     });
-  });
 
-  describe('getConfig', () => {
-    it('should return Weezevent configuration', async () => {
-      mockPrismaService.tenant.findUnique.mockResolvedValue(mockTenant);
+    describe('updateInstance', () => {
+        it('keeps existing secret when clientSecret omitted', async () => {
+            mockPrismaService.weezeventIntegration.findFirst.mockResolvedValue({ id: 'inst-1' });
+            mockPrismaService.weezeventIntegration.update.mockResolvedValue({
+                id: 'inst-1',
+                name: 'Renamed',
+                clientId: 'client-1',
+                organizationId: 'weez-1',
+                enabled: true,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            });
 
-      const result = await service.getConfig('org-123');
+            await service.updateInstance('org-123', 'inst-1', { name: 'Renamed' });
 
-      expect(result).toEqual({
-        clientId: 'client-123',
-        organizationId: 'weez-org-456',
-        enabled: true,
-        configured: true,
-      });
+            expect(mockEncryptionService.encrypt).not.toHaveBeenCalled();
+        });
+
+        it('encrypts clientSecret when provided', async () => {
+            mockPrismaService.weezeventIntegration.findFirst.mockResolvedValue({ id: 'inst-1' });
+            mockPrismaService.weezeventIntegration.update.mockResolvedValue({
+                id: 'inst-1',
+                name: 'X',
+                clientId: 'c',
+                organizationId: null,
+                enabled: true,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            });
+
+            await service.updateInstance('org-123', 'inst-1', { clientSecret: 'new-secret' });
+
+            expect(mockEncryptionService.encrypt).toHaveBeenCalledWith('new-secret');
+        });
+
+        it('throws NotFound when instance missing', async () => {
+            mockPrismaService.weezeventIntegration.findFirst.mockResolvedValue(null);
+            await expect(
+                service.updateInstance('org-123', 'missing', { name: 'X' }),
+            ).rejects.toThrow(NotFoundException);
+        });
     });
 
-    it('should return configured false when no clientId', async () => {
-      mockPrismaService.tenant.findUnique.mockResolvedValue({
-        ...mockTenant,
-        weezeventClientId: null,
-      });
+    describe('deleteInstance', () => {
+        it('deletes and disables tenant when no more instances', async () => {
+            mockPrismaService.weezeventIntegration.findFirst
+                .mockResolvedValueOnce({ id: 'inst-1' })
+                .mockResolvedValueOnce(null);
+            mockPrismaService.weezeventIntegration.delete.mockResolvedValue({});
 
-      const result = await service.getConfig('org-123');
+            await service.deleteInstance('org-123', 'inst-1');
 
-      expect(result.configured).toBe(false);
+            expect(mockPrismaService.tenant.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({ weezeventEnabled: false }),
+                }),
+            );
+        });
     });
 
-    it('should throw NotFoundException when organization not found', async () => {
-      mockPrismaService.tenant.findUnique.mockResolvedValue(null);
+    describe('getConfig (legacy)', () => {
+        it('returns first enabled instance when present', async () => {
+            mockPrismaService.tenant.findUnique.mockResolvedValue({ id: 'org-123' });
+            mockPrismaService.weezeventIntegration.findFirst.mockResolvedValueOnce({
+                id: 'inst-1',
+                clientId: 'c1',
+                organizationId: 'o1',
+                enabled: true,
+            });
 
-      await expect(service.getConfig('non-existent')).rejects.toThrow(
-        NotFoundException,
-      );
+            const result = await service.getConfig('org-123');
+            expect(result).toEqual({
+                clientId: 'c1',
+                organizationId: 'o1',
+                enabled: true,
+                configured: true,
+            });
+        });
+
+        it('throws NotFound when tenant missing', async () => {
+            mockPrismaService.tenant.findUnique.mockResolvedValue(null);
+            await expect(service.getConfig('missing')).rejects.toThrow(NotFoundException);
+        });
     });
-  });
 });

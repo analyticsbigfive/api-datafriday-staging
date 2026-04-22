@@ -3,6 +3,7 @@ import {
     Get,
     Post,
     Patch,
+    Delete,
     Param,
     Body,
     UseGuards,
@@ -15,6 +16,11 @@ import { WebhookIntegrationService } from './services/webhook-integration.servic
 import { WeezeventAuthService } from '../weezevent/services/weezevent-auth.service';
 import { WeezeventConfigDto } from './dto/weezevent-config.dto';
 import { WebhookConfigDto } from './dto/webhook-config.dto';
+import {
+    CreateWeezeventInstanceDto,
+    UpdateWeezeventInstanceDto,
+    TestWeezeventInstanceDto,
+} from './dto/weezevent-instance.dto';
 
 @ApiTags('Integrations')
 @ApiBearerAuth('supabase-jwt')
@@ -110,6 +116,120 @@ export class IntegrationsController {
     @ApiResponse({ status: 200, description: 'Configuration Weezevent' })
     async getWeezeventConfig(@Param('organizationId') organizationId: string) {
         return this.weezeventService.getConfig(organizationId);
+    }
+
+    // ==================== Multi-instance Weezevent ====================
+
+    @Get('weezevent/instances')
+    @ApiOperation({ summary: 'Lister les instances Weezevent' })
+    @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
+    async listWeezeventInstances(@Param('organizationId') organizationId: string) {
+        return this.weezeventService.listInstances(organizationId);
+    }
+
+    @Post('weezevent/instances')
+    @ApiOperation({ summary: 'Créer une instance Weezevent' })
+    @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
+    async createWeezeventInstance(
+        @Param('organizationId') organizationId: string,
+        @Body() dto: CreateWeezeventInstanceDto,
+    ) {
+        // Validate credentials before persisting
+        const result = await this.weezeventAuthService.testCredentials(
+            dto.clientId,
+            dto.clientSecret,
+        );
+        if (!result.valid) {
+            throw new BadRequestException(
+                `Cannot save: Weezevent credentials are invalid (${result.error})`,
+            );
+        }
+
+        return this.weezeventService.createInstance(organizationId, dto);
+    }
+
+    @Patch('weezevent/instances/:instanceId')
+    @ApiOperation({ summary: 'Mettre à jour une instance Weezevent' })
+    @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
+    @ApiParam({ name: 'instanceId', description: "ID de l'instance" })
+    async updateWeezeventInstance(
+        @Param('organizationId') organizationId: string,
+        @Param('instanceId') instanceId: string,
+        @Body() dto: UpdateWeezeventInstanceDto,
+    ) {
+        // If client credentials are being changed, validate them first.
+        // If no new clientSecret is provided but clientId changed, reuse stored secret for validation.
+        const needsValidation =
+            dto.clientId !== undefined || dto.clientSecret !== undefined;
+
+        if (needsValidation) {
+            let clientId = dto.clientId;
+            let clientSecret = dto.clientSecret;
+
+            if (!clientId || !clientSecret) {
+                const stored = await this.weezeventService.getDecryptedCredentials(
+                    organizationId,
+                    instanceId,
+                );
+                if (!clientId) clientId = stored.clientId;
+                if (!clientSecret) clientSecret = stored.clientSecret;
+            }
+
+            const result = await this.weezeventAuthService.testCredentials(
+                clientId!,
+                clientSecret!,
+            );
+            if (!result.valid) {
+                throw new BadRequestException(
+                    `Cannot save: Weezevent credentials are invalid (${result.error})`,
+                );
+            }
+        }
+
+        return this.weezeventService.updateInstance(organizationId, instanceId, dto);
+    }
+
+    @Delete('weezevent/instances/:instanceId')
+    @ApiOperation({ summary: 'Supprimer une instance Weezevent' })
+    @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
+    @ApiParam({ name: 'instanceId', description: "ID de l'instance" })
+    async deleteWeezeventInstance(
+        @Param('organizationId') organizationId: string,
+        @Param('instanceId') instanceId: string,
+    ) {
+        return this.weezeventService.deleteInstance(organizationId, instanceId);
+    }
+
+    /**
+     * Test credentials for an existing instance. If clientSecret is not provided in the body,
+     * the stored (encrypted) secret is used.
+     */
+    @Post('weezevent/instances/:instanceId/test')
+    @ApiOperation({ summary: 'Tester les credentials d\'une instance Weezevent' })
+    @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
+    @ApiParam({ name: 'instanceId', description: "ID de l'instance" })
+    async testWeezeventInstance(
+        @Param('organizationId') organizationId: string,
+        @Param('instanceId') instanceId: string,
+        @Body() dto: TestWeezeventInstanceDto,
+    ) {
+        let clientId = dto.clientId;
+        let clientSecret = dto.clientSecret;
+
+        if (!clientId || !clientSecret) {
+            const stored = await this.weezeventService.getDecryptedCredentials(
+                organizationId,
+                instanceId,
+            );
+            if (!clientId) clientId = stored.clientId;
+            if (!clientSecret) clientSecret = stored.clientSecret;
+        }
+
+        const result = await this.weezeventAuthService.testCredentials(clientId, clientSecret);
+        if (!result.valid) {
+            throw new BadRequestException(`Invalid credentials: ${result.error}`);
+        }
+        return { valid: true, message: 'Connection successful' };
     }
 
     /**

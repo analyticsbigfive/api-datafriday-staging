@@ -235,16 +235,18 @@ export class WeezeventController {
     @ApiResponse({ status: 200, description: 'Liste paginée des événements Weezevent' })
     async getEvents(
         @CurrentUser() user: any,
-        @Query('page') page: number = 1,
-        @Query('perPage') perPage: number = 50,
+        @Query('page') page: any = 1,
+        @Query('perPage') perPage: any = 50,
     ) {
         const tenantId = user.tenantId;
+        const p = parseInt(page, 10) || 1;
+        const pp = Math.min(parseInt(perPage, 10) || 50, 200);
         const [events, total] = await Promise.all([
             this.prisma.weezeventEvent.findMany({
                 where: { tenantId },
                 orderBy: { startDate: 'desc' },
-                skip: (page - 1) * perPage,
-                take: perPage,
+                skip: (p - 1) * pp,
+                take: pp,
             }),
             this.prisma.weezeventEvent.count({ where: { tenantId } }),
         ]);
@@ -252,10 +254,10 @@ export class WeezeventController {
         return {
             data: events,
             meta: {
-                current_page: page,
-                per_page: perPage,
+                current_page: p,
+                per_page: pp,
                 total,
-                total_pages: Math.ceil(total / perPage),
+                total_pages: Math.ceil(total / pp),
             },
         };
     }
@@ -268,16 +270,18 @@ export class WeezeventController {
     @ApiResponse({ status: 200, description: 'Liste des locations Weezevent' })
     async getLocations(
         @CurrentUser() user: any,
-        @Query('page') page: number = 1,
-        @Query('perPage') perPage: number = 100,
+        @Query('page') page: any = 1,
+        @Query('perPage') perPage: any = 100,
     ) {
         const tenantId = user.tenantId;
+        const p = parseInt(page, 10) || 1;
+        const pp = Math.min(parseInt(perPage, 10) || 100, 500);
         const [locations, total] = await Promise.all([
             this.prisma.weezeventLocation.findMany({
                 where: { tenantId },
                 orderBy: { name: 'asc' },
-                skip: (page - 1) * perPage,
-                take: perPage,
+                skip: (p - 1) * pp,
+                take: pp,
             }),
             this.prisma.weezeventLocation.count({ where: { tenantId } }),
         ]);
@@ -285,10 +289,10 @@ export class WeezeventController {
         return {
             data: locations,
             meta: {
-                current_page: page,
-                per_page: perPage,
+                current_page: p,
+                per_page: pp,
                 total,
-                total_pages: Math.ceil(total / perPage),
+                total_pages: Math.ceil(total / pp),
             },
         };
     }
@@ -301,11 +305,13 @@ export class WeezeventController {
     @ApiResponse({ status: 200, description: 'Liste des merchants Weezevent' })
     async getMerchants(
         @CurrentUser() user: any,
-        @Query('page') page: number = 1,
-        @Query('perPage') perPage: number = 100,
+        @Query('page') page: any = 1,
+        @Query('perPage') perPage: any = 100,
         @Query('locationId') locationId?: string,
     ) {
         const tenantId = user.tenantId;
+        const p = parseInt(page, 10) || 1;
+        const pp = Math.min(parseInt(perPage, 10) || 100, 500);
 
         // If locationId provided, find merchants via transactions at that location
         if (locationId) {
@@ -328,8 +334,8 @@ export class WeezeventController {
             this.prisma.weezeventMerchant.findMany({
                 where: { tenantId },
                 orderBy: { name: 'asc' },
-                skip: (page - 1) * perPage,
-                take: perPage,
+                skip: (p - 1) * pp,
+                take: pp,
             }),
             this.prisma.weezeventMerchant.count({ where: { tenantId } }),
         ]);
@@ -337,10 +343,10 @@ export class WeezeventController {
         return {
             data: merchants,
             meta: {
-                current_page: page,
-                per_page: perPage,
+                current_page: p,
+                per_page: pp,
                 total,
-                total_pages: Math.ceil(total / perPage),
+                total_pages: Math.ceil(total / pp),
             },
         };
     }

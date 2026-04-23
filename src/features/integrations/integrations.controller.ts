@@ -8,9 +8,11 @@ import {
     Body,
     UseGuards,
     BadRequestException,
+    ForbiddenException,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
+import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { WeezeventIntegrationService } from './services/weezevent-integration.service';
 import { WebhookIntegrationService } from './services/webhook-integration.service';
 import { WeezeventAuthService } from '../weezevent/services/weezevent-auth.service';
@@ -40,10 +42,14 @@ export class IntegrationsController {
     @ApiOperation({ summary: 'Lister les intégrations d’une organisation' })
     @ApiParam({ name: 'organizationId', description: 'ID de l’organisation' })
     @ApiResponse({ status: 200, description: 'Configuration des intégrations disponibles' })
-    async listIntegrations(@Param('organizationId') organizationId: string) {
+    async listIntegrations(
+        @Param('organizationId') organizationId: string,
+        @CurrentUser() user: any,
+    ) {
+        const tenantId = this.resolveTenantId(user, organizationId);
         const [weezevent, webhooks] = await Promise.all([
-            this.weezeventService.getConfig(organizationId),
-            this.webhookService.getConfig(organizationId),
+            this.weezeventService.getConfig(tenantId),
+            this.webhookService.getConfig(tenantId),
         ]);
 
         return {
@@ -89,8 +95,10 @@ export class IntegrationsController {
     @ApiResponse({ status: 400, description: 'Credentials invalides' })
     async updateWeezeventConfig(
         @Param('organizationId') organizationId: string,
+        @CurrentUser() user: any,
         @Body() dto: WeezeventConfigDto,
     ) {
+        const tenantId = this.resolveTenantId(user, organizationId);
         // Validate credentials before saving if both clientId and clientSecret provided
         if (dto.weezeventClientId && dto.weezeventClientSecret) {
             const result = await this.weezeventAuthService.testCredentials(
@@ -104,7 +112,7 @@ export class IntegrationsController {
             }
         }
 
-        return this.weezeventService.updateConfig(organizationId, dto);
+        return this.weezeventService.updateConfig(tenantId, dto);
     }
 
     /**
@@ -114,8 +122,11 @@ export class IntegrationsController {
     @ApiOperation({ summary: 'Obtenir la configuration Weezevent' })
     @ApiParam({ name: 'organizationId', description: 'ID de l’organisation' })
     @ApiResponse({ status: 200, description: 'Configuration Weezevent' })
-    async getWeezeventConfig(@Param('organizationId') organizationId: string) {
-        return this.weezeventService.getConfig(organizationId);
+    async getWeezeventConfig(
+        @Param('organizationId') organizationId: string,
+        @CurrentUser() user: any,
+    ) {
+        return this.weezeventService.getConfig(this.resolveTenantId(user, organizationId));
     }
 
     // ==================== Multi-instance Weezevent ====================
@@ -123,8 +134,11 @@ export class IntegrationsController {
     @Get('weezevent/instances')
     @ApiOperation({ summary: 'Lister les instances Weezevent' })
     @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
-    async listWeezeventInstances(@Param('organizationId') organizationId: string) {
-        return this.weezeventService.listInstances(organizationId);
+    async listWeezeventInstances(
+        @Param('organizationId') organizationId: string,
+        @CurrentUser() user: any,
+    ) {
+        return this.weezeventService.listInstances(this.resolveTenantId(user, organizationId));
     }
 
     @Post('weezevent/instances')
@@ -132,8 +146,10 @@ export class IntegrationsController {
     @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
     async createWeezeventInstance(
         @Param('organizationId') organizationId: string,
+        @CurrentUser() user: any,
         @Body() dto: CreateWeezeventInstanceDto,
     ) {
+        const tenantId = this.resolveTenantId(user, organizationId);
         // Validate credentials before persisting
         const result = await this.weezeventAuthService.testCredentials(
             dto.clientId,
@@ -145,7 +161,7 @@ export class IntegrationsController {
             );
         }
 
-        return this.weezeventService.createInstance(organizationId, dto);
+        return this.weezeventService.createInstance(tenantId, dto);
     }
 
     @Patch('weezevent/instances/:instanceId')
@@ -155,10 +171,10 @@ export class IntegrationsController {
     async updateWeezeventInstance(
         @Param('organizationId') organizationId: string,
         @Param('instanceId') instanceId: string,
+        @CurrentUser() user: any,
         @Body() dto: UpdateWeezeventInstanceDto,
     ) {
-        // If client credentials are being changed, validate them first.
-        // If no new clientSecret is provided but clientId changed, reuse stored secret for validation.
+        const tenantId = this.resolveTenantId(user, organizationId);
         const needsValidation =
             dto.clientId !== undefined || dto.clientSecret !== undefined;
 
@@ -168,7 +184,7 @@ export class IntegrationsController {
 
             if (!clientId || !clientSecret) {
                 const stored = await this.weezeventService.getDecryptedCredentials(
-                    organizationId,
+                    tenantId,
                     instanceId,
                 );
                 if (!clientId) clientId = stored.clientId;
@@ -186,7 +202,7 @@ export class IntegrationsController {
             }
         }
 
-        return this.weezeventService.updateInstance(organizationId, instanceId, dto);
+        return this.weezeventService.updateInstance(tenantId, instanceId, dto);
     }
 
     @Delete('weezevent/instances/:instanceId')
@@ -196,14 +212,11 @@ export class IntegrationsController {
     async deleteWeezeventInstance(
         @Param('organizationId') organizationId: string,
         @Param('instanceId') instanceId: string,
+        @CurrentUser() user: any,
     ) {
-        return this.weezeventService.deleteInstance(organizationId, instanceId);
+        return this.weezeventService.deleteInstance(this.resolveTenantId(user, organizationId), instanceId);
     }
 
-    /**
-     * Test credentials for an existing instance. If clientSecret is not provided in the body,
-     * the stored (encrypted) secret is used.
-     */
     @Post('weezevent/instances/:instanceId/test')
     @ApiOperation({ summary: 'Tester les credentials d\'une instance Weezevent' })
     @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
@@ -211,14 +224,16 @@ export class IntegrationsController {
     async testWeezeventInstance(
         @Param('organizationId') organizationId: string,
         @Param('instanceId') instanceId: string,
+        @CurrentUser() user: any,
         @Body() dto: TestWeezeventInstanceDto,
     ) {
+        const tenantId = this.resolveTenantId(user, organizationId);
         let clientId = dto.clientId;
         let clientSecret = dto.clientSecret;
 
         if (!clientId || !clientSecret) {
             const stored = await this.weezeventService.getDecryptedCredentials(
-                organizationId,
+                tenantId,
                 instanceId,
             );
             if (!clientId) clientId = stored.clientId;
@@ -241,9 +256,10 @@ export class IntegrationsController {
     @ApiResponse({ status: 200, description: 'Configuration webhook mise à jour' })
     async updateWebhookConfig(
         @Param('organizationId') organizationId: string,
+        @CurrentUser() user: any,
         @Body() dto: WebhookConfigDto,
     ) {
-        return this.webhookService.updateConfig(organizationId, dto);
+        return this.webhookService.updateConfig(this.resolveTenantId(user, organizationId), dto);
     }
 
     /**
@@ -251,9 +267,28 @@ export class IntegrationsController {
      */
     @Get('webhooks')
     @ApiOperation({ summary: 'Obtenir la configuration des webhooks' })
-    @ApiParam({ name: 'organizationId', description: 'ID de l’organisation' })
+    @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
     @ApiResponse({ status: 200, description: 'Configuration webhook' })
-    async getWebhookConfig(@Param('organizationId') organizationId: string) {
-        return this.webhookService.getConfig(organizationId);
+    async getWebhookConfig(
+        @Param('organizationId') organizationId: string,
+        @CurrentUser() user: any,
+    ) {
+        return this.webhookService.getConfig(this.resolveTenantId(user, organizationId));
+    }
+
+    /**
+     * Enforce that the authenticated user can only access their own organization.
+     * The organizationId URL param is accepted only when it matches the JWT tenantId,
+     * preventing IDOR attacks (OWASP A01).
+     */
+    private resolveTenantId(user: any, organizationId: string): string {
+        const jwtTenantId: string | undefined = user?.tenantId;
+        if (!jwtTenantId) {
+            throw new ForbiddenException('No organization associated with this account');
+        }
+        if (organizationId && organizationId !== jwtTenantId) {
+            throw new ForbiddenException('Access denied to this organization');
+        }
+        return jwtTenantId;
     }
 }

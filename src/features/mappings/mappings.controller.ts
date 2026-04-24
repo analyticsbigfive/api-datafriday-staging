@@ -33,10 +33,16 @@ export class MappingsController {
 
   @Get('location-space')
   @ApiOperation({ summary: 'Lister les mappings location → space' })
-  @ApiResponse({ status: 200, description: 'Liste des mappings' })
-  getLocationSpaceMappings(@CurrentUser() user: any) {
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'Liste paginée des mappings' })
+  getLocationSpaceMappings(
+    @CurrentUser() user: any,
+    @Query('page') page = 1,
+    @Query('limit') limit = 100,
+  ) {
     this.logger.log(`GET /mappings/location-space - Tenant: ${user.tenantId}`);
-    return this.mappingsService.getLocationSpaceMappings(user.tenantId);
+    return this.mappingsService.getLocationSpaceMappings(user.tenantId, +page, +limit);
   }
 
   @Get('location-space/:locationId')
@@ -75,12 +81,16 @@ export class MappingsController {
   @Get('merchant-element')
   @ApiOperation({ summary: 'Lister les mappings merchant → element' })
   @ApiQuery({ name: 'locationId', required: false })
-  @ApiResponse({ status: 200, description: 'Liste des mappings' })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'Liste paginée des mappings' })
   getMerchantElementMappings(
     @CurrentUser() user: any,
     @Query('locationId') locationId?: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 200,
   ) {
-    return this.mappingsService.getMerchantElementMappings(user.tenantId, locationId);
+    return this.mappingsService.getMerchantElementMappings(user.tenantId, locationId, +page, +limit);
   }
 
   @Post('merchant-element')
@@ -118,12 +128,16 @@ export class MappingsController {
   @Get('product-menu')
   @ApiOperation({ summary: 'Lister les mappings product → menu item' })
   @ApiQuery({ name: 'locationId', required: false })
-  @ApiResponse({ status: 200, description: 'Liste des mappings' })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'Liste paginée des mappings' })
   getProductMappings(
     @CurrentUser() user: any,
     @Query('locationId') locationId?: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 200,
   ) {
-    return this.mappingsService.getProductMappings(user.tenantId, locationId);
+    return this.mappingsService.getProductMappings(user.tenantId, locationId, +page, +limit);
   }
 
   @Post('product-menu/bulk')
@@ -148,6 +162,13 @@ export class MappingsController {
 
   // ─── Integration Progress ────────────────────────────────
 
+  @Get('progress')
+  @ApiOperation({ summary: 'Progression d\'intégration pour toutes les locations du tenant' })
+  @ApiResponse({ status: 200, description: 'Liste des locations avec leur progression (0-5 steps)' })
+  getAllIntegrationProgress(@CurrentUser() user: any) {
+    return this.mappingsService.getAllIntegrationProgress(user.tenantId);
+  }
+
   @Get('progress/:locationId')
   @ApiOperation({ summary: 'Obtenir la progression d\'intégration d\'une location' })
   @ApiResponse({ status: 200, description: 'Progression par étape' })
@@ -156,5 +177,15 @@ export class MappingsController {
     @CurrentUser() user: any,
   ) {
     return this.mappingsService.getIntegrationProgress(user.tenantId, locationId);
+  }
+
+  @Get('summary/:locationId')
+  @ApiOperation({ summary: 'Résumé post-sync (counts) pour l\'écran WizardSuccess' })
+  @ApiResponse({ status: 200, description: 'Counts merchants / products / events' })
+  getLocationSummary(
+    @Param('locationId') locationId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.mappingsService.getLocationSummary(user.tenantId, locationId);
   }
 }

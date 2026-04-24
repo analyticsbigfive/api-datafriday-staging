@@ -11,16 +11,30 @@ import {
 export class MappingsService {
   private readonly logger = new Logger(MappingsService.name);
 
+  /** Safe chunk size for Prisma $transaction batches (avoids timeouts/OOM at 100k+ items). */
+  private readonly BULK_CHUNK_SIZE = 500;
+
   constructor(private prisma: PrismaService) {}
 
   // ─── Location → Space ───────────────────────────────────
 
-  async getLocationSpaceMappings(tenantId: string) {
-    this.logger.log(`Fetching location-space mappings for tenant ${tenantId}`);
-    return this.prisma.weezeventLocationSpaceMapping.findMany({
-      where: { tenantId },
-      orderBy: { createdAt: 'desc' },
-    });
+  async getLocationSpaceMappings(tenantId: string, page = 1, limit = 100) {
+    this.logger.log(`Fetching location-space mappings for tenant ${tenantId} (page=${page}, limit=${limit})`);
+    const safeLimit = Math.min(Math.max(limit, 1), 500);
+    const skip = (Math.max(page, 1) - 1) * safeLimit;
+    const [data, total] = await Promise.all([
+      this.prisma.weezeventLocationSpaceMapping.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: safeLimit,
+      }),
+      this.prisma.weezeventLocationSpaceMapping.count({ where: { tenantId } }),
+    ]);
+    return {
+      data,
+      meta: { page, limit: safeLimit, total, totalPages: Math.ceil(total / safeLimit) },
+    };
   }
 
   async getLocationSpaceMapping(tenantId: string, weezeventLocationId: string) {
@@ -69,8 +83,13 @@ export class MappingsService {
 
   // ─── Merchant → SpaceElement ─────────────────────────────
 
-  async getMerchantElementMappings(tenantId: string, weezeventLocationId?: string) {
-    this.logger.log(`Fetching merchant-element mappings for tenant ${tenantId}`);
+  async getMerchantElementMappings(
+    tenantId: string,
+    weezeventLocationId?: string,
+    page = 1,
+    limit = 200,
+  ) {
+    this.logger.log(`Fetching merchant-element mappings for tenant ${tenantId} (location=${weezeventLocationId ?? 'all'})`);
 
     const where: any = { tenantId };
 
@@ -84,10 +103,23 @@ export class MappingsService {
       where.weezeventMerchantId = { in: merchantTxs.map((m) => m.merchantId).filter(Boolean) };
     }
 
-    return this.prisma.weezeventMerchantElementMapping.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-    });
+    const safeLimit = Math.min(Math.max(limit, 1), 1000);
+    const skip = (Math.max(page, 1) - 1) * safeLimit;
+
+    const [data, total] = await Promise.all([
+      this.prisma.weezeventMerchantElementMapping.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: safeLimit,
+      }),
+      this.prisma.weezeventMerchantElementMapping.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: { page, limit: safeLimit, total, totalPages: Math.ceil(total / safeLimit) },
+    };
   }
 
   async createMerchantElementMapping(dto: CreateMerchantElementMappingDto, tenantId: string) {
@@ -112,30 +144,63 @@ export class MappingsService {
   }
 
   async bulkMerchantElementMappings(dto: BulkMerchantElementMappingDto, tenantId: string) {
-    this.logger.log(`Bulk mapping ${dto.mappings.length} merchant-element pairs`);
+    const total = dto.mappings.length;
+    this.logger.log(`Bulk mapping ${total} merchant-element pairs (chunk=${this.BULK_CHUNK_SIZE})`);
 
-    const results = await this.prisma.$transaction(
-      dto.mappings.map((m) =>
-        this.prisma.weezeventMerchantElementMapping.upsert({
-          where: {
-            tenantId_weezeventMerchantId: {
-              tenantId,
-              weezeventMerchantId: m.weezeventMerchantId,
-            },
-          },
-          create: {
-            tenantId,
-            weezeventMerchantId: m.weezeventMerchantId,
-            spaceElementId: m.spaceElementId,
-          },
-          update: {
-            spaceElementId: m.spaceElementId,
-          },
-        }),
-      ),
-    );
+    const successes: any[] = [];
+    const errors: { weezeventMerchantId: string; error: string }[] = [];
 
-    return { count: results.length, mappings: results };
+    for (let i = 0; i < total; i += this.BULK_CHUNK_SIZE) {
+      const chunk = dto.mappings.slice(i, i + this.BULK_CHUNK_SIZE);
+      try {
+        const results = await this.prisma.$transaction(
+          chunk.map((m) =>
+            this.prisma.weezeventMerchantElementMapping.upsert({
+              where: {
+                tenantId_weezeventMerchantId: {
+                  tenantId,
+                  weezeventMerchantId: m.weezeventMerchantId,
+                },
+              },
+              create: {
+                tenantId,
+                weezeventMerchantId: m.weezeventMerchantId,
+                spaceElementId: m.spaceElementId,
+              },
+              update: {
+                spaceElementId: m.spaceElementId,
+              },
+            }),
+          ),
+        );
+        successes.push(...results);
+      } catch (err) {
+        // Chunk-level failure: fallback to per-item upsert so a single bad row doesn't lose the whole chunk
+        this.logger.warn(`Chunk ${i / this.BULK_CHUNK_SIZE} failed, falling back to per-item upserts: ${err.message}`);
+        for (const m of chunk) {
+          try {
+            const result = await this.prisma.weezeventMerchantElementMapping.upsert({
+              where: {
+                tenantId_weezeventMerchantId: { tenantId, weezeventMerchantId: m.weezeventMerchantId },
+              },
+              create: { tenantId, weezeventMerchantId: m.weezeventMerchantId, spaceElementId: m.spaceElementId },
+              update: { spaceElementId: m.spaceElementId },
+            });
+            successes.push(result);
+          } catch (itemErr) {
+            errors.push({ weezeventMerchantId: m.weezeventMerchantId, error: itemErr.message });
+          }
+        }
+      }
+    }
+
+    return {
+      count: successes.length,
+      total,
+      failed: errors.length,
+      errors,
+      mappings: successes,
+    };
   }
 
   async deleteMerchantElementMapping(tenantId: string, weezeventMerchantId: string) {
@@ -146,8 +211,13 @@ export class MappingsService {
 
   // ─── Product → MenuItem ──────────────────────────────────
 
-  async getProductMappings(tenantId: string, weezeventLocationId?: string) {
-    this.logger.log(`Fetching product mappings for tenant ${tenantId}`);
+  async getProductMappings(
+    tenantId: string,
+    weezeventLocationId?: string,
+    page = 1,
+    limit = 200,
+  ) {
+    this.logger.log(`Fetching product mappings for tenant ${tenantId} (location=${weezeventLocationId ?? 'all'})`);
 
     const where: any = { tenantId };
 
@@ -164,42 +234,97 @@ export class MappingsService {
       where.weezeventProductId = { in: productIds.map((p) => p.productId) };
     }
 
-    return this.prisma.weezeventProductMapping.findMany({
-      where,
-      include: {
-        weezeventProduct: true,
-        menuItem: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const safeLimit = Math.min(Math.max(limit, 1), 1000);
+    const skip = (Math.max(page, 1) - 1) * safeLimit;
+
+    const [data, total] = await Promise.all([
+      this.prisma.weezeventProductMapping.findMany({
+        where,
+        include: {
+          weezeventProduct: true,
+          menuItem: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: safeLimit,
+      }),
+      this.prisma.weezeventProductMapping.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: { page, limit: safeLimit, total, totalPages: Math.ceil(total / safeLimit) },
+    };
   }
 
   async bulkProductMappings(dto: BulkProductMappingDto, tenantId: string, userId: string) {
-    this.logger.log(`Bulk mapping ${dto.mappings.length} product-menu item pairs`);
+    const total = dto.mappings.length;
+    this.logger.log(`Bulk mapping ${total} product-menu item pairs (chunk=${this.BULK_CHUNK_SIZE})`);
 
-    const results = await this.prisma.$transaction(
-      dto.mappings.map((m) =>
-        this.prisma.weezeventProductMapping.upsert({
-          where: { weezeventProductId: m.weezeventProductId },
-          create: {
-            tenantId,
-            weezeventProductId: m.weezeventProductId,
-            menuItemId: m.menuItemId,
-            autoMapped: m.autoMapped || false,
-            confidence: m.confidence || null,
-            mappedBy: userId,
-          },
-          update: {
-            menuItemId: m.menuItemId,
-            autoMapped: m.autoMapped || false,
-            confidence: m.confidence || null,
-            mappedBy: userId,
-          },
-        }),
-      ),
-    );
+    const successes: any[] = [];
+    const errors: { weezeventProductId: string; error: string }[] = [];
 
-    return { count: results.length, mappings: results };
+    for (let i = 0; i < total; i += this.BULK_CHUNK_SIZE) {
+      const chunk = dto.mappings.slice(i, i + this.BULK_CHUNK_SIZE);
+      try {
+        const results = await this.prisma.$transaction(
+          chunk.map((m) =>
+            this.prisma.weezeventProductMapping.upsert({
+              where: { weezeventProductId: m.weezeventProductId },
+              create: {
+                tenantId,
+                weezeventProductId: m.weezeventProductId,
+                menuItemId: m.menuItemId,
+                autoMapped: m.autoMapped || false,
+                confidence: m.confidence || null,
+                mappedBy: userId,
+              },
+              update: {
+                menuItemId: m.menuItemId,
+                autoMapped: m.autoMapped || false,
+                confidence: m.confidence || null,
+                mappedBy: userId,
+              },
+            }),
+          ),
+        );
+        successes.push(...results);
+      } catch (err) {
+        this.logger.warn(`Chunk ${i / this.BULK_CHUNK_SIZE} failed, falling back to per-item upserts: ${err.message}`);
+        for (const m of chunk) {
+          try {
+            const result = await this.prisma.weezeventProductMapping.upsert({
+              where: { weezeventProductId: m.weezeventProductId },
+              create: {
+                tenantId,
+                weezeventProductId: m.weezeventProductId,
+                menuItemId: m.menuItemId,
+                autoMapped: m.autoMapped || false,
+                confidence: m.confidence || null,
+                mappedBy: userId,
+              },
+              update: {
+                menuItemId: m.menuItemId,
+                autoMapped: m.autoMapped || false,
+                confidence: m.confidence || null,
+                mappedBy: userId,
+              },
+            });
+            successes.push(result);
+          } catch (itemErr) {
+            errors.push({ weezeventProductId: m.weezeventProductId, error: itemErr.message });
+          }
+        }
+      }
+    }
+
+    return {
+      count: successes.length,
+      total,
+      failed: errors.length,
+      errors,
+      mappings: successes,
+    };
   }
 
   async deleteProductMapping(tenantId: string, weezeventProductId: string) {
@@ -280,6 +405,164 @@ export class MappingsService {
       },
       completedSteps: [step1, step2, step3, step4, step5].filter(Boolean).length,
       totalSteps: 5,
+    };
+  }
+
+  /**
+   * Retourne la progression d'intégration pour toutes les locations Weezevent du tenant.
+   * Optimisé : précharge les compteurs en parallèle pour éviter N×5 queries.
+   * Utilisé par l'écran "LocationListItem" du wizard.
+   */
+  async getAllIntegrationProgress(tenantId: string) {
+    this.logger.log(`Fetching integration progress for all locations of tenant ${tenantId}`);
+
+    // 1. Toutes les locations Weezevent connues (via sync)
+    const locations = await this.prisma.weezeventLocation.findMany({
+      where: { tenantId },
+      select: { id: true, weezeventId: true, name: true },
+    });
+
+    if (locations.length === 0) {
+      return { data: [], meta: { total: 0 } };
+    }
+
+    const weezeventLocationIds = locations.map((l) => l.weezeventId);
+
+    // 2. Précharge en parallèle (évite N×5 queries série)
+    const [
+      locationMappings,
+      merchantTxGroups,
+      merchantMappings,
+      productMappingsCount,
+      aggJobs,
+      revenueAggs,
+    ] = await Promise.all([
+      this.prisma.weezeventLocationSpaceMapping.findMany({
+        where: { tenantId, weezeventLocationId: { in: weezeventLocationIds } },
+        select: { weezeventLocationId: true, spaceId: true },
+      }),
+      // Distinct merchants per location
+      this.prisma.weezeventTransaction.findMany({
+        where: {
+          tenantId,
+          locationId: { in: weezeventLocationIds },
+          merchantId: { not: null },
+        },
+        select: { locationId: true, merchantId: true },
+        distinct: ['locationId', 'merchantId'],
+      }),
+      this.prisma.weezeventMerchantElementMapping.findMany({
+        where: { tenantId },
+        select: { weezeventMerchantId: true },
+      }),
+      this.prisma.weezeventProductMapping.count({ where: { tenantId } }),
+      this.prisma.aggregationJobLog.groupBy({
+        by: ['spaceId'],
+        where: { tenantId, status: 'completed' },
+        _count: true,
+      }),
+      this.prisma.spaceRevenueDailyAgg.groupBy({
+        by: ['spaceId'],
+        where: { tenantId },
+        _count: true,
+      }),
+    ]);
+
+    // Index en Maps pour lookups O(1)
+    const locSpaceMap = new Map(locationMappings.map((m) => [m.weezeventLocationId, m.spaceId]));
+    const mappedMerchantSet = new Set(merchantMappings.map((m) => m.weezeventMerchantId));
+    const merchantsByLocation = new Map<string, string[]>();
+    for (const tx of merchantTxGroups) {
+      if (!tx.locationId || !tx.merchantId) continue;
+      const list = merchantsByLocation.get(tx.locationId) ?? [];
+      list.push(tx.merchantId);
+      merchantsByLocation.set(tx.locationId, list);
+    }
+    const aggJobsBySpace = new Set(aggJobs.map((j) => j.spaceId).filter(Boolean));
+    const revenueBySpace = new Set(revenueAggs.map((r) => r.spaceId).filter(Boolean));
+
+    // 3. Calcul par location
+    const data = locations.map((loc) => {
+      const spaceId = locSpaceMap.get(loc.weezeventId) ?? null;
+      const step1 = !!spaceId;
+
+      const merchants = merchantsByLocation.get(loc.weezeventId) ?? [];
+      const step2 = merchants.length > 0 && merchants.some((m) => mappedMerchantSet.has(m));
+
+      // step3: product mappings existent (global au tenant, pas par location)
+      const step3 = productMappingsCount > 0;
+
+      const step4 = !!spaceId && aggJobsBySpace.has(spaceId);
+      const step5 = !!spaceId && revenueBySpace.has(spaceId);
+
+      const completedSteps = [step1, step2, step3, step4, step5].filter(Boolean).length;
+
+      return {
+        weezeventLocationId: loc.weezeventId,
+        name: loc.name,
+        spaceId,
+        steps: {
+          step1_space_mapped: step1,
+          step2_shops_mapped: step2,
+          step3_menu_mapped: step3,
+          step4_events_processed: step4,
+          step5_synchronized: step5,
+        },
+        completedSteps,
+        totalSteps: 5,
+      };
+    });
+
+    return {
+      data,
+      meta: {
+        total: data.length,
+        fullyConfigured: data.filter((d) => d.completedSteps === 5).length,
+        partiallyConfigured: data.filter((d) => d.completedSteps > 0 && d.completedSteps < 5).length,
+        notStarted: data.filter((d) => d.completedSteps === 0).length,
+      },
+    };
+  }
+
+  /**
+   * Résumé post-sync pour une location : counts utiles à l'écran WizardSuccess.
+   */
+  async getLocationSummary(tenantId: string, weezeventLocationId: string) {
+    const locationMapping = await this.prisma.weezeventLocationSpaceMapping.findUnique({
+      where: { tenantId_weezeventLocationId: { tenantId, weezeventLocationId } },
+    });
+    if (!locationMapping) {
+      throw new NotFoundException(`Location ${weezeventLocationId} not mapped to a space`);
+    }
+
+    const [merchantTxs, merchantMappings, productMappings, totalProducts, eventsCount] = await Promise.all([
+      this.prisma.weezeventTransaction.findMany({
+        where: { tenantId, locationId: weezeventLocationId, merchantId: { not: null } },
+        select: { merchantId: true },
+        distinct: ['merchantId'],
+      }),
+      this.prisma.weezeventMerchantElementMapping.count({ where: { tenantId } }),
+      this.prisma.weezeventProductMapping.count({ where: { tenantId } }),
+      this.prisma.weezeventProduct.count({ where: { tenantId } }),
+      this.prisma.aggregationJobLog.count({
+        where: { tenantId, spaceId: locationMapping.spaceId, status: 'completed' },
+      }),
+    ]);
+
+    return {
+      weezeventLocationId,
+      spaceId: locationMapping.spaceId,
+      merchants: {
+        total: merchantTxs.length,
+        mapped: merchantMappings,
+      },
+      products: {
+        total: totalProducts,
+        mapped: productMappings,
+      },
+      events: {
+        processed: eventsCount,
+      },
     };
   }
 }

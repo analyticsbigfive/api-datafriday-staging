@@ -68,6 +68,8 @@ async function bootstrap() {
     .setDescription(`
 ## API Multi-tenant pour la gestion d'événements et l'intégration Weezevent
 
+> 📖 **Documentation interactive** : [\`${process.env.API_BASE_URL || 'http://localhost:3000'}/docs\`](${process.env.API_BASE_URL || 'http://localhost:3000'}/docs)
+
 ### 🔐 Authentification
 L'API utilise **Supabase Auth** pour l'authentification. Après connexion via Supabase, incluez le JWT token dans le header:
 \`\`\`
@@ -108,6 +110,11 @@ Tous les autres endpoints nécessitent un utilisateur lié à un tenant.
 | Orchestrator | Stratégies de traitement et cache |
     `)
     .setVersion('1.0')
+    .addServer(
+      process.env.API_BASE_URL || 'http://localhost:3000',
+      process.env.NODE_ENV === 'production' ? 'Production' : 'Local',
+    )
+    .addServer('http://localhost:3000', 'Local (dev)')
     .addBearerAuth(
       {
         type: 'http',

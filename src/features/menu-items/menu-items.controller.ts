@@ -39,8 +39,103 @@ export class MenuItemsController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Lister tous les articles de menu' })
-  @ApiResponse({ status: 200, description: 'Liste des articles' })
+  @ApiOperation({
+    summary: 'Lister tous les articles de menu',
+    description: 'Retourne une liste paginée des articles de menu avec leurs ingrédients, packagings, composants et prix de marché associés.',
+  })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page (défaut: 1)', example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Résultats par page (défaut: 100)', example: 100 })
+  @ApiResponse({
+    status: 200,
+    description: 'Liste paginée des articles de menu',
+    schema: {
+      type: 'object',
+      properties: {
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              basePrice: { type: 'string' },
+              totalCost: { type: 'string' },
+              margin: { type: 'number', nullable: true },
+              ingredients: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    ingredientId: { type: 'string' },
+                    numberOfUnits: { type: 'number' },
+                    unitCost: { type: 'string' },
+                    ingredient: {
+                      type: 'object',
+                      properties: {
+                        id: { type: 'string' },
+                        name: { type: 'string' },
+                        marketPriceId: { type: 'string', nullable: true },
+                        marketPrice: {
+                          type: 'object',
+                          nullable: true,
+                          properties: {
+                            id: { type: 'string' },
+                            price: { type: 'string' },
+                            unit: { type: 'string' },
+                            itemName: { type: 'string' },
+                            goodType: { type: 'string' },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              packagings: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    packagingId: { type: 'string' },
+                    numberOfUnits: { type: 'number' },
+                    unitCost: { type: 'string' },
+                    packaging: {
+                      type: 'object',
+                      properties: {
+                        id: { type: 'string' },
+                        name: { type: 'string' },
+                        marketPriceId: { type: 'string', nullable: true },
+                        marketPrice: {
+                          type: 'object',
+                          nullable: true,
+                          properties: {
+                            id: { type: 'string' },
+                            price: { type: 'string' },
+                            unit: { type: 'string' },
+                            itemName: { type: 'string' },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              spaceIds: { type: 'array', items: { type: 'string' } },
+            },
+          },
+        },
+        meta: {
+          type: 'object',
+          properties: {
+            page: { type: 'number', example: 1 },
+            limit: { type: 'number', example: 100 },
+            total: { type: 'number', example: 42 },
+            totalPages: { type: 'number', example: 1 },
+          },
+        },
+      },
+    },
+  })
   findAll(
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
@@ -73,9 +168,13 @@ export class MenuItemsController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Obtenir un article par ID' })
-  @ApiParam({ name: 'id', description: 'ID de l’article de menu' })
-  @ApiResponse({ status: 200, description: 'Détails de l\'article' })
+  @ApiOperation({
+    summary: 'Obtenir un article par ID',
+    description: 'Retourne l\'article avec ses ingrédients (+ marketPrice), packagings (+ marketPrice), composants, type, catégorie et spaceIds.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'article de menu' })
+  @ApiResponse({ status: 200, description: 'Détails complets de l\'article' })
+  @ApiResponse({ status: 404, description: 'Article non trouvé' })
   findOne(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /menu-items/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
     return this.menuItemsService.findOne(id, tenantId);

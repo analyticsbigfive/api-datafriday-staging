@@ -88,12 +88,24 @@ Chaque utilisateur appartient à une organisation (tenant). Le tenant est automa
 ### 🛡️ Endpoints protégés (auth + tenant requis)
 Tous les autres endpoints nécessitent un utilisateur lié à un tenant.
 
-### 📚 Modules documentés dans Swagger
-- Events / référentiels d'événements
-- Spaces / configurations / dashboards
-- Market prices
-- Users / tenants / onboarding
-- Suppliers / ingredients / menu components
+### �️ Modules disponibles
+| Module | Description |
+|---|---|
+| Events | Référentiel des événements et leurs types/catégories |
+| Spaces | Espaces/établissements, configurations, éléments (shops) |
+| Market Prices | Prix de marché des ingrédients et packagings |
+| Menu Items | Articles de menu avec ingrédients, packagings et marketPrice |
+| Menu Components | Sous-assemblages de recettes |
+| Ingredients | Ingrédients avec coûts et unités |
+| Packaging | Emballages avec coûts unitaires |
+| Suppliers | Fournisseurs |
+| Mappings | Intégration Weezevent : mapping locations/shops/produits |
+| Aggregation | Traitement et synchronisation des données événements |
+| Analyse | KPIs et tableaux de bord analytiques |
+| Integrations | Configuration des connecteurs (Weezevent, Webhooks) |
+| Weezevent | API Weezevent : locations, produits, événements |
+| Weezevent Analytics | Analyse des ventes Weezevent |
+| Orchestrator | Stratégies de traitement et cache |
     `)
     .setVersion('1.0')
     .addBearerAuth(
@@ -110,19 +122,30 @@ Tous les autres endpoints nécessitent un utilisateur lié à un tenant.
     .addTag('Tenants', 'Gestion des organisations (admin)')
     .addTag('Users', 'Gestion des utilisateurs')
     .addTag('Me', 'Profil utilisateur courant')
-    .addTag('Spaces', 'Gestion des espaces/établissements')
-    .addTag('Configurations', 'Gestion des configurations d\'espaces')
+    .addTag('Organizations', 'Gestion de l\'organisation courante')
+    .addTag('Spaces', 'Gestion des espaces/établissements et de leurs éléments (shops)')
+    .addTag('Pinned Spaces', 'Espaces favoris de l\'utilisateur courant')
     .addTag('Space Dashboard', 'Dashboard et analytics par espace')
+    .addTag('Space Menus', 'Menus assignés aux shops d\'un espace')
     .addTag('Events', 'Gestion des événements')
     .addTag('Event Types', 'Référentiel des types d\'événements')
     .addTag('Event Categories', 'Référentiel des catégories d\'événements')
     .addTag('Event Subcategories', 'Référentiel des sous-catégories d\'événements')
     .addTag('Market Prices', 'Référentiel des prix marché par tenant')
+    .addTag('Menu Items', 'Articles de menu avec ingrédients, packagings et marketPrice')
+    .addTag('Product Types', 'Types de produits (Food, Beverages, etc.)')
+    .addTag('Product Categories', 'Catégories de produits')
+    .addTag('Menu Components', 'Sous-assemblages de recettes')
+    .addTag('Ingredients', 'Ingrédients avec coûts et unités')
+    .addTag('Packaging', 'Emballages avec coûts unitaires et marketPrice')
     .addTag('Suppliers', 'Gestion des fournisseurs')
-    .addTag('Ingredients', 'Gestion des ingrédients')
-    .addTag('Menu Components', 'Gestion des composants de menu')
-    .addTag('Weezevent', 'Intégration Weezevent')
-    .addTag('Organizations', 'Gestion de l\'organisation courante')
+    .addTag('Mappings', 'Intégration Weezevent — mapping locations/shops/articles + progression')
+    .addTag('Aggregation', 'Traitement et synchronisation des données événements Weezevent')
+    .addTag('Analyse', 'KPIs et tableaux de bord analytiques')
+    .addTag('Integrations', 'Configuration des connecteurs (Weezevent multi-instance, Webhooks)')
+    .addTag('Weezevent', 'API Weezevent : locations, produits, événements, synchronisation')
+    .addTag('Weezevent Analytics', 'Analyse des ventes par produit, merchant et période')
+    .addTag('Orchestrator', 'Stratégies de traitement et invalidation du cache')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

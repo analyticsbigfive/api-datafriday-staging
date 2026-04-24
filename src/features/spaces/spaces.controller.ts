@@ -645,11 +645,28 @@ export class ConfigurationsController {
   @Roles('ADMIN', 'MANAGER')
   @ApiOperation({
     summary: 'Modifier un shop (SpaceElement)',
-    description: 'Met à jour le nom, l\'image, le type et les sous-types d\'un SpaceElement (shop).',
+    description: 'Met à jour le nom, l\'image, le type principal et/ou les sous-types d\'un SpaceElement (shop). Vérifie que l\'élément appartient bien au tenant avant modification.',
   })
-  @ApiParam({ name: 'elementId', description: 'ID du SpaceElement' })
+  @ApiParam({ name: 'elementId', description: 'ID du SpaceElement (shop)' })
   @ApiBody({ type: UpdateSpaceElementDto })
-  @ApiResponse({ status: 200, description: 'Shop mis à jour' })
+  @ApiResponse({
+    status: 200,
+    description: 'Shop mis à jour',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        type: { type: 'string', example: 'fnb_food' },
+        shopTypes: { type: 'array', items: { type: 'string' }, example: ['Food', 'Beverages'] },
+        image: { type: 'string', nullable: true },
+        notes: { type: 'string', nullable: true },
+        floorId: { type: 'string', nullable: true },
+        forecourtId: { type: 'string', nullable: true },
+      },
+    },
+  })
+  @ApiResponse({ status: 403, description: 'Shop n\'appartient pas au tenant' })
   @ApiResponse({ status: 404, description: 'Shop non trouvé' })
   async updateSpaceElement(
     @Param('elementId') elementId: string,

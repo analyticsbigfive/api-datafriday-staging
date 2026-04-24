@@ -41,7 +41,8 @@ export class PackagingController {
   @Get(':id')
   @ApiOperation({ summary: 'Obtenir un packaging par ID' })
   @ApiParam({ name: 'id', description: 'ID du packaging' })
-  @ApiResponse({ status: 200, description: 'Détails du packaging' })
+  @ApiResponse({ status: 200, description: 'Détails du packaging avec marketPrice associé' })
+  @ApiResponse({ status: 404, description: 'Packaging non trouvé' })
   findOne(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     return this.packagingService.findOne(id, tenantId);
   }
@@ -50,6 +51,7 @@ export class PackagingController {
   @ApiOperation({ summary: 'Mettre à jour un packaging' })
   @ApiParam({ name: 'id', description: 'ID du packaging' })
   @ApiResponse({ status: 200, description: 'Packaging mis à jour' })
+  @ApiResponse({ status: 404, description: 'Packaging non trouvé' })
   update(@Param('id') id: string, @Body() dto: Partial<CreatePackagingDto>, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     return this.packagingService.update(id, dto, tenantId);
   }
@@ -58,6 +60,7 @@ export class PackagingController {
   @ApiOperation({ summary: 'Supprimer un packaging' })
   @ApiParam({ name: 'id', description: 'ID du packaging' })
   @ApiResponse({ status: 200, description: 'Packaging supprimé' })
+  @ApiResponse({ status: 404, description: 'Packaging non trouvé' })
   remove(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     return this.packagingService.remove(id, tenantId);
   }

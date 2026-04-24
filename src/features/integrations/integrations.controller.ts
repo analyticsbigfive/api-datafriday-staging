@@ -10,7 +10,7 @@ import {
     BadRequestException,
     ForbiddenException,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { WeezeventIntegrationService } from './services/weezevent-integration.service';
@@ -132,8 +132,10 @@ export class IntegrationsController {
     // ==================== Multi-instance Weezevent ====================
 
     @Get('weezevent/instances')
-    @ApiOperation({ summary: 'Lister les instances Weezevent' })
+    @ApiOperation({ summary: 'Lister les instances Weezevent', description: 'Retourne toutes les instances Weezevent configurées pour le tenant.' })
     @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
+    @ApiResponse({ status: 200, description: 'Liste des instances Weezevent', schema: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' }, enabled: { type: 'boolean' }, clientId: { type: 'string' } } } } })
+    @ApiResponse({ status: 401, description: 'Non authentifié' })
     async listWeezeventInstances(
         @Param('organizationId') organizationId: string,
         @CurrentUser() user: any,
@@ -142,8 +144,12 @@ export class IntegrationsController {
     }
 
     @Post('weezevent/instances')
-    @ApiOperation({ summary: 'Créer une instance Weezevent' })
+    @ApiOperation({ summary: 'Créer une instance Weezevent', description: 'Crée une nouvelle instance Weezevent après validation des credentials.' })
     @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
+    @ApiBody({ type: CreateWeezeventInstanceDto })
+    @ApiResponse({ status: 201, description: 'Instance créée', schema: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' }, enabled: { type: 'boolean' } } } })
+    @ApiResponse({ status: 400, description: 'Credentials invalides' })
+    @ApiResponse({ status: 401, description: 'Non authentifié' })
     async createWeezeventInstance(
         @Param('organizationId') organizationId: string,
         @CurrentUser() user: any,
@@ -168,6 +174,10 @@ export class IntegrationsController {
     @ApiOperation({ summary: 'Mettre à jour une instance Weezevent' })
     @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
     @ApiParam({ name: 'instanceId', description: "ID de l'instance" })
+    @ApiBody({ type: UpdateWeezeventInstanceDto })
+    @ApiResponse({ status: 200, description: 'Instance mise à jour', schema: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' }, enabled: { type: 'boolean' } } } })
+    @ApiResponse({ status: 400, description: 'Credentials invalides' })
+    @ApiResponse({ status: 401, description: 'Non authentifié' })
     async updateWeezeventInstance(
         @Param('organizationId') organizationId: string,
         @Param('instanceId') instanceId: string,
@@ -209,6 +219,8 @@ export class IntegrationsController {
     @ApiOperation({ summary: 'Supprimer une instance Weezevent' })
     @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
     @ApiParam({ name: 'instanceId', description: "ID de l'instance" })
+    @ApiResponse({ status: 200, description: 'Instance supprimée' })
+    @ApiResponse({ status: 401, description: 'Non authentifié' })
     async deleteWeezeventInstance(
         @Param('organizationId') organizationId: string,
         @Param('instanceId') instanceId: string,
@@ -218,9 +230,13 @@ export class IntegrationsController {
     }
 
     @Post('weezevent/instances/:instanceId/test')
-    @ApiOperation({ summary: 'Tester les credentials d\'une instance Weezevent' })
+    @ApiOperation({ summary: 'Tester les credentials d\'une instance Weezevent', description: 'Vérifie si les credentials stockés ou fournis permettent de se connecter à Weezevent.' })
     @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
     @ApiParam({ name: 'instanceId', description: "ID de l'instance" })
+    @ApiBody({ type: TestWeezeventInstanceDto, required: false })
+    @ApiResponse({ status: 200, description: 'Test réussi', schema: { type: 'object', properties: { valid: { type: 'boolean', example: true }, message: { type: 'string', example: 'Connection successful' } } } })
+    @ApiResponse({ status: 400, description: 'Credentials invalides' })
+    @ApiResponse({ status: 401, description: 'Non authentifié' })
     async testWeezeventInstance(
         @Param('organizationId') organizationId: string,
         @Param('instanceId') instanceId: string,

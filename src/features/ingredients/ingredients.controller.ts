@@ -52,25 +52,31 @@ export class IngredientsController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Obtenir un ingrédient par ID' })
-  @ApiParam({ name: 'id', description: 'ID de l’ingrédient' })
-  @ApiResponse({ status: 200, description: 'Détails de l\'ingrédient' })
+  @ApiOperation({
+    summary: 'Obtenir un ingrédient par ID',
+    description: "Retourne l'ingrédient avec son marketPrice associé si disponible.",
+  })
+  @ApiParam({ name: 'id', description: "ID de l'ingrédient" })
+  @ApiResponse({ status: 200, description: "Détails de l'ingrédient" })
+  @ApiResponse({ status: 404, description: 'Ingrédient non trouvé' })
   findOne(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     return this.ingredientsService.findOne(id, tenantId);
   }
 
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour un ingrédient' })
-  @ApiParam({ name: 'id', description: 'ID de l’ingrédient' })
+  @ApiParam({ name: 'id', description: "ID de l'ingrédient" })
   @ApiResponse({ status: 200, description: 'Ingrédient mis à jour' })
+  @ApiResponse({ status: 404, description: 'Ingrédient non trouvé' })
   update(@Param('id') id: string, @Body() dto: Partial<CreateIngredientDto>, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     return this.ingredientsService.update(id, dto, tenantId);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer un ingrédient' })
-  @ApiParam({ name: 'id', description: 'ID de l’ingrédient' })
+  @ApiParam({ name: 'id', description: "ID de l'ingrédient" })
   @ApiResponse({ status: 200, description: 'Ingrédient supprimé' })
+  @ApiResponse({ status: 404, description: 'Ingrédient non trouvé' })
   remove(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     return this.ingredientsService.remove(id, tenantId);
   }

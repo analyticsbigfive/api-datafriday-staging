@@ -49,10 +49,10 @@ export class MenuItemsService {
       include: { component: true },
     },
     ingredients: {
-      include: { ingredient: true },
+      include: { ingredient: { include: { marketPrice: true } } },
     },
     packagings: {
-      include: { packaging: true },
+      include: { packaging: { include: { marketPrice: true } } },
     },
     menuAssignments: {
       include: {

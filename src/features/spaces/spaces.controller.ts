@@ -30,6 +30,7 @@ import { QuerySpaceDto } from './dto/query-space.dto';
 import { CreateConfigDto } from './dto/create-config.dto';
 import { UpdateSpaceImageDto } from './dto/update-space-image.dto';
 import { GrantSpaceAccessDto } from './dto/grant-space-access.dto';
+import { UpdateSpaceElementDto } from './dto/update-space-element.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RolesGuard } from '../../core/auth/guards/roles.guard';
 import { Roles } from '../../core/auth/decorators/roles.decorator';
@@ -635,5 +636,26 @@ export class ConfigurationsController {
     @CurrentTenant() tenantId: string,
   ) {
     return this.spacesService.deleteConfiguration(id, tenantId);
+  }
+
+  /**
+   * Update a shop (SpaceElement) — image, name, type, shopTypes
+   */
+  @Patch('elements/:elementId')
+  @Roles('ADMIN', 'MANAGER')
+  @ApiOperation({
+    summary: 'Modifier un shop (SpaceElement)',
+    description: 'Met à jour le nom, l\'image, le type et les sous-types d\'un SpaceElement (shop).',
+  })
+  @ApiParam({ name: 'elementId', description: 'ID du SpaceElement' })
+  @ApiBody({ type: UpdateSpaceElementDto })
+  @ApiResponse({ status: 200, description: 'Shop mis à jour' })
+  @ApiResponse({ status: 404, description: 'Shop non trouvé' })
+  async updateSpaceElement(
+    @Param('elementId') elementId: string,
+    @CurrentTenant() tenantId: string,
+    @Body() dto: UpdateSpaceElementDto,
+  ) {
+    return this.spacesService.updateSpaceElement(elementId, tenantId, dto);
   }
 }

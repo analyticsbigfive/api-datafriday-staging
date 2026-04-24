@@ -1338,6 +1338,42 @@ export class SpacesService {
   }
 
   /**
+   * Update a SpaceElement (shop) — name, image, type, shopTypes
+   */
+  async updateSpaceElement(elementId: string, tenantId: string, dto: { name?: string; image?: string; notes?: string; type?: string; shopTypes?: string[] }) {
+    // Verify the element belongs to this tenant via its floor or forecourt → config → space
+    const element = await this.prisma.spaceElement.findFirst({
+      where: { id: elementId },
+      include: {
+        floor: { include: { config: { include: { space: true } } } },
+        forecourt: { include: { config: { include: { space: true } } } },
+      },
+    });
+
+    if (!element) {
+      throw new Error(`SpaceElement ${elementId} not found`);
+    }
+
+    const space = element.floor?.config?.space ?? element.forecourt?.config?.space;
+    if (!space || space.tenantId !== tenantId) {
+      throw new Error(`SpaceElement ${elementId} does not belong to tenant`);
+    }
+
+    const updated = await this.prisma.spaceElement.update({
+      where: { id: elementId },
+      data: {
+        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.image !== undefined && { image: dto.image }),
+        ...(dto.notes !== undefined && { notes: dto.notes }),
+        ...(dto.type !== undefined && { type: dto.type as any }),
+        ...(dto.shopTypes !== undefined && { shopTypes: dto.shopTypes }),
+      },
+    });
+
+    return updated;
+  }
+
+  /**
    * Delete a configuration
    */
   async deleteConfiguration(configId: string, tenantId: string) {

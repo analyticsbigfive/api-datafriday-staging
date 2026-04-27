@@ -46,8 +46,9 @@ async function bootstrap() {
   }));
 
   // P0: CORS configuration (strict in production)
-  const allowedOrigins = process.env.CORS_ORIGIN 
-    ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
+  const corsOriginEnv = process.env.CORS_ORIGIN || process.env.CORS_ORIGINS;
+  const allowedOrigins = corsOriginEnv
+    ? corsOriginEnv.split(',').map(o => o.trim())
     : ['http://localhost:3000', 'http://localhost:5173'];
   
   app.enableCors({

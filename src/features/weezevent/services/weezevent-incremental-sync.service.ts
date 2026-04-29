@@ -182,10 +182,11 @@ export class WeezeventIncrementalSyncService {
             return result;
 
         } catch (error) {
-            this.logger.error('Events sync failed', error.stack);
+            const err = error as Error;
+            this.logger.error('Events sync failed', err.stack);
 
             // Update error state
-            await this.updateSyncStateError(tenantId, syncType, error.message);
+            await this.updateSyncStateError(tenantId, syncType, err.message);
 
             result.success = false;
             result.duration = Date.now() - startTime;
@@ -316,8 +317,9 @@ export class WeezeventIncrementalSyncService {
             return result;
 
         } catch (error) {
-            this.logger.error('Transactions sync failed', error.stack);
-            await this.updateSyncStateError(tenantId, syncType, error.message);
+            const err = error as Error;
+            this.logger.error('Transactions sync failed', err.stack);
+            await this.updateSyncStateError(tenantId, syncType, err.message);
             result.success = false;
             result.duration = Date.now() - startTime;
             throw error;
@@ -565,6 +567,29 @@ export class WeezeventIncrementalSyncService {
 
         const toCreate: any[] = [];
 
+        // Build a map of weezeventId -> internal DB id for events referenced by these transactions
+        const referencedEventWeezeventIds = [
+            ...new Set(
+                transactions
+                    .map(t => t.event_id?.toString())
+                    .filter(Boolean),
+            ),
+        ];
+
+        const eventIdMap = new Map<string, string>();
+        if (referencedEventWeezeventIds.length > 0) {
+            const events = await this.prisma.weezeventEvent.findMany({
+                where: {
+                    tenantId,
+                    weezeventId: { in: referencedEventWeezeventIds },
+                },
+                select: { id: true, weezeventId: true },
+            });
+            for (const e of events) {
+                eventIdMap.set(e.weezeventId, e.id);
+            }
+        }
+
         for (const apiTransaction of transactions) {
             try {
                 const weezeventId = apiTransaction.id.toString();
@@ -572,19 +597,29 @@ export class WeezeventIncrementalSyncService {
 
                 // Extract status as string (API may return object with name/title)
                 const transactionStatus = apiTransaction.status as any;
-                const statusValue = typeof transactionStatus === 'object' && transactionStatus?.name 
-                    ? transactionStatus.name 
+                const statusValue = typeof transactionStatus === 'object' && transactionStatus?.name
+                    ? transactionStatus.name
                     : (typeof transactionStatus === 'string' ? transactionStatus : 'unknown');
 
                 // Parse transaction date - try multiple sources including rawData
                 const rawTx = apiTransaction as any;
                 const dateStr = rawTx.created || rawTx.updated || rawTx.validated || rawTx.date || rawTx.created_at;
-                
+
                 if (!dateStr) {
                     this.logger.warn(`Transaction ${weezeventId} has no date field. Keys: ${Object.keys(rawTx).join(', ')}`);
                 }
-                
+
                 const transactionDate = dateStr ? new Date(dateStr) : new Date();
+
+                // Resolve eventId to the internal DB id (FK points to WeezeventEvent.id, not weezeventId)
+                const apiEventId = apiTransaction.event_id?.toString();
+                const resolvedEventId = apiEventId ? (eventIdMap.get(apiEventId) ?? null) : null;
+
+                if (apiEventId && !resolvedEventId) {
+                    this.logger.warn(
+                        `Transaction ${weezeventId} references event ${apiEventId} not found in DB — storing without eventId`,
+                    );
+                }
 
                 const transactionData = {
                     weezeventId,
@@ -592,7 +627,7 @@ export class WeezeventIncrementalSyncService {
                     amount: apiTransaction.amount || 0,
                     status: statusValue,
                     transactionDate,
-                    eventId: apiTransaction.event_id?.toString(),
+                    eventId: resolvedEventId,
                     eventName: apiTransaction.event_name,
                     merchantId: apiTransaction.merchant_id?.toString(),
                     merchantName: apiTransaction.merchant_name,

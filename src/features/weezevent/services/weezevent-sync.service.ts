@@ -121,7 +121,7 @@ export class WeezeventSyncService {
                     } catch (error) {
                         this.logger.error(
                             `Failed to sync transaction ${apiTransaction.id}`,
-                            error.stack,
+                            (error as Error).stack,
                         );
                         result.errors++;
                     }
@@ -141,7 +141,7 @@ export class WeezeventSyncService {
 
             return result;
         } catch (error) {
-            this.logger.error('Transaction sync failed', error.stack);
+            this.logger.error('Transaction sync failed', (error as Error).stack);
             result.success = false;
             result.duration = Date.now() - startTime;
             throw error;
@@ -541,7 +541,7 @@ export class WeezeventSyncService {
                         });
                     }
                 } catch (error) {
-                    this.logger.error(`Failed to prepare event ${apiEvent.id}`, error.stack);
+                    this.logger.error(`Failed to prepare event ${apiEvent.id}`, (error as Error).stack);
                     result.errors++;
                 }
             }
@@ -575,7 +575,7 @@ export class WeezeventSyncService {
 
             return result;
         } catch (error) {
-            this.logger.error('Events sync failed', error.stack);
+            this.logger.error('Events sync failed', (error as Error).stack);
             result.success = false;
             result.duration = Date.now() - startTime;
             throw error;
@@ -692,14 +692,20 @@ export class WeezeventSyncService {
             result.itemsSynced = productsToCreate.length + productsToUpdate.length;
 
             // Sync variants, components, and menu-steps for all products
+            // Parallelised with concurrency=5 to avoid hitting Weezevent rate limits.
             this.logger.log(`Syncing variants/components/menu-steps for ${response.data.length} products...`);
-            
-            for (const apiProduct of response.data) {
-                try {
-                    await this.syncProductDetails(tenantId, organizationId, apiProduct.id.toString());
-                } catch (error) {
-                    this.logger.warn(`Failed to sync details for product ${apiProduct.id}: ${error.message}`);
-                }
+
+            const CONCURRENCY = 5;
+            for (let i = 0; i < response.data.length; i += CONCURRENCY) {
+                const chunk = response.data.slice(i, i + CONCURRENCY);
+                await Promise.allSettled(
+                    chunk.map(apiProduct =>
+                        this.syncProductDetails(tenantId, organizationId, apiProduct.id.toString())
+                            .catch((error: Error) =>
+                                this.logger.warn(`Failed to sync details for product ${apiProduct.id}: ${error.message}`)
+                            )
+                    )
+                );
             }
 
             result.success = true;
@@ -709,7 +715,7 @@ export class WeezeventSyncService {
 
             return result;
         } catch (error) {
-            this.logger.error('Products sync failed', error.stack);
+            this.logger.error('Products sync failed', (error as Error).stack);
             result.success = false;
             result.duration = Date.now() - startTime;
             throw error;
@@ -777,7 +783,7 @@ export class WeezeventSyncService {
                     this.logger.debug(`✅ P1: Synced ${variants.length} variants for product ${productId}`);
                 }
             } catch (error) {
-                this.logger.warn(`Failed to sync variants for product ${productId}: ${error.message}`);
+                this.logger.warn(`Failed to sync variants for product ${productId}: ${(error as Error).message}`);
             }
         } else {
             this.logger.warn(`Failed to fetch variants for product ${productId}: ${variantsResult.reason}`);
@@ -817,7 +823,7 @@ export class WeezeventSyncService {
                     this.logger.debug(`✅ P1: Synced ${components.length} components for product ${productId}`);
                 }
             } catch (error) {
-                this.logger.warn(`Failed to sync components for product ${productId}: ${error.message}`);
+                this.logger.warn(`Failed to sync components for product ${productId}: ${(error as Error).message}`);
             }
         } else {
             this.logger.warn(`Failed to fetch components for product ${productId}: ${componentsResult.reason}`);
@@ -919,7 +925,7 @@ export class WeezeventSyncService {
 
             return result;
         } catch (error) {
-            this.logger.error('Orders sync failed', error.stack);
+            this.logger.error('Orders sync failed', (error as Error).stack);
             result.success = false;
             result.duration = Date.now() - startTime;
             throw error;
@@ -1011,7 +1017,7 @@ export class WeezeventSyncService {
 
             return result;
         } catch (error) {
-            this.logger.error('Prices sync failed', error.stack);
+            this.logger.error('Prices sync failed', (error as Error).stack);
             result.success = false;
             result.duration = Date.now() - startTime;
             throw error;
@@ -1108,7 +1114,7 @@ export class WeezeventSyncService {
 
             return result;
         } catch (error) {
-            this.logger.error('Attendees sync failed', error.stack);
+            this.logger.error('Attendees sync failed', (error as Error).stack);
             result.success = false;
             result.duration = Date.now() - startTime;
             throw error;

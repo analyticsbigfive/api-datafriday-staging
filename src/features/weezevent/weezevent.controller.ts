@@ -9,6 +9,7 @@ import { MapProductToMenuItemDto } from './dto/map-product-to-menu-item.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { SyncTrackerService } from './services/sync-tracker.service';
+import { QueueService } from '../../core/queue/queue.service';
 
 @ApiTags('Weezevent')
 @ApiBearerAuth('supabase-jwt')
@@ -22,6 +23,7 @@ export class WeezeventController {
         private readonly incrementalSyncService: WeezeventIncrementalSyncService,
         private readonly prisma: PrismaService,
         private readonly syncTracker: SyncTrackerService,
+        private readonly queueService: QueueService,
     ) { }
 
     /**
@@ -113,51 +115,64 @@ export class WeezeventController {
     async syncData(
         @CurrentUser() user: any,
         @Body() dto: SyncWeezeventDto,
-    ): Promise<SyncResult | IncrementalSyncResult> {
+    ) {
         const tenantId = user.tenantId;
         this.logger.log(
             `Manual sync triggered: type=${dto.type}, tenant=${tenantId}, forceFullSync=${dto.full || false}`,
         );
 
         const fromDate = dto.fromDate ? new Date(dto.fromDate) : undefined;
-        const toDate = dto.toDate ? new Date(dto.toDate) : undefined;
 
         switch (dto.type) {
             case 'transactions':
-                // Use incremental sync service
-                return this.incrementalSyncService.syncTransactionsIncremental(tenantId, {
-                    forceFullSync: dto.full,
-                    updatedSince: fromDate,
-                    batchSize: 500,
-                    maxItems: 10000,
-                });
-
             case 'events':
-                // Use incremental sync service
-                return this.incrementalSyncService.syncEventsIncremental(tenantId, {
-                    forceFullSync: dto.full,
-                    batchSize: 500,
-                    maxItems: 10000,
-                });
+            case 'products': {
+                // Enqueue via BullMQ: persistent, retried automatically (3×), deduped by jobId
+                const job = await this.queueService.queueWeezeventSyncType(
+                    tenantId,
+                    dto.type,
+                    {
+                        fullSync: dto.full,
+                        startDate: fromDate?.toISOString(),
+                        endDate: dto.toDate,
+                    },
+                );
+                return {
+                    jobId: job.id,
+                    status: 'queued',
+                    syncType: dto.type,
+                    message: `${dto.type} sync queued — poll GET /weezevent/sync/status for progress`,
+                };
+            }
 
-            case 'products':
-                // Products use regular sync (usually small dataset)
-                return this.syncService.syncProducts(tenantId);
+            case 'orders': {
+                if (!dto.eventId) throw new Error('eventId is required for orders sync');
+                const job = await this.queueService.queueWeezeventSyncType(
+                    tenantId,
+                    'orders',
+                    { eventId: dto.eventId },
+                );
+                return { jobId: job.id, status: 'queued', syncType: 'orders' };
+            }
 
-            case 'orders':
-                if (!dto.eventId) {
-                    throw new Error('eventId is required for orders sync');
-                }
-                return this.syncService.syncOrders(tenantId, dto.eventId);
+            case 'prices': {
+                const job = await this.queueService.queueWeezeventSyncType(
+                    tenantId,
+                    'prices',
+                    { eventId: dto.eventId },
+                );
+                return { jobId: job.id, status: 'queued', syncType: 'prices' };
+            }
 
-            case 'prices':
-                return this.syncService.syncPrices(tenantId, dto.eventId);
-
-            case 'attendees':
-                if (!dto.eventId) {
-                    throw new Error('eventId is required for attendees sync');
-                }
-                return this.syncService.syncAttendees(tenantId, dto.eventId);
+            case 'attendees': {
+                if (!dto.eventId) throw new Error('eventId is required for attendees sync');
+                const job = await this.queueService.queueWeezeventSyncType(
+                    tenantId,
+                    'attendees',
+                    { eventId: dto.eventId },
+                );
+                return { jobId: job.id, status: 'queued', syncType: 'attendees' };
+            }
 
             default:
                 throw new Error(`Sync type ${dto.type} not yet implemented`);
@@ -165,7 +180,7 @@ export class WeezeventController {
     }
 
     /**
-     * Get sync status (including incremental state)
+     * Get sync status (including incremental state + BullMQ queue stats)
      */
     @Get('sync/status')
     @ApiOperation({ summary: 'Obtenir le statut de synchronisation Weezevent' })
@@ -173,33 +188,21 @@ export class WeezeventController {
     async getSyncStatus(@CurrentUser() user: any) {
         const tenantId = user.tenantId;
 
-        // Get incremental sync states
-        const incrementalStatus = await this.incrementalSyncService.getSyncStatus(tenantId);
-
-        // Get counts
-        const [transactionCount, eventCount, productCount] = await Promise.all([
-            this.prisma.weezeventTransaction.count({ where: { tenantId } }),
-            this.prisma.weezeventEvent.count({ where: { tenantId } }),
-            this.prisma.weezeventProduct.count({ where: { tenantId } }),
-        ]);
+        const [incrementalStatus, transactionCount, eventCount, productCount, queueStats] =
+            await Promise.all([
+                this.incrementalSyncService.getSyncStatus(tenantId),
+                this.prisma.weezeventTransaction.count({ where: { tenantId } }),
+                this.prisma.weezeventEvent.count({ where: { tenantId } }),
+                this.prisma.weezeventProduct.count({ where: { tenantId } }),
+                this.queueService.getQueueStats('data-sync').catch(() => null),
+            ]);
 
         return {
-            // Incremental sync states
-            events: {
-                ...incrementalStatus.events,
-                count: eventCount,
-            },
-            transactions: {
-                ...incrementalStatus.transactions,
-                count: transactionCount,
-            },
-            products: {
-                ...incrementalStatus.products,
-                count: productCount,
-            },
-            // Running syncs
-            runningSyncs: this.syncTracker.getRunningSyncs(tenantId),
-            isRunning: this.syncTracker.getRunningSyncs(tenantId).length > 0,
+            events: { ...incrementalStatus.events, count: eventCount },
+            transactions: { ...incrementalStatus.transactions, count: transactionCount },
+            products: { ...incrementalStatus.products, count: productCount },
+            // BullMQ queue stats (persistent, survives restarts)
+            queue: queueStats,
         };
     }
 

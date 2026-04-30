@@ -4,15 +4,27 @@ import { Queue, Job, JobsOptions } from 'bullmq';
 import { QUEUES } from './queue.constants';
 
 // Job types for type safety
+export type WeezeventSyncType =
+  | 'transactions'
+  | 'events'
+  | 'products'
+  | 'orders'
+  | 'prices'
+  | 'attendees';
+
 export interface DataSyncJobData {
-  type: 'weezevent' | 'stripe' | 'manual';
+  /** 'weezevent' = full sync all types; 'weezevent-partial' = single syncType */
+  type: 'weezevent' | 'weezevent-partial' | 'stripe' | 'manual';
   tenantId: string;
   userId?: string;
-  eventId?: string;
+  /** For weezevent-partial: which data type to sync */
+  syncType?: WeezeventSyncType;
   options?: {
     fullSync?: boolean;
     startDate?: string;
     endDate?: string;
+    /** Required for orders/attendees */
+    eventId?: string;
   };
 }
 
@@ -55,6 +67,48 @@ export class QueueService {
   ) {}
 
   // ==================== DATA SYNC JOBS ====================
+
+  /**
+   * Queue a granular Weezevent sync (single data type, e.g. transactions only)
+   * Jobs survive server restarts, retry automatically on failure (3×, exponential backoff).
+   */
+  async queueWeezeventSyncType(
+    tenantId: string,
+    syncType: WeezeventSyncType,
+    options?: DataSyncJobData['options'],
+  ): Promise<Job<DataSyncJobData>> {
+    // Priority: events first (FK dependency), then transactions, then rest
+    const priorityMap: Record<WeezeventSyncType, number> = {
+      events: 1,
+      transactions: 2,
+      products: 3,
+      orders: 4,
+      prices: 5,
+      attendees: 5,
+    };
+
+    const job = await this.dataSyncQueue.add(
+      `weezevent-${syncType}`,
+      {
+        type: 'weezevent-partial',
+        tenantId,
+        syncType,
+        options,
+      },
+      {
+        priority: options?.fullSync
+          ? priorityMap[syncType] + 10  // full syncs are low priority
+          : priorityMap[syncType],
+        jobId: `${tenantId}-${syncType}`, // dedup: prevents queuing same type twice
+        delay: 0,
+      },
+    );
+
+    this.logger.log(
+      `Queued weezevent-${syncType} for tenant ${tenantId} (Job: ${job.id}, full=${options?.fullSync ?? false})`,
+    );
+    return job;
+  }
 
   /**
    * Queue a Weezevent data sync job

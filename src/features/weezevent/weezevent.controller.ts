@@ -278,18 +278,31 @@ export class WeezeventController {
         @CurrentUser() user: any,
         @Query('page') page: any = 1,
         @Query('perPage') perPage: any = 100,
+        @Query('type') type?: string,
     ) {
         const tenantId = user.tenantId;
         const p = parseInt(page, 10) || 1;
         const pp = Math.min(parseInt(perPage, 10) || 100, 500);
+
+        // By default only return sale locations (physical F&B stands).
+        // Pass type=all to get every type, or type=topup etc. for a specific one.
+        const where: any = { tenantId };
+        if (type === 'all') {
+            // no type filter
+        } else if (type) {
+            where.type = type;
+        } else {
+            where.type = 'sale'; // default: only physical sales locations
+        }
+
         const [locations, total] = await Promise.all([
             this.prisma.weezeventLocation.findMany({
-                where: { tenantId },
+                where,
                 orderBy: { name: 'asc' },
                 skip: (p - 1) * pp,
                 take: pp,
             }),
-            this.prisma.weezeventLocation.count({ where: { tenantId } }),
+            this.prisma.weezeventLocation.count({ where }),
         ]);
 
         return {

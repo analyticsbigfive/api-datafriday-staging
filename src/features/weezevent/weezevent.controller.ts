@@ -328,12 +328,14 @@ export class WeezeventController {
             });
             const ids = merchantIds.map(m => m.merchantId).filter(Boolean);
 
-            const merchants = await this.prisma.weezeventMerchant.findMany({
-                where: { tenantId, id: { in: ids } },
-                orderBy: { name: 'asc' },
-            });
-
-            return { data: merchants, meta: { total: merchants.length } };
+            if (ids.length > 0) {
+                const merchants = await this.prisma.weezeventMerchant.findMany({
+                    where: { tenantId, id: { in: ids } },
+                    orderBy: { name: 'asc' },
+                });
+                return { data: merchants, meta: { total: merchants.length } };
+            }
+            // Fallback: no transactions at this location yet — return all tenant merchants
         }
 
         const [merchants, total] = await Promise.all([
@@ -370,6 +372,8 @@ export class WeezeventController {
         @Query('category') category?: string,
     ) {
         const tenantId = user.tenantId;
+        const p = Math.max(1, parseInt(String(page), 10) || 1);
+        const pp = Math.min(Math.max(1, parseInt(String(perPage), 10) || 50), 500);
         const where: any = { tenantId };
         if (category) where.category = category;
 
@@ -377,8 +381,8 @@ export class WeezeventController {
             this.prisma.weezeventProduct.findMany({
                 where,
                 orderBy: { name: 'asc' },
-                skip: (page - 1) * perPage,
-                take: perPage,
+                skip: (p - 1) * pp,
+                take: pp,
             }),
             this.prisma.weezeventProduct.count({ where }),
         ]);
@@ -386,10 +390,10 @@ export class WeezeventController {
         return {
             data: products,
             meta: {
-                current_page: page,
-                per_page: perPage,
+                current_page: p,
+                per_page: pp,
                 total,
-                total_pages: Math.ceil(total / perPage),
+                total_pages: Math.ceil(total / pp),
             },
         };
     }
@@ -464,6 +468,8 @@ export class WeezeventController {
         @Query('perPage') perPage: number = 50,
     ) {
         const tenantId = user.tenantId;
+        const p = Math.max(1, parseInt(String(page), 10) || 1);
+        const pp = Math.min(Math.max(1, parseInt(String(perPage), 10) || 50), 500);
 
         const [mappings, total] = await Promise.all([
             this.prisma.weezeventProductMapping.findMany({
@@ -473,8 +479,8 @@ export class WeezeventController {
                     menuItem: true,
                 },
                 orderBy: { createdAt: 'desc' },
-                skip: (page - 1) * perPage,
-                take: perPage,
+                skip: (p - 1) * pp,
+                take: pp,
             }),
             this.prisma.weezeventProductMapping.count({ where: { tenantId } }),
         ]);
@@ -482,10 +488,10 @@ export class WeezeventController {
         return {
             data: mappings,
             meta: {
-                current_page: page,
-                per_page: perPage,
+                current_page: p,
+                per_page: pp,
                 total,
-                total_pages: Math.ceil(total / perPage),
+                total_pages: Math.ceil(total / pp),
             },
         };
     }
@@ -526,6 +532,8 @@ export class WeezeventController {
         @Query('eventId') eventId?: string,
     ) {
         const tenantId = user.tenantId;
+        const p = Math.max(1, parseInt(String(page), 10) || 1);
+        const pp = Math.min(Math.max(1, parseInt(String(perPage), 10) || 50), 500);
         const where: any = { tenantId };
         if (eventId) where.eventId = eventId;
 
@@ -533,8 +541,8 @@ export class WeezeventController {
             this.prisma.weezeventOrder.findMany({
                 where,
                 orderBy: { orderDate: 'desc' },
-                skip: (page - 1) * perPage,
-                take: perPage,
+                skip: (p - 1) * pp,
+                take: pp,
             }),
             this.prisma.weezeventOrder.count({ where }),
         ]);
@@ -542,10 +550,10 @@ export class WeezeventController {
         return {
             data: orders,
             meta: {
-                current_page: page,
-                per_page: perPage,
+                current_page: p,
+                per_page: pp,
                 total,
-                total_pages: Math.ceil(total / perPage),
+                total_pages: Math.ceil(total / pp),
             },
         };
     }
@@ -563,6 +571,8 @@ export class WeezeventController {
         @Query('eventId') eventId?: string,
     ) {
         const tenantId = user.tenantId;
+        const p = Math.max(1, parseInt(String(page), 10) || 1);
+        const pp = Math.min(Math.max(1, parseInt(String(perPage), 10) || 50), 500);
         const where: any = { tenantId };
         if (eventId) where.eventId = eventId;
 
@@ -570,8 +580,8 @@ export class WeezeventController {
             this.prisma.weezeventPrice.findMany({
                 where,
                 orderBy: { createdAt: 'desc' },
-                skip: (page - 1) * perPage,
-                take: perPage,
+                skip: (p - 1) * pp,
+                take: pp,
             }),
             this.prisma.weezeventPrice.count({ where }),
         ]);
@@ -579,10 +589,10 @@ export class WeezeventController {
         return {
             data: prices,
             meta: {
-                current_page: page,
-                per_page: perPage,
+                current_page: p,
+                per_page: pp,
                 total,
-                total_pages: Math.ceil(total / perPage),
+                total_pages: Math.ceil(total / pp),
             },
         };
     }

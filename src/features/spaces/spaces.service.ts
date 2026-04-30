@@ -1374,6 +1374,67 @@ export class SpacesService {
   }
 
   /**
+   * Quick-create a SpaceElement (shop) for a space without needing the floor plan editor.
+   * Finds or creates a "Weezevent Import" config + floor, then creates the element there.
+   */
+  async quickCreateElement(spaceId: string, tenantId: string, dto: { name: string; type?: string }) {
+    const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId } });
+    if (!space) throw new Error('Space not found or access denied');
+
+    // Find or create the "Weezevent Import" configuration
+    let config = await this.prisma.config.findFirst({
+      where: { spaceId, name: 'Weezevent Import' },
+      include: { floors: true },
+    });
+
+    if (!config) {
+      config = await this.prisma.config.create({
+        data: { spaceId, name: 'Weezevent Import', data: {} },
+        include: { floors: true },
+      });
+    }
+
+    // Find or create a default floor in that config
+    let floor = config.floors?.[0];
+    if (!floor) {
+      floor = await this.prisma.floor.create({
+        data: { configId: config.id, name: 'Import', level: 0, width: 800, height: 600, length: 100 },
+      });
+    }
+
+    const elementType = this.mapElementType(dto.type || 'shop');
+
+    const element = await this.prisma.spaceElement.create({
+      data: {
+        floorId: floor.id,
+        name: dto.name,
+        type: elementType,
+        x: 0,
+        y: 0,
+        width: 80,
+        height: 60,
+        depth: 60,
+        shopTypes: [],
+        storageTypes: [],
+        hospitalityTypes: [],
+        accessTypes: [],
+        entertainmentTypes: [],
+        entranceTypes: [],
+        kitchenTypes: [],
+        attributes: { originalType: dto.type || 'shop', importedFromWeezevent: true },
+      } as any,
+    });
+
+    return {
+      id: element.id,
+      name: element.name,
+      type: dto.type || 'shop',
+      configName: config.name,
+      areaName: floor.name,
+    };
+  }
+
+  /**
    * Delete a configuration
    */
   async deleteConfiguration(configId: string, tenantId: string) {

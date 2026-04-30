@@ -675,4 +675,22 @@ export class ConfigurationsController {
   ) {
     return this.spacesService.updateSpaceElement(elementId, tenantId, dto);
   }
+
+  /**
+   * Quick-create a shop element for a space (from Weezevent import flow)
+   */
+  @Post(':id/quick-element')
+  @Roles('ADMIN', 'MANAGER')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Créer rapidement un shop dans un espace (import Weezevent)' })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiBody({ schema: { type: 'object', properties: { name: { type: 'string' }, type: { type: 'string', example: 'shop' } }, required: ['name'] } })
+  @ApiResponse({ status: 201, description: 'Shop créé' })
+  async quickCreateElement(
+    @CurrentTenant() tenantId: string,
+    @Param('id') spaceId: string,
+    @Body() body: { name: string; type?: string },
+  ) {
+    return this.spacesService.quickCreateElement(spaceId, tenantId, body);
+  }
 }

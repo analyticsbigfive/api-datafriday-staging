@@ -11,6 +11,8 @@ export interface IncrementalSyncOptions {
     maxItems?: number;
     // Sync only items updated after this date
     updatedSince?: Date;
+    // Progress callback: receives 0-100 as pages are processed
+    onProgress?: (pct: number) => Promise<void>;
 }
 
 export interface IncrementalSyncResult {
@@ -149,6 +151,14 @@ export class WeezeventIncrementalSyncService {
 
                 // Check pagination
                 hasMore = response.meta.current_page < response.meta.total_pages;
+
+                // Report real progress based on pages
+                if (options.onProgress) {
+                    const totalPages = response.meta.total_pages || 1;
+                    const donePct = Math.min(99, Math.round((page / totalPages) * 100));
+                    await options.onProgress(donePct).catch(() => {});
+                }
+
                 page++;
 
                 this.logger.debug(
@@ -178,6 +188,13 @@ export class WeezeventIncrementalSyncService {
             this.logger.log(
                 `✅ Events sync completed: ${result.itemsSynced} synced (${result.itemsCreated} new, ${result.itemsUpdated} updated, ${result.itemsSkipped} skipped) in ${result.duration}ms`,
             );
+
+            // 9. Sync locations for all events of this tenant
+            try {
+                await this.syncLocationsFromApi(tenantId, organizationId);
+            } catch (locErr) {
+                this.logger.warn(`Locations sync failed (non-blocking): ${(locErr as Error).message}`);
+            }
 
             return result;
 
@@ -232,9 +249,11 @@ export class WeezeventIncrementalSyncService {
             );
 
             // Build API params
+            // On first full sync: no date limit → fetch ALL transactions from Weezevent.
+            // On incremental: overlap 5 min to avoid gaps.
             const fromDate = useIncremental && syncState.lastSyncedAt
-                ? new Date(syncState.lastSyncedAt.getTime() - 5 * 60 * 1000) // 5 min overlap for safety
-                : options.updatedSince || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // Default 30 days
+                ? new Date(syncState.lastSyncedAt.getTime() - 5 * 60 * 1000) // 5 min overlap
+                : options.updatedSince ?? null; // null = no filter = all time on first sync
 
             // Get existing transaction IDs for fast lookup
             const existingIds = await this.getExistingTransactionIds(tenantId, fromDate);
@@ -288,6 +307,14 @@ export class WeezeventIncrementalSyncService {
 
                 totalProcessed += transactions.length;
                 hasMore = response.meta.current_page < response.meta.total_pages;
+
+                // Report progress: transactions have no total, so estimate via items processed vs maxItems
+                // This gives a real signal that advances with the data, capped at 95% until done.
+                if (options.onProgress) {
+                    const estimatedPct = Math.min(95, Math.round((totalProcessed / maxItems) * 100));
+                    await options.onProgress(estimatedPct).catch(() => {});
+                }
+
                 page++;
 
                 this.logger.debug(
@@ -766,5 +793,76 @@ export class WeezeventIncrementalSyncService {
         }
 
         this.logger.log(`Reset sync state for tenant ${tenantId}${syncType ? ` (${syncType})` : ''}`);
+    }
+
+    // ==================== LOCATIONS SYNC ====================
+
+    /**
+     * Sync locations directly from WeezPay API for all events of this tenant.
+     * Called at the end of syncEventsIncremental (non-blocking).
+     */
+    private async syncLocationsFromApi(tenantId: string, organizationId: string): Promise<void> {
+        const events = await this.prisma.weezeventEvent.findMany({
+            where: { tenantId },
+            select: { id: true, weezeventId: true },
+        });
+
+        if (events.length === 0) {
+            this.logger.debug(`No events found for tenant ${tenantId}, skipping location sync`);
+            return;
+        }
+
+        this.logger.log(`Syncing locations for ${events.length} events (tenant ${tenantId})`);
+
+        let totalUpserted = 0;
+
+        for (const event of events) {
+            try {
+                let page = 1;
+                let hasMore = true;
+
+                while (hasMore) {
+                    const response = await this.weezeventClient.getLocations(
+                        tenantId,
+                        organizationId,
+                        event.weezeventId,
+                        { page, perPage: 100 },
+                    );
+
+                    const locations = response.data;
+
+                    for (const loc of locations) {
+                        await this.prisma.weezeventLocation.upsert({
+                            where: { weezeventId: String(loc.id) },
+                            create: {
+                                weezeventId: String(loc.id),
+                                tenantId,
+                                eventId: event.id,
+                                name: loc.name || loc.public_name || `Location ${loc.id}`,
+                                type: loc.type ?? null,
+                                rawData: loc,
+                                syncedAt: new Date(),
+                            },
+                            update: {
+                                name: loc.name || loc.public_name || `Location ${loc.id}`,
+                                type: loc.type ?? null,
+                                rawData: loc,
+                                syncedAt: new Date(),
+                            },
+                        });
+                        totalUpserted++;
+                    }
+
+                    hasMore = response.meta.current_page < response.meta.total_pages;
+                    page++;
+                }
+            } catch (err) {
+                this.logger.warn(
+                    `Failed to sync locations for event ${event.weezeventId}: ${(err as Error).message}`,
+                );
+            }
+        }
+
+        this.logger.log(`✅ Locations sync: upserted ${totalUpserted} locations for tenant ${tenantId}`);
     }
 }

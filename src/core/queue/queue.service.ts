@@ -99,7 +99,9 @@ export class QueueService {
         priority: options?.fullSync
           ? priorityMap[syncType] + 10  // full syncs are low priority
           : priorityMap[syncType],
-        jobId: `${tenantId}-${syncType}`, // dedup: prevents queuing same type twice
+        // 60-second dedup window: prevents double-queuing from rapid re-clicks,
+        // but allows re-running after a minute (unlike static jobId which blocks forever once in completed set).
+        jobId: `${tenantId}-${syncType}-${Math.floor(Date.now() / 60000)}`,
         delay: 0,
       },
     );
@@ -289,6 +291,31 @@ export class QueueService {
     ]);
 
     return { waiting, active, completed, failed };
+  }
+
+  /**
+   * Get progress of active jobs on a queue, keyed by syncType.
+   * Returns e.g. { transactions: 45, events: 10, products: 0 }
+   */
+  async getActiveJobsProgress(queueName: string): Promise<Record<string, number>> {
+    const queues: Record<string, Queue> = {
+      [QUEUES.DATA_SYNC]: this.dataSyncQueue,
+      [QUEUES.ANALYTICS]: this.analyticsQueue,
+      [QUEUES.NOTIFICATIONS]: this.notificationsQueue,
+      [QUEUES.EXPORTS]: this.exportsQueue,
+    };
+
+    const queue = queues[queueName];
+    if (!queue) return {};
+
+    const activeJobs = await queue.getActive();
+    const result: Record<string, number> = {};
+    for (const job of activeJobs) {
+      if (job.data?.syncType) {
+        result[job.data.syncType] = typeof job.progress === 'number' ? job.progress : 0;
+      }
+    }
+    return result;
   }
 
   /**

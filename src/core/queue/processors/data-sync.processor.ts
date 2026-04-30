@@ -62,12 +62,18 @@ export class DataSyncProcessor extends WorkerHost {
 
     switch (syncType) {
       case 'transactions':
+        // Transactions can be very long (cursor pagination, no total).
+        // We emit checkpoints at fixed points in the process.
         await job.updateProgress(10);
         result = await this.incrementalSyncService.syncTransactionsIncremental(tenantId, {
           forceFullSync: options?.fullSync,
           updatedSince: fromDate,
           batchSize: 500,
           maxItems: 10000,
+          onProgress: async (pct: number) => {
+            // Map service-reported 0-100 onto the 10-88 range
+            await job.updateProgress(10 + Math.round(pct * 0.78));
+          },
         });
         break;
 
@@ -77,6 +83,9 @@ export class DataSyncProcessor extends WorkerHost {
           forceFullSync: options?.fullSync,
           batchSize: 500,
           maxItems: 10000,
+          onProgress: async (pct: number) => {
+            await job.updateProgress(10 + Math.round(pct * 0.78));
+          },
         });
         break;
 

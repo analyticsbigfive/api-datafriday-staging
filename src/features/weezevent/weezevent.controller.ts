@@ -188,13 +188,14 @@ export class WeezeventController {
     async getSyncStatus(@CurrentUser() user: any) {
         const tenantId = user.tenantId;
 
-        const [incrementalStatus, transactionCount, eventCount, productCount, queueStats] =
+        const [incrementalStatus, transactionCount, eventCount, productCount, queueStats, jobsProgress] =
             await Promise.all([
                 this.incrementalSyncService.getSyncStatus(tenantId),
                 this.prisma.weezeventTransaction.count({ where: { tenantId } }),
                 this.prisma.weezeventEvent.count({ where: { tenantId } }),
                 this.prisma.weezeventProduct.count({ where: { tenantId } }),
                 this.queueService.getQueueStats('data-sync').catch(() => null),
+                this.queueService.getActiveJobsProgress('data-sync').catch(() => ({})),
             ]);
 
         return {
@@ -203,6 +204,8 @@ export class WeezeventController {
             products: { ...incrementalStatus.products, count: productCount },
             // BullMQ queue stats (persistent, survives restarts)
             queue: queueStats,
+            // Per-job progress for active jobs: { transactions: 45, events: 10, ... }
+            jobsProgress,
         };
     }
 

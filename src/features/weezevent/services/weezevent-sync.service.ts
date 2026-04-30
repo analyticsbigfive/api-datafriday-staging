@@ -139,6 +139,11 @@ export class WeezeventSyncService {
                 `Transaction sync completed: ${result.itemsSynced} synced (${result.itemsCreated} created, ${result.itemsUpdated} updated), ${result.errors} errors in ${result.duration}ms`,
             );
 
+            // Backfill WeezeventLocation from ALL transactions in DB for this tenant.
+            // Runs every sync — safe (idempotent upserts). Ensures locations are visible
+            // in the UI even when data was imported before this feature was added.
+            await this.backfillLocationsFromTransactions(tenantId);
+
             return result;
         } catch (error) {
             this.logger.error('Transaction sync failed', (error as Error).stack);
@@ -188,6 +193,48 @@ export class WeezeventSyncService {
     }
 
     /**
+     * Backfill WeezeventLocation from existing WeezeventTransaction rows.
+     * Extracts distinct (location_id, locationName) from rawData JSON.
+     * Safe to run multiple times — all upserts are idempotent.
+     */
+    private async backfillLocationsFromTransactions(tenantId: string): Promise<void> {
+        type Row = { wid: string; name: string };
+        const rows = await this.prisma.$queryRaw<Row[]>`
+            SELECT DISTINCT
+                (t."rawData"->>'location_id') AS wid,
+                t."locationName"              AS name
+            FROM "WeezeventTransaction" t
+            WHERE t."tenantId"             = ${tenantId}
+              AND (t."rawData"->>'location_id') IS NOT NULL
+              AND t."locationName"         IS NOT NULL
+        `;
+
+        let count = 0;
+        for (const row of rows) {
+            if (!row.wid || !row.name) continue;
+            await this.prisma.weezeventLocation.upsert({
+                where: { weezeventId: row.wid },
+                create: {
+                    weezeventId: row.wid,
+                    tenantId,
+                    name: row.name,
+                    rawData: {},
+                    syncedAt: new Date(),
+                },
+                update: {
+                    name: row.name,
+                    syncedAt: new Date(),
+                },
+            });
+            count++;
+        }
+
+        if (count > 0) {
+            this.logger.log(`Backfilled ${count} location(s) for tenant ${tenantId}`);
+        }
+    }
+
+    /**
      * Sync a single transaction
      */
     private async syncTransaction(
@@ -226,6 +273,30 @@ export class WeezeventSyncService {
         
         const transactionDate = dateStr ? new Date(dateStr) : new Date();
 
+        // Upsert location — extracts location from transaction data so the
+        // mapping wizard (WeezeventLocation → Space) can be used after sync.
+        let locationDbId: string | null = null;
+        const locationWeezeventId = rawTx.location_id?.toString() ?? null;
+        const locationName = apiTransaction.location_name ?? rawTx.location_name ?? null;
+        if (locationWeezeventId && locationName) {
+            const loc = await this.prisma.weezeventLocation.upsert({
+                where: { weezeventId: locationWeezeventId },
+                create: {
+                    weezeventId: locationWeezeventId,
+                    tenantId,
+                    name: locationName,
+                    rawData: {},
+                    syncedAt: new Date(),
+                },
+                update: {
+                    name: locationName,
+                    syncedAt: new Date(),
+                },
+                select: { id: true },
+            });
+            locationDbId = loc.id;
+        }
+
         // Upsert transaction
         const transaction = await this.prisma.weezeventTransaction.upsert({
             where: { weezeventId },
@@ -238,6 +309,7 @@ export class WeezeventSyncService {
                 eventName: apiTransaction.event_name,
                 merchantName: apiTransaction.fundation_name,
                 locationName: apiTransaction.location_name,
+                locationId: locationDbId,
                 sellerId: apiTransaction.seller_id?.toString(),
                 sellerWalletId: apiTransaction.seller_wallet_id?.toString(),
                 rawData: apiTransaction as any,
@@ -249,6 +321,7 @@ export class WeezeventSyncService {
                 eventName: apiTransaction.event_name,
                 merchantName: apiTransaction.fundation_name,
                 locationName: apiTransaction.location_name,
+                locationId: locationDbId,
                 rawData: apiTransaction as any,
                 syncedAt: new Date(),
                 updatedAt: new Date(),

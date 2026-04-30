@@ -510,4 +510,44 @@ export class WeezeventClientService {
 
         return response;
     }
+
+    // ==================== LOCATIONS ====================
+
+    /**
+     * Get all locations for a specific event.
+     * Endpoint: GET /organizations/{org}/events/{event}/locations
+     */
+    async getLocations(
+        tenantId: string,
+        organizationId: string,
+        eventId: string,
+        options?: { page?: number; perPage?: number },
+    ): Promise<WeezeventPaginatedResponse<any>> {
+        const params: Record<string, any> = {
+            page: options?.page || 1,
+            per_page: options?.perPage || 100,
+        };
+
+        this.logger.debug(`Fetching locations for event ${eventId}`);
+
+        const response = await this.apiService.get<any>(
+            tenantId,
+            `/organizations/${organizationId}/events/${eventId}/locations`,
+            params,
+        );
+
+        if (Array.isArray(response)) {
+            return {
+                data: response,
+                meta: {
+                    current_page: options?.page || 1,
+                    per_page: options?.perPage || 100,
+                    total: response.length,
+                    total_pages: 1,
+                },
+            };
+        }
+
+        return response;
+    }
 }

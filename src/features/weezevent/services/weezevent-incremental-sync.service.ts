@@ -590,6 +590,52 @@ export class WeezeventIncrementalSyncService {
             }
         }
 
+        // Build a map of weezeventId -> internal DB id for locations referenced by these transactions
+        const referencedLocationWeezeventIds = [
+            ...new Set(
+                transactions
+                    .map(t => t.location_id?.toString())
+                    .filter(Boolean),
+            ),
+        ];
+
+        const locationIdMap = new Map<string, string>();
+        if (referencedLocationWeezeventIds.length > 0) {
+            const locations = await this.prisma.weezeventLocation.findMany({
+                where: {
+                    tenantId,
+                    weezeventId: { in: referencedLocationWeezeventIds },
+                },
+                select: { id: true, weezeventId: true },
+            });
+            for (const l of locations) {
+                locationIdMap.set(l.weezeventId, l.id);
+            }
+        }
+
+        // Build a map of weezeventId -> internal DB id for merchants referenced by these transactions
+        const referencedMerchantWeezeventIds = [
+            ...new Set(
+                transactions
+                    .map(t => t.merchant_id?.toString())
+                    .filter(Boolean),
+            ),
+        ];
+
+        const merchantIdMap = new Map<string, string>();
+        if (referencedMerchantWeezeventIds.length > 0) {
+            const merchants = await this.prisma.weezeventMerchant.findMany({
+                where: {
+                    tenantId,
+                    weezeventId: { in: referencedMerchantWeezeventIds },
+                },
+                select: { id: true, weezeventId: true },
+            });
+            for (const m of merchants) {
+                merchantIdMap.set(m.weezeventId, m.id);
+            }
+        }
+
         for (const apiTransaction of transactions) {
             try {
                 const weezeventId = apiTransaction.id.toString();
@@ -621,6 +667,26 @@ export class WeezeventIncrementalSyncService {
                     );
                 }
 
+                // Resolve locationId to the internal DB id (FK points to WeezeventLocation.id, not weezeventId)
+                const apiLocationId = apiTransaction.location_id?.toString();
+                const resolvedLocationId = apiLocationId ? (locationIdMap.get(apiLocationId) ?? null) : null;
+
+                if (apiLocationId && !resolvedLocationId) {
+                    this.logger.warn(
+                        `Transaction ${weezeventId} references location ${apiLocationId} not found in DB — storing without locationId`,
+                    );
+                }
+
+                // Resolve merchantId to the internal DB id (FK points to WeezeventMerchant.id, not weezeventId)
+                const apiMerchantId = apiTransaction.merchant_id?.toString();
+                const resolvedMerchantId = apiMerchantId ? (merchantIdMap.get(apiMerchantId) ?? null) : null;
+
+                if (apiMerchantId && !resolvedMerchantId) {
+                    this.logger.warn(
+                        `Transaction ${weezeventId} references merchant ${apiMerchantId} not found in DB — storing without merchantId`,
+                    );
+                }
+
                 const transactionData = {
                     weezeventId,
                     tenantId,
@@ -629,9 +695,9 @@ export class WeezeventIncrementalSyncService {
                     transactionDate,
                     eventId: resolvedEventId,
                     eventName: apiTransaction.event_name,
-                    merchantId: apiTransaction.merchant_id?.toString(),
+                    merchantId: resolvedMerchantId,
                     merchantName: apiTransaction.merchant_name,
-                    locationId: apiTransaction.location_id?.toString(),
+                    locationId: resolvedLocationId,
                     locationName: apiTransaction.location_name,
                     sellerId: apiTransaction.seller_id?.toString(),
                     rawData: apiTransaction as any,

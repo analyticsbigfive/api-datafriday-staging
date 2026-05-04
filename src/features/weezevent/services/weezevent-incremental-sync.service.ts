@@ -473,11 +473,11 @@ export class WeezeventIncrementalSyncService {
      * Get existing transaction IDs as a Set for O(1) lookup
      * Only fetch IDs for transactions after fromDate to limit memory
      */
-    private async getExistingTransactionIds(tenantId: string, fromDate: Date): Promise<Set<string>> {
+    private async getExistingTransactionIds(tenantId: string, fromDate: Date | null): Promise<Set<string>> {
         const transactions = await this.prisma.weezeventTransaction.findMany({
             where: {
                 tenantId,
-                transactionDate: { gte: fromDate },
+                ...(fromDate ? { transactionDate: { gte: fromDate } } : {}),
             },
             select: { weezeventId: true },
         });

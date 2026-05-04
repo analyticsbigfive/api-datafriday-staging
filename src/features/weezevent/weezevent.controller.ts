@@ -234,6 +234,79 @@ export class WeezeventController {
     }
 
     /**
+     * Purge all synced Weezevent data for this tenant.
+     * Called when removing an integration with the "delete data" option.
+     * Deletes in dependency order to respect foreign key constraints.
+     */
+    @Delete('data')
+    @ApiOperation({ summary: 'Supprimer toutes les données Weezevent synchronisées' })
+    @ApiResponse({ status: 200, description: 'Données supprimées' })
+    async purgeData(@CurrentUser() user: any) {
+        const tenantId = user.tenantId;
+        this.logger.warn(`Purging all Weezevent data for tenant ${tenantId}`);
+
+        const where = { tenantId };
+
+        // Delete in dependency order (children first)
+        const [
+            attendees, prices, orders,
+            components, variants,
+            items, transactions,
+            mappings, products,
+            merchants, locations, wallets, users, events,
+            syncStates,
+        ] = await this.prisma.$transaction([
+            this.prisma.weezeventAttendee.deleteMany({ where }),
+            this.prisma.weezeventPrice.deleteMany({ where }),
+            this.prisma.weezeventOrder.deleteMany({ where }),
+            this.prisma.weezeventProductComponent.deleteMany({ where }),
+            this.prisma.weezeventProductVariant.deleteMany({ where }),
+            this.prisma.weezeventTransactionItem.deleteMany({ where: { transaction: { tenantId } } }),
+            this.prisma.weezeventTransaction.deleteMany({ where }),
+            this.prisma.weezeventProductMapping.deleteMany({ where }),
+            this.prisma.weezeventProduct.deleteMany({ where }),
+            this.prisma.weezeventMerchant.deleteMany({ where }),
+            this.prisma.weezeventLocation.deleteMany({ where }),
+            this.prisma.weezeventWallet.deleteMany({ where }),
+            this.prisma.weezeventUser.deleteMany({ where }),
+            this.prisma.weezeventEvent.deleteMany({ where }),
+            this.prisma.weezeventSyncState.deleteMany({ where }),
+        ]);
+
+        const total =
+            attendees.count + prices.count + orders.count +
+            components.count + variants.count +
+            items.count + transactions.count +
+            mappings.count + products.count +
+            merchants.count + locations.count + wallets.count + users.count + events.count +
+            syncStates.count;
+
+        this.logger.warn(`Purge complete for tenant ${tenantId}: ${total} records deleted`);
+
+        return {
+            success: true,
+            deleted: {
+                events: events.count,
+                transactions: transactions.count,
+                products: products.count,
+                variants: variants.count,
+                components: components.count,
+                orders: orders.count,
+                items: items.count,
+                merchants: merchants.count,
+                locations: locations.count,
+                wallets: wallets.count,
+                users: users.count,
+                attendees: attendees.count,
+                prices: prices.count,
+                mappings: mappings.count,
+                syncStates: syncStates.count,
+                total,
+            },
+        };
+    }
+
+    /**
      * Get events
      */
     @Get('events')

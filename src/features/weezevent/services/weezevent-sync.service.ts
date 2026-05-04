@@ -700,17 +700,19 @@ export class WeezeventSyncService {
 
             // OPTIMIZED: Batch operations instead of individual queries
             const weezeventIds = response.data.map(p => p.id.toString());
-            
-            // Single query to get all existing products
+
+            // Single query to get all existing products WITH rawData for change detection
             const existingProducts = await this.prisma.weezeventProduct.findMany({
                 where: { weezeventId: { in: weezeventIds } },
-                select: { weezeventId: true },
+                select: { weezeventId: true, rawData: true },
             });
-            const existingIds = new Set(existingProducts.map(p => p.weezeventId));
+            const existingMap = new Map(existingProducts.map(p => [p.weezeventId, p.rawData]));
 
             // Prepare data for batch operations
             const productsToCreate: any[] = [];
             const productsToUpdate: { weezeventId: string; data: any }[] = [];
+            // Only sync details for new or changed products (saves ~200 API calls on unchanged runs)
+            const productIdsNeedingDetailSync: string[] = [];
 
             for (const apiProduct of response.data) {
                 const weezeventId = apiProduct.id.toString();
@@ -729,14 +731,17 @@ export class WeezeventSyncService {
                     syncedAt: new Date(),
                 };
 
-                if (existingIds.has(weezeventId)) {
-                    productsToUpdate.push({ weezeventId, data: productData });
+                if (existingMap.has(weezeventId)) {
+                    // Only mark as changed if the product data from Weezevent actually differs
+                    const storedRaw = existingMap.get(weezeventId);
+                    const hasChanged = JSON.stringify(storedRaw) !== JSON.stringify(apiProduct);
+                    if (hasChanged) {
+                        productsToUpdate.push({ weezeventId, data: productData });
+                        productIdsNeedingDetailSync.push(weezeventId);
+                    }
                 } else {
-                    productsToCreate.push({
-                        weezeventId,
-                        tenantId,
-                        ...productData,
-                    });
+                    productsToCreate.push({ weezeventId, tenantId, ...productData });
+                    productIdsNeedingDetailSync.push(weezeventId);
                 }
             }
 
@@ -749,7 +754,7 @@ export class WeezeventSyncService {
                 result.itemsCreated = productsToCreate.length;
             }
 
-            // Batch update existing products using transaction
+            // Batch update changed products only
             if (productsToUpdate.length > 0) {
                 await this.prisma.$transaction(
                     productsToUpdate.map(({ weezeventId, data }) =>
@@ -764,18 +769,21 @@ export class WeezeventSyncService {
 
             result.itemsSynced = productsToCreate.length + productsToUpdate.length;
 
-            // Sync variants, components, and menu-steps for all products
-            // Parallelised with concurrency=5 to avoid hitting Weezevent rate limits.
-            this.logger.log(`Syncing variants/components/menu-steps for ${response.data.length} products...`);
+            // Sync variants/components ONLY for new or changed products
+            const skippedDetails = response.data.length - productIdsNeedingDetailSync.length;
+            this.logger.log(
+                `Syncing variants/components for ${productIdsNeedingDetailSync.length}/${response.data.length} products` +
+                (skippedDetails > 0 ? ` (${skippedDetails} unchanged — skipped)` : ''),
+            );
 
             const CONCURRENCY = 5;
-            for (let i = 0; i < response.data.length; i += CONCURRENCY) {
-                const chunk = response.data.slice(i, i + CONCURRENCY);
+            for (let i = 0; i < productIdsNeedingDetailSync.length; i += CONCURRENCY) {
+                const chunk = productIdsNeedingDetailSync.slice(i, i + CONCURRENCY);
                 await Promise.allSettled(
-                    chunk.map(apiProduct =>
-                        this.syncProductDetails(tenantId, organizationId, apiProduct.id.toString())
+                    chunk.map(productId =>
+                        this.syncProductDetails(tenantId, organizationId, productId)
                             .catch((error: Error) =>
-                                this.logger.warn(`Failed to sync details for product ${apiProduct.id}: ${error.message}`)
+                                this.logger.warn(`Failed to sync details for product ${productId}: ${error.message}`)
                             )
                     )
                 );

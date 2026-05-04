@@ -161,7 +161,6 @@ export class WeezeventCronService implements OnModuleInit {
                 weezeventOrganizationId: { not: null },
                 weezeventClientId: { not: null },
                 weezeventClientSecret: { not: null },
-                status: 'ACTIVE',
             },
             select: {
                 id: true,

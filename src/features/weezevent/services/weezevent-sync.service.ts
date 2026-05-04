@@ -646,6 +646,25 @@ export class WeezeventSyncService {
             result.success = result.errors === 0;
             result.duration = Date.now() - startTime;
 
+            // Update sync state so the frontend can detect completion via lastSyncedAt
+            await this.prisma.weezeventSyncState.upsert({
+                where: { tenantId_syncType: { tenantId, syncType: 'events' } },
+                create: {
+                    tenantId,
+                    syncType: 'events',
+                    lastSyncedAt: new Date(),
+                    lastSyncCount: result.itemsSynced,
+                    lastSyncDuration: result.duration,
+                    totalSynced: result.itemsSynced,
+                },
+                update: {
+                    lastSyncedAt: new Date(),
+                    lastSyncCount: result.itemsSynced,
+                    lastSyncDuration: result.duration,
+                    totalSynced: { increment: result.itemsSynced },
+                },
+            });
+
             return result;
         } catch (error) {
             this.logger.error('Events sync failed', (error as Error).stack);
@@ -653,6 +672,24 @@ export class WeezeventSyncService {
             result.duration = Date.now() - startTime;
             throw error;
         }
+    }
+
+    /**
+     * Stable fingerprint for a Weezevent product API object.
+     * Uses only scalar fields that are reliably comparable after a DB JSON roundtrip.
+     * Avoids JSON.stringify on the full object which is fragile (key ordering, numeric
+     * coercion, null vs undefined) and would cause false-positive "changed" on every run.
+     */
+    private productFingerprint(p: any): string {
+        return [
+            p?.id,
+            p?.name,
+            p?.description ?? '',
+            p?.category ?? '',
+            String(p?.base_price ?? ''),
+            String(p?.vat_rate ?? ''),
+            p?.image ?? '',
+        ].join('|');
     }
 
     /**
@@ -732,9 +769,11 @@ export class WeezeventSyncService {
                 };
 
                 if (existingMap.has(weezeventId)) {
-                    // Only mark as changed if the product data from Weezevent actually differs
-                    const storedRaw = existingMap.get(weezeventId);
-                    const hasChanged = JSON.stringify(storedRaw) !== JSON.stringify(apiProduct);
+                    // Compare only stable scalar fields to avoid false positives from JSON
+                    // roundtrip differences (key ordering, numeric coercion, nulls) that
+                    // would otherwise trigger a full detail re-sync on every run.
+                    const storedRaw = existingMap.get(weezeventId) as any;
+                    const hasChanged = this.productFingerprint(storedRaw) !== this.productFingerprint(apiProduct);
                     if (hasChanged) {
                         productsToUpdate.push({ weezeventId, data: productData });
                         productIdsNeedingDetailSync.push(weezeventId);
@@ -793,6 +832,25 @@ export class WeezeventSyncService {
             result.duration = Date.now() - startTime;
 
             this.logger.log(`Products sync completed: ${result.itemsSynced} synced (${result.itemsCreated} created, ${result.itemsUpdated} updated) in ${result.duration}ms`);
+
+            // Update sync state so the frontend can detect completion via lastSyncedAt
+            await this.prisma.weezeventSyncState.upsert({
+                where: { tenantId_syncType: { tenantId, syncType: 'products' } },
+                create: {
+                    tenantId,
+                    syncType: 'products',
+                    lastSyncedAt: new Date(),
+                    lastSyncCount: result.itemsSynced,
+                    lastSyncDuration: result.duration,
+                    totalSynced: result.itemsSynced,
+                },
+                update: {
+                    lastSyncedAt: new Date(),
+                    lastSyncCount: result.itemsSynced,
+                    lastSyncDuration: result.duration,
+                    totalSynced: { increment: result.itemsSynced },
+                },
+            });
 
             return result;
         } catch (error) {

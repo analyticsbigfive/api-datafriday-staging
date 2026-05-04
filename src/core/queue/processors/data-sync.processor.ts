@@ -7,7 +7,9 @@ import { WeezeventSyncService } from '../../../features/weezevent/services/weeze
 import { WeezeventIncrementalSyncService } from '../../../features/weezevent/services/weezevent-incremental-sync.service';
 import { RedisService } from '../../redis/redis.service';
 
-@Processor(QUEUES.DATA_SYNC)
+// lockDuration: 5 min — long enough for 100-product detail sync with slow DB (12-14s per DELETE).
+// Without this, BullMQ's default 30s lock expires during long-running jobs and marks them stalled.
+@Processor(QUEUES.DATA_SYNC, { lockDuration: 300000 })
 export class DataSyncProcessor extends WorkerHost {
   private readonly logger = new Logger(DataSyncProcessor.name);
 

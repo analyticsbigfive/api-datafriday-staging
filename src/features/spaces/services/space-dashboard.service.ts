@@ -366,10 +366,37 @@ export class SpaceDashboardService {
     const avgTicket =
       totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
 
-    // TODO: Get attendees from WeezeventAttendee table
-    const attendees = 0;
+    // Get distinct event IDs in this space's aggregation window
+    const aggEvents = await this.prisma.spaceRevenueDailyAgg.findMany({
+      where: {
+        tenantId,
+        spaceId,
+        day: { gte: new Date(from), lte: new Date(to) },
+        weezeventEventId: { not: null },
+      },
+      distinct: ['weezeventEventId'],
+      select: { weezeventEventId: true },
+    });
+    const eventIds = aggEvents
+      .map(r => r.weezeventEventId)
+      .filter((id): id is string => id !== null);
+
+    // Count attendees + refunds in parallel
+    const [attendees, refundedTxCount, totalTxCount] = await Promise.all([
+      eventIds.length > 0
+        ? this.prisma.weezeventAttendee.count({
+            where: { tenantId, eventId: { in: eventIds } },
+          })
+        : Promise.resolve(0),
+      this.prisma.weezeventTransaction.count({
+        where: { tenantId, status: 'refunded' },
+      }),
+      this.prisma.weezeventTransaction.count({ where: { tenantId } }),
+    ]);
+
     const revenuePerAttendee = attendees > 0 ? totalRevenue / attendees : 0;
-    const conversionRate = 0; // TODO: Calculate from attendees vs transactions
+    const conversionRate = attendees > 0 ? Math.min(1, totalTransactions / attendees) : 0;
+    const refundRate = totalTxCount > 0 ? refundedTxCount / totalTxCount : 0;
 
     // Get top category
     const topCategory = await this.getTopCategory(spaceId, tenantId, from, to);
@@ -382,7 +409,7 @@ export class SpaceDashboardService {
       revenuePerAttendee,
       conversionRate,
       topSellingCategory: topCategory,
-      refundRate: 0, // TODO: Calculate refund rate
+      refundRate,
     };
   }
 

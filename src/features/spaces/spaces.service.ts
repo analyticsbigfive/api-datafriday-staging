@@ -730,7 +730,11 @@ export class SpacesService {
 
     // Get revenue data for these shops (if mapped to Weezevent)
     const shopIds = allShops.map(s => s.id);
-    
+
+    // Build a map for quick shop lookup
+    const shopMap = new Map(allShops.map(s => [s.id, s]));
+
+    // --- Per-shop totals (for the shops list) ---
     const revenueData = await this.prisma.spaceRevenueDailyAgg.groupBy({
       by: ['spaceElementId'],
       where: {
@@ -773,8 +777,80 @@ export class SpacesService {
       merchantMappings.map(m => [m.spaceElementId, m.weezeventMerchantId]),
     );
 
-    // Build response with shop details
-    return allShops.map(shop => {
+    // --- Per-event-per-shop granular data (for analytics charts) ---
+    const granularRows = await this.prisma.spaceRevenueDailyAgg.groupBy({
+      by: ['weezeventEventId', 'spaceElementId'],
+      where: {
+        tenantId,
+        spaceId,
+        spaceElementId: { in: shopIds },
+        weezeventEventId: { not: null },
+      },
+      _sum: {
+        revenueHt: true,
+        transactionsCount: true,
+        itemsCount: true,
+      },
+    });
+
+    // --- Event metadata + attendee counts ---
+    const eventIds = [...new Set(
+      granularRows.map(r => r.weezeventEventId).filter((id): id is string => id !== null),
+    )];
+
+    const [weezeventEvents, attendeeCounts] = await Promise.all([
+      eventIds.length > 0
+        ? this.prisma.weezeventEvent.findMany({
+            where: { id: { in: eventIds }, tenantId },
+            select: { id: true, name: true, startDate: true },
+          })
+        : Promise.resolve([]),
+      eventIds.length > 0
+        ? this.prisma.weezeventAttendee.groupBy({
+            by: ['eventId'],
+            where: { tenantId, eventId: { in: eventIds } },
+            _count: { id: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const eventMetaMap = new Map(weezeventEvents.map(e => [e.id, e]));
+    const attendeeCountMap = new Map(
+      attendeeCounts.map(a => [a.eventId!, a._count.id]),
+    );
+
+    // --- Build shopGranularData ---
+    const shopGranularData = granularRows
+      .filter(r => r.weezeventEventId && r.spaceElementId)
+      .map(r => {
+        const shop = shopMap.get(r.spaceElementId!);
+        const event = eventMetaMap.get(r.weezeventEventId!);
+        const attrs = shop?.attributes as any;
+        return {
+          eventId: r.weezeventEventId,
+          eventName: event?.name ?? r.weezeventEventId,
+          eventDate: event?.startDate ?? null,
+          shopId: r.spaceElementId,
+          shopName: shop?.name ?? r.spaceElementId,
+          shopType: attrs?.originalType ?? (shop ? this.reverseMapElementType(shop.type) : null),
+          shopArea: attrs?.area ?? null,
+          revenue: Number(r._sum.revenueHt || 0),
+          transactionCount: r._sum.transactionsCount || 0,
+          itemsCount: r._sum.itemsCount || 0,
+        };
+      });
+
+    // --- Build events list with ticketsScanned ---
+    const events = weezeventEvents.map(e => ({
+      id: e.id,
+      name: e.name,
+      date: e.startDate,
+      ticketsScanned: attendeeCountMap.get(e.id) ?? 0,
+      attendees: attendeeCountMap.get(e.id) ?? 0,
+    }));
+
+    // --- Build shops list (existing behavior) ---
+    const shops = allShops.map(shop => {
       const revenue = revenueByShop.get(shop.id);
       const weezeventMerchantId = mappingByShop.get(shop.id);
       const location = 'floor' in shop ? shop.floor : shop.forecourt;
@@ -790,15 +866,15 @@ export class SpacesService {
         locationId: location.id,
         locationName: location.name,
         locationType: 'floor' in shop ? 'floor' : 'forecourt',
-        // Revenue data (from Weezevent if mapped)
         revenue: revenue?.revenue || 0,
         transactionCount: revenue?.transactionCount || 0,
         itemsCount: revenue?.itemsCount || 0,
-        // Weezevent mapping status
         isMappedToWeezevent: !!weezeventMerchantId,
         weezeventMerchantId: weezeventMerchantId || null,
       };
     });
+
+    return { shops, shopGranularData, events };
   }
 
   /**

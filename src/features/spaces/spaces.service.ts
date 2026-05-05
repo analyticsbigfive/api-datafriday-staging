@@ -777,79 +777,135 @@ export class SpacesService {
       merchantMappings.map(m => [m.spaceElementId, m.weezeventMerchantId]),
     );
 
-    // --- Per-event-per-shop granular data (for analytics charts) ---
-    const granularRows = await this.prisma.spaceRevenueDailyAgg.groupBy({
-      by: ['weezeventEventId', 'spaceElementId'],
-      where: {
-        tenantId,
-        spaceId,
-        spaceElementId: { in: shopIds },
-        weezeventEventId: { not: null },
-      },
-      _sum: {
-        revenueHt: true,
-        transactionsCount: true,
-        itemsCount: true,
-      },
-    });
+    // --- Per-event × shop × product granular data (3-dimension raw SQL) ---
+    // Joins: WeezeventTransaction → TransactionItems → MerchantElementMapping
+    //        → SpaceElement / WeezeventEvent / WeezeventProduct
+    //        → WeezeventProductMapping → MenuItem → ProductType / ProductCategory
+    const granularRows: any[] = shopIds.length > 0
+      ? await this.prisma.$queryRaw`
+          SELECT
+            t."eventId"                                                    AS "weezeventEventId",
+            we.name                                                        AS "eventName",
+            we."startDate"                                                 AS "eventDate",
+            mem."spaceElementId",
+            se.name                                                        AS "shopName",
+            COALESCE(se.attributes::jsonb->>'originalType', se.type::text) AS "shopType",
+            se.attributes::jsonb->>'area'                                  AS "shopArea",
+            ti."productId"                                                 AS "weezeventProductId",
+            wpm."menuItemId",
+            mi.name                                                        AS "menuItemName",
+            pt.name                                                        AS "menuItemType",
+            pc.name                                                        AS "menuItemCategory",
+            mi."totalCost"                                                 AS "itemCost",
+            SUM(
+              ti."unitPrice" * ti.quantity
+              / (1 + COALESCE(p."vatRate", 20) / 100)
+            )::numeric(12,2)                                               AS "revenueHt",
+            SUM(ti.quantity)::integer                                      AS quantity,
+            COUNT(DISTINCT t.id)::integer                                  AS "transactionCount"
+          FROM "WeezeventTransaction" t
+          INNER JOIN "WeezeventTransactionItem" ti
+            ON ti."transactionId" = t.id
+          INNER JOIN "WeezeventMerchantElementMapping" mem
+            ON mem."weezeventMerchantId" = t."merchantId"
+           AND mem."tenantId"         = ${tenantId}
+           AND mem."spaceElementId"   = ANY(${shopIds})
+          INNER JOIN "SpaceElement" se
+            ON se.id = mem."spaceElementId"
+          LEFT JOIN "WeezeventEvent" we
+            ON we.id = t."eventId"
+          LEFT JOIN "WeezeventProduct" p
+            ON p.id = ti."productId"
+          LEFT JOIN "WeezeventProductMapping" wpm
+            ON wpm."weezeventProductId" = ti."productId"
+           AND wpm."tenantId" = ${tenantId}
+          LEFT JOIN "MenuItem" mi
+            ON mi.id = wpm."menuItemId"
+          LEFT JOIN "ProductType" pt
+            ON pt.id = mi."typeId"
+          LEFT JOIN "ProductCategory" pc
+            ON pc.id = mi."categoryId"
+          WHERE t."tenantId" = ${tenantId}
+            AND t.status    = 'completed'
+            AND t."eventId" IS NOT NULL
+          GROUP BY
+            t."eventId", we.name, we."startDate",
+            mem."spaceElementId", se.name, se.type, se.attributes,
+            ti."productId", wpm."menuItemId", mi.name, pt.name, pc.name, mi."totalCost",
+            p."vatRate"
+        `
+      : [];
 
-    // --- Event metadata + attendee counts ---
+    // --- Build shopGranularData (one record per event × shop × product) ---
+    const shopGranularData = granularRows
+      .filter((r: any) => r.weezeventEventId && r.spaceElementId)
+      .map((r: any) => ({
+        // Unique identifier matching mock format
+        elementId: `${r.spaceElementId}_${r.weezeventProductId ?? 'unmapped'}_${r.weezeventEventId}`,
+        // Event dimensions
+        eventId:   r.weezeventEventId,
+        eventName: r.eventName ?? r.weezeventEventId,
+        eventDate: r.eventDate ?? null,
+        // Shop dimensions
+        shopId:   r.spaceElementId,
+        shopName: r.shopName ?? r.spaceElementId,
+        shopType: r.shopType ?? null,
+        shopArea: r.shopArea ?? null,
+        // Product dimensions (null when product unmapped to MenuItem)
+        menuItemId:       r.menuItemId ?? r.weezeventProductId,
+        menuItemName:     r.menuItemName ?? null,
+        menuItemType:     r.menuItemType ?? null,
+        menuItemCategory: r.menuItemCategory ?? null,
+        // Metrics
+        revenue:          Number(r.revenueHt  || 0),
+        quantity:         Number(r.quantity   || 0),
+        transactionCount: Number(r.transactionCount || 0),
+      }));
+
+    // --- Build menuItemCostMap { menuItemId → cost } for margin calculation ---
+    const menuItemCostMap: Record<string, number> = {};
+    for (const r of granularRows) {
+      const key: string | null = r.menuItemId ?? r.weezeventProductId;
+      if (key && r.itemCost != null && !(key in menuItemCostMap)) {
+        menuItemCostMap[key] = Number(r.itemCost);
+      }
+    }
+
+    // --- Build events list with attendee counts ---
     const eventIds = [...new Set(
-      granularRows.map(r => r.weezeventEventId).filter((id): id is string => id !== null),
+      granularRows
+        .map((r: any) => r.weezeventEventId as string | null)
+        .filter((id): id is string => id !== null),
     )];
 
-    const [weezeventEvents, attendeeCounts] = await Promise.all([
-      eventIds.length > 0
-        ? this.prisma.weezeventEvent.findMany({
-            where: { id: { in: eventIds }, tenantId },
-            select: { id: true, name: true, startDate: true },
-          })
-        : Promise.resolve([]),
-      eventIds.length > 0
-        ? this.prisma.weezeventAttendee.groupBy({
-            by: ['eventId'],
-            where: { tenantId, eventId: { in: eventIds } },
-            _count: { id: true },
-          })
-        : Promise.resolve([]),
-    ]);
+    const attendeeCounts = eventIds.length > 0
+      ? await this.prisma.weezeventAttendee.groupBy({
+          by: ['eventId'],
+          where: { tenantId, eventId: { in: eventIds } },
+          _count: { id: true },
+        })
+      : [];
+    const attendeeCountMap = new Map(attendeeCounts.map(a => [a.eventId!, a._count.id]));
 
-    const eventMetaMap = new Map(weezeventEvents.map(e => [e.id, e]));
-    const attendeeCountMap = new Map(
-      attendeeCounts.map(a => [a.eventId!, a._count.id]),
-    );
+    const seenEventIds = new Set<string>();
+    const events = granularRows
+      .filter((r: any) => {
+        if (!r.weezeventEventId) return false;
+        if (seenEventIds.has(r.weezeventEventId)) return false;
+        seenEventIds.add(r.weezeventEventId);
+        return true;
+      })
+      .map((r: any) => ({
+        id:             r.weezeventEventId,
+        name:           r.eventName ?? r.weezeventEventId,
+        eventName:      r.eventName ?? r.weezeventEventId,
+        date:           r.eventDate ?? null,
+        ticketsScanned: attendeeCountMap.get(r.weezeventEventId) ?? 0,
+        attendees:      attendeeCountMap.get(r.weezeventEventId) ?? 0,
+        isFuture:       r.eventDate ? new Date(r.eventDate) > new Date() : false,
+      }));
 
-    // --- Build shopGranularData ---
-    const shopGranularData = granularRows
-      .filter(r => r.weezeventEventId && r.spaceElementId)
-      .map(r => {
-        const shop = shopMap.get(r.spaceElementId!);
-        const event = eventMetaMap.get(r.weezeventEventId!);
-        const attrs = shop?.attributes as any;
-        return {
-          eventId: r.weezeventEventId,
-          eventName: event?.name ?? r.weezeventEventId,
-          eventDate: event?.startDate ?? null,
-          shopId: r.spaceElementId,
-          shopName: shop?.name ?? r.spaceElementId,
-          shopType: attrs?.originalType ?? (shop ? this.reverseMapElementType(shop.type) : null),
-          shopArea: attrs?.area ?? null,
-          revenue: Number(r._sum.revenueHt || 0),
-          transactionCount: r._sum.transactionsCount || 0,
-          itemsCount: r._sum.itemsCount || 0,
-        };
-      });
-
-    // --- Build events list with ticketsScanned ---
-    const events = weezeventEvents.map(e => ({
-      id: e.id,
-      name: e.name,
-      date: e.startDate,
-      ticketsScanned: attendeeCountMap.get(e.id) ?? 0,
-      attendees: attendeeCountMap.get(e.id) ?? 0,
-    }));
-
-    // --- Build shops list (existing behavior) ---
+    // --- Build shops list (per-shop summary for the builder/overview panels) ---
     const shops = allShops.map(shop => {
       const revenue = revenueByShop.get(shop.id);
       const weezeventMerchantId = mappingByShop.get(shop.id);
@@ -874,7 +930,7 @@ export class SpacesService {
       };
     });
 
-    return { shops, shopGranularData, events };
+    return { shops, shopGranularData, events, menuItemCostMap };
   }
 
   /**

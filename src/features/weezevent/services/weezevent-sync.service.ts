@@ -213,7 +213,7 @@ export class WeezeventSyncService {
         for (const row of rows) {
             if (!row.wid || !row.name) continue;
             await this.prisma.weezeventLocation.upsert({
-                where: { weezeventId: row.wid },
+                where: { tenantId_weezeventId: { tenantId, weezeventId: row.wid } },
                 create: {
                     weezeventId: row.wid,
                     tenantId,
@@ -245,7 +245,7 @@ export class WeezeventSyncService {
 
         // Check if transaction exists
         const existing = await this.prisma.weezeventTransaction.findUnique({
-            where: { weezeventId },
+            where: { tenantId_weezeventId: { tenantId, weezeventId } },
         });
 
         // Calculate total amount from rows
@@ -280,7 +280,7 @@ export class WeezeventSyncService {
         const locationName = apiTransaction.location_name ?? rawTx.location_name ?? null;
         if (locationWeezeventId && locationName) {
             const loc = await this.prisma.weezeventLocation.upsert({
-                where: { weezeventId: locationWeezeventId },
+                where: { tenantId_weezeventId: { tenantId, weezeventId: locationWeezeventId } },
                 create: {
                     weezeventId: locationWeezeventId,
                     tenantId,
@@ -299,7 +299,7 @@ export class WeezeventSyncService {
 
         // Upsert transaction
         const transaction = await this.prisma.weezeventTransaction.upsert({
-            where: { weezeventId },
+            where: { tenantId_weezeventId: { tenantId, weezeventId } },
             create: {
                 weezeventId,
                 tenantId,
@@ -430,7 +430,7 @@ export class WeezeventSyncService {
             : (typeof walletStatus === 'string' ? walletStatus : 'unknown');
 
         return this.prisma.weezeventWallet.upsert({
-            where: { weezeventId },
+            where: { tenantId_weezeventId: { tenantId, weezeventId } },
             create: {
                 weezeventId,
                 tenantId,
@@ -475,7 +475,7 @@ export class WeezeventSyncService {
         const weezeventId = apiUser.id.toString();
 
         return this.prisma.weezeventUser.upsert({
-            where: { weezeventId },
+            where: { tenantId_weezeventId: { tenantId, weezeventId } },
             create: {
                 weezeventId,
                 tenantId,
@@ -633,7 +633,7 @@ export class WeezeventSyncService {
                 await this.prisma.$transaction(
                     eventsToUpdate.map(({ weezeventId, data }) =>
                         this.prisma.weezeventEvent.update({
-                            where: { weezeventId },
+                            where: { tenantId_weezeventId: { tenantId, weezeventId } },
                             data,
                         })
                     )
@@ -798,7 +798,7 @@ export class WeezeventSyncService {
                 await this.prisma.$transaction(
                     productsToUpdate.map(({ weezeventId, data }) =>
                         this.prisma.weezeventProduct.update({
-                            where: { weezeventId },
+                            where: { tenantId_weezeventId: { tenantId, weezeventId } },
                             data,
                         })
                     )
@@ -872,7 +872,7 @@ export class WeezeventSyncService {
     ): Promise<void> {
         // Get the product from DB to link relations
         const product = await this.prisma.weezeventProduct.findUnique({
-            where: { weezeventId: productId },
+            where: { tenantId_weezeventId: { tenantId, weezeventId: productId } },
             select: { id: true, weezeventId: true },
         });
 
@@ -1016,11 +1016,11 @@ export class WeezeventSyncService {
                     try {
                         const weezeventId = apiOrder.id.toString();
                         const existing = await this.prisma.weezeventOrder.findUnique({
-                            where: { weezeventId },
+                            where: { tenantId_weezeventId: { tenantId, weezeventId } },
                         });
 
                         await this.prisma.weezeventOrder.upsert({
-                            where: { weezeventId },
+                            where: { tenantId_weezeventId: { tenantId, weezeventId } },
                             create: {
                                 weezeventId,
                                 tenantId,
@@ -1111,11 +1111,11 @@ export class WeezeventSyncService {
                 try {
                     const weezeventId = apiPrice.id.toString();
                     const existing = await this.prisma.weezeventPrice.findUnique({
-                        where: { weezeventId },
+                        where: { tenantId_weezeventId: { tenantId, weezeventId } },
                     });
 
                     await this.prisma.weezeventPrice.upsert({
-                        where: { weezeventId },
+                        where: { tenantId_weezeventId: { tenantId, weezeventId } },
                         create: {
                             weezeventId,
                             tenantId,
@@ -1207,11 +1207,11 @@ export class WeezeventSyncService {
                     try {
                         const weezeventId = apiAttendee.id.toString();
                         const existing = await this.prisma.weezeventAttendee.findUnique({
-                            where: { weezeventId },
+                            where: { tenantId_weezeventId: { tenantId, weezeventId } },
                         });
 
                         await this.prisma.weezeventAttendee.upsert({
-                            where: { weezeventId },
+                            where: { tenantId_weezeventId: { tenantId, weezeventId } },
                             create: {
                                 weezeventId,
                                 tenantId,

@@ -106,142 +106,103 @@ export class WeezeventController {
     }
 
     /**
-     * Trigger manual synchronization (supports incremental)
+     * Trigger manual synchronization — runs synchronously and returns the result directly.
+     * transactions / events / products are executed in-process (no queue).
+     * orders / prices / attendees are still queued via BullMQ.
      */
     @Post('sync')
     @ApiOperation({ summary: 'Déclencher une synchronisation Weezevent' })
     @ApiBody({ type: SyncWeezeventDto })
-    @ApiResponse({ status: 201, description: 'Synchronisation déclenchée' })
+    @ApiResponse({ status: 201, description: 'Synchronisation terminée' })
     async syncData(
         @CurrentUser() user: any,
         @Body() dto: SyncWeezeventDto,
     ) {
         const tenantId = user.tenantId;
         this.logger.log(
-            `Manual sync triggered: type=${dto.type}, tenant=${tenantId}, forceFullSync=${dto.full || false}`,
+            `Manual sync started: type=${dto.type}, tenant=${tenantId}, forceFullSync=${dto.full || false}`,
         );
 
         const fromDate = dto.fromDate ? new Date(dto.fromDate) : undefined;
 
-        // Helper: returns true if error is a Redis quota / connection error
-        const isRedisUnavailable = (e: Error) => {
-            const m = e.message || '';
-            return m.includes('max requests limit exceeded') ||
-                m.includes('ECONNREFUSED') ||
-                m.includes('ENOTFOUND') ||
-                m.includes('Connection is closed') ||
-                m.includes('connect ETIMEDOUT');
+        // Auto-recovery: if DB is empty for this type, force a full sync regardless of dto.full.
+        // This fixes the case where data was purged but sync state still has lastSyncedAt set —
+        // an incremental sync would skip everything and return 0.
+        const autoFullForType = async (type: 'transactions' | 'events' | 'products'): Promise<boolean> => {
+            const counter =
+                type === 'transactions' ? this.prisma.weezeventTransaction.count({ where: { tenantId } }) :
+                type === 'events' ? this.prisma.weezeventEvent.count({ where: { tenantId } }) :
+                this.prisma.weezeventProduct.count({ where: { tenantId } });
+            const n = await counter;
+            if (n === 0 && !dto.full) {
+                this.logger.warn(`Auto full-sync: ${type} DB is empty for tenant ${tenantId}, resetting sync state`);
+                await this.incrementalSyncService.resetSyncState(tenantId, type).catch(() => undefined);
+                return true;
+            }
+            return Boolean(dto.full);
         };
 
-        // Helper: run sync directly in-process (fire-and-forget background task).
-        // Used as fallback when the Redis queue is unavailable.
-        const runDirectSync = (fn: () => Promise<any>, syncType: string) => {
-            const id = `direct-${tenantId}-${syncType}-${Date.now()}`;
-            fn().then(() => {
-                this.logger.log(`Direct sync ${id} completed`);
-            }).catch((e) => {
-                this.logger.error(`Direct sync ${id} failed: ${e.message}`);
-            });
-            return {
-                jobId: id,
-                status: 'running_direct',
-                syncType,
-                message: `Redis queue unavailable — sync running in-process. ` +
-                    `Set REDIS_QUEUE_URL to a dedicated Redis to restore persistent queuing.`,
-            };
-        };
-
-        try {
-            switch (dto.type) {
-                case 'transactions':
-                case 'events':
-                case 'products': {
-                    // Enqueue via BullMQ: persistent, retried automatically (3×), deduped by jobId
-                    const job = await this.queueService.queueWeezeventSyncType(
-                        tenantId,
-                        dto.type,
-                        {
-                            fullSync: dto.full,
-                            startDate: fromDate?.toISOString(),
-                            endDate: dto.toDate,
-                        },
-                    );
-                    return {
-                        jobId: job.id,
-                        status: 'queued',
-                        syncType: dto.type,
-                        message: `${dto.type} sync queued — poll GET /weezevent/sync/status for progress`,
-                    };
-                }
-
-                case 'orders': {
-                    if (!dto.eventId) throw new Error('eventId is required for orders sync');
-                    const job = await this.queueService.queueWeezeventSyncType(
-                        tenantId,
-                        'orders',
-                        { eventId: dto.eventId },
-                    );
-                    return { jobId: job.id, status: 'queued', syncType: 'orders' };
-                }
-
-                case 'prices': {
-                    const job = await this.queueService.queueWeezeventSyncType(
-                        tenantId,
-                        'prices',
-                        { eventId: dto.eventId },
-                    );
-                    return { jobId: job.id, status: 'queued', syncType: 'prices' };
-                }
-
-                case 'attendees': {
-                    if (!dto.eventId) throw new Error('eventId is required for attendees sync');
-                    const job = await this.queueService.queueWeezeventSyncType(
-                        tenantId,
-                        'attendees',
-                        { eventId: dto.eventId },
-                    );
-                    return { jobId: job.id, status: 'queued', syncType: 'attendees' };
-                }
-
-                default:
-                    throw new Error(`Sync type ${dto.type} not yet implemented`);
+        switch (dto.type) {
+            case 'transactions': {
+                const t0 = Date.now();
+                const forceFull = await autoFullForType('transactions');
+                const result = await this.incrementalSyncService.syncTransactionsIncremental(tenantId, {
+                    forceFullSync: forceFull,
+                    updatedSince: fromDate,
+                });
+                const count = await this.prisma.weezeventTransaction.count({ where: { tenantId } });
+                const duration = Date.now() - t0;
+                this.logger.log(`Manual sync: transactions done in ${duration}ms — ${result.itemsSynced} synced, total=${count}`);
+                return { status: 'completed', syncType: 'transactions', count, itemsSynced: result.itemsSynced, itemsCreated: result.itemsCreated, duration };
             }
-        } catch (error) {
-            if (!isRedisUnavailable(error as Error)) throw error;
 
-            // ─── Redis quota / connection error → run sync in-process ───────────
-            this.logger.warn(
-                `Redis queue unavailable (${(error as Error).message}). ` +
-                `Falling back to direct in-process sync for tenant ${tenantId}.`,
-            );
-
-            switch (dto.type) {
-                case 'transactions':
-                    return runDirectSync(
-                        () => this.incrementalSyncService.syncTransactionsIncremental(tenantId, {
-                            forceFullSync: dto.full,
-                            updatedSince: fromDate,
-                        }),
-                        'transactions',
-                    );
-                case 'events':
-                    return runDirectSync(
-                        () => this.incrementalSyncService.syncEventsIncremental(tenantId, {
-                            forceFullSync: dto.full,
-                        }),
-                        'events',
-                    );
-                case 'products':
-                    return runDirectSync(
-                        () => this.syncService.syncProducts(tenantId),
-                        'products',
-                    );
-                default:
-                    throw Object.assign(
-                        new Error(`Redis unavailable and no direct fallback for sync type '${dto.type}'.`),
-                        { status: 503 },
-                    );
+            case 'events': {
+                const t0 = Date.now();
+                const forceFull = await autoFullForType('events');
+                const result = await this.incrementalSyncService.syncEventsIncremental(tenantId, {
+                    forceFullSync: forceFull,
+                });
+                const count = await this.prisma.weezeventEvent.count({ where: { tenantId } });
+                const duration = Date.now() - t0;
+                this.logger.log(`Manual sync: events done in ${duration}ms — ${result.itemsSynced} synced, total=${count}`);
+                return { status: 'completed', syncType: 'events', count, itemsSynced: result.itemsSynced, itemsCreated: result.itemsCreated, duration };
             }
+
+            case 'products': {
+                const t0 = Date.now();
+                await autoFullForType('products');
+                const result = await this.syncService.syncProducts(tenantId);
+                const count = await this.prisma.weezeventProduct.count({ where: { tenantId } });
+                const duration = Date.now() - t0;
+                this.logger.log(`Manual sync: products done in ${duration}ms — ${result.itemsSynced} synced, total=${count}`);
+                return { status: 'completed', syncType: 'products', count, itemsSynced: result.itemsSynced, itemsCreated: result.itemsCreated, duration };
+            }
+
+            case 'orders': {
+                if (!dto.eventId) throw new Error('eventId is required for orders sync');
+                const job = await this.queueService.queueWeezeventSyncType(
+                    tenantId, 'orders', { eventId: dto.eventId },
+                );
+                return { jobId: job.id, status: 'queued', syncType: 'orders' };
+            }
+
+            case 'prices': {
+                const job = await this.queueService.queueWeezeventSyncType(
+                    tenantId, 'prices', { eventId: dto.eventId },
+                );
+                return { jobId: job.id, status: 'queued', syncType: 'prices' };
+            }
+
+            case 'attendees': {
+                if (!dto.eventId) throw new Error('eventId is required for attendees sync');
+                const job = await this.queueService.queueWeezeventSyncType(
+                    tenantId, 'attendees', { eventId: dto.eventId },
+                );
+                return { jobId: job.id, status: 'queued', syncType: 'attendees' };
+            }
+
+            default:
+                throw new Error(`Sync type '${dto.type}' not implemented`);
         }
     }
 

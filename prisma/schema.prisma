@@ -596,7 +596,7 @@ model MarketPrice {
 
 model WeezeventEvent {
   id          String @id @default(cuid())
-  weezeventId String @unique
+  weezeventId String
   tenantId    String
 
   // Event data
@@ -626,6 +626,7 @@ model WeezeventEvent {
   prices       WeezeventPrice[]
   attendees    WeezeventAttendee[]
 
+  @@unique([tenantId, weezeventId])
   @@index([tenantId])
   @@index([weezeventId])
   @@index([startDate])
@@ -633,7 +634,7 @@ model WeezeventEvent {
 
 model WeezeventMerchant {
   id          String @id @default(cuid())
-  weezeventId String @unique
+  weezeventId String
   tenantId    String
 
   // Merchant data
@@ -657,13 +658,14 @@ model WeezeventMerchant {
   tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   transactions WeezeventTransaction[]
 
+  @@unique([tenantId, weezeventId])
   @@index([tenantId])
   @@index([weezeventId])
 }
 
 model WeezeventLocation {
   id          String  @id @default(cuid())
-  weezeventId String  @unique
+  weezeventId String
   tenantId    String
   eventId     String?
 
@@ -687,6 +689,7 @@ model WeezeventLocation {
   event        WeezeventEvent?        @relation(fields: [eventId], references: [id])
   transactions WeezeventTransaction[]
 
+  @@unique([tenantId, weezeventId])
   @@index([tenantId])
   @@index([weezeventId])
   @@index([eventId])
@@ -694,7 +697,7 @@ model WeezeventLocation {
 
 model WeezeventProduct {
   id          String @id @default(cuid())
-  weezeventId String @unique
+  weezeventId String
   tenantId    String
 
   // Product data
@@ -728,6 +731,7 @@ model WeezeventProduct {
   productComponents WeezeventProductComponent[]
   prices           WeezeventPrice[]
 
+  @@unique([tenantId, weezeventId])
   @@index([tenantId])
   @@index([weezeventId])
   @@index([category])
@@ -735,7 +739,7 @@ model WeezeventProduct {
 
 model WeezeventUser {
   id          String @id @default(cuid())
-  weezeventId String @unique
+  weezeventId String
   tenantId    String
 
   // User data (Client)
@@ -766,6 +770,7 @@ model WeezeventUser {
   tenant Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   wallet WeezeventWallet? @relation(fields: [walletId], references: [id])
 
+  @@unique([tenantId, weezeventId])
   @@index([tenantId])
   @@index([weezeventId])
   @@index([email])
@@ -773,7 +778,7 @@ model WeezeventUser {
 
 model WeezeventWallet {
   id          String @id @default(cuid())
-  weezeventId String @unique
+  weezeventId String
   tenantId    String
 
   // Wallet data
@@ -801,6 +806,7 @@ model WeezeventWallet {
   users              WeezeventUser[]
   sellerTransactions WeezeventTransaction[] @relation("SellerWallet")
 
+  @@unique([tenantId, weezeventId])
   @@index([tenantId])
   @@index([weezeventId])
   @@index([userId])
@@ -808,7 +814,7 @@ model WeezeventWallet {
 
 model WeezeventTransaction {
   id          String @id @default(cuid())
-  weezeventId String @unique
+  weezeventId String
   tenantId    String
 
   // Transaction data
@@ -856,6 +862,7 @@ model WeezeventTransaction {
   @@index([sellerWalletId]) // Added walletId index
   // Composite indexes for analytics
   @@index([tenantId, status, transactionDate])
+  @@unique([tenantId, weezeventId])
   @@index([tenantId, eventId, status])
   @@index([eventId, transactionDate])
 }
@@ -1007,7 +1014,7 @@ model WeezeventProductMapping {
 
 model WeezeventProductVariant {
   id          String @id @default(cuid())
-  weezeventId String @unique
+  weezeventId String
   tenantId    String
   productId   String
 
@@ -1028,6 +1035,7 @@ model WeezeventProductVariant {
   tenant  Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   product WeezeventProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
 
+  @@unique([tenantId, weezeventId])
   @@index([tenantId])
   @@index([productId])
   @@index([weezeventId])
@@ -1035,7 +1043,7 @@ model WeezeventProductVariant {
 
 model WeezeventProductComponent {
   id          String @id @default(cuid())
-  weezeventId String @unique
+  weezeventId String
   tenantId    String
   productId   String
 
@@ -1055,6 +1063,7 @@ model WeezeventProductComponent {
   tenant  Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   product WeezeventProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
 
+  @@unique([tenantId, weezeventId])
   @@index([tenantId])
   @@index([productId])
   @@index([weezeventId])
@@ -1062,7 +1071,7 @@ model WeezeventProductComponent {
 
 model WeezeventOrder {
   id          String @id @default(cuid())
-  weezeventId String @unique
+  weezeventId String
   tenantId    String
 
   eventId      String?
@@ -1084,6 +1093,7 @@ model WeezeventOrder {
   tenant Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   event  WeezeventEvent? @relation(fields: [eventId], references: [id])
 
+  @@unique([tenantId, weezeventId])
   @@index([tenantId])
   @@index([eventId])
   @@index([weezeventId])
@@ -1093,7 +1103,7 @@ model WeezeventOrder {
 
 model WeezeventPrice {
   id          String @id @default(cuid())
-  weezeventId String @unique
+  weezeventId String
   tenantId    String
 
   eventId     String?
@@ -1116,6 +1126,7 @@ model WeezeventPrice {
   event   WeezeventEvent?  @relation(fields: [eventId], references: [id])
   product WeezeventProduct? @relation(fields: [productId], references: [id])
 
+  @@unique([tenantId, weezeventId])
   @@index([tenantId])
   @@index([eventId])
   @@index([productId])
@@ -1124,7 +1135,7 @@ model WeezeventPrice {
 
 model WeezeventAttendee {
   id          String @id @default(cuid())
-  weezeventId String @unique
+  weezeventId String
   tenantId    String
 
   eventId   String?
@@ -1145,6 +1156,7 @@ model WeezeventAttendee {
   tenant Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   event  WeezeventEvent? @relation(fields: [eventId], references: [id])
 
+  @@unique([tenantId, weezeventId])
   @@index([tenantId])
   @@index([eventId])
   @@index([weezeventId])

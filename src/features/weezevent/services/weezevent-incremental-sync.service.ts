@@ -559,11 +559,11 @@ export class WeezeventIncrementalSyncService {
 
         // Batch create
         if (toCreate.length > 0) {
-            await this.prisma.weezeventEvent.createMany({
+            const createResult = await this.prisma.weezeventEvent.createMany({
                 data: toCreate,
                 skipDuplicates: true,
             });
-            result.created = toCreate.length;
+            result.created = createResult.count;
         }
 
         // Batch update using transaction
@@ -571,7 +571,7 @@ export class WeezeventIncrementalSyncService {
             await this.prisma.$transaction(
                 toUpdate.map(({ weezeventId, data }) =>
                     this.prisma.weezeventEvent.update({
-                        where: { weezeventId },
+                        where: { tenantId_weezeventId: { tenantId, weezeventId } },
                         data,
                     })
                 )
@@ -745,11 +745,11 @@ export class WeezeventIncrementalSyncService {
 
         // Batch create
         if (toCreate.length > 0) {
-            await this.prisma.weezeventTransaction.createMany({
+            const createResult = await this.prisma.weezeventTransaction.createMany({
                 data: toCreate,
                 skipDuplicates: true,
             });
-            result.created = toCreate.length;
+            result.created = createResult.count;
         }
 
         return result;
@@ -833,7 +833,7 @@ export class WeezeventIncrementalSyncService {
 
                     for (const loc of locations) {
                         await this.prisma.weezeventLocation.upsert({
-                            where: { weezeventId: String(loc.id) },
+                            where: { tenantId_weezeventId: { tenantId, weezeventId: String(loc.id) } },
                             create: {
                                 weezeventId: String(loc.id),
                                 tenantId,

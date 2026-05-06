@@ -31,8 +31,23 @@ export class MappingsService {
       }),
       this.prisma.weezeventLocationSpaceMapping.count({ where: { tenantId } }),
     ]);
+
+    // Enrich with space name via batch fetch
+    const spaceIds = [...new Set(data.map((m) => m.spaceId))];
+    const spaces = spaceIds.length > 0
+      ? await this.prisma.space.findMany({
+          where: { id: { in: spaceIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const spaceNameById = new Map(spaces.map((s) => [s.id, s.name]));
+    const enriched = data.map((m) => ({
+      ...m,
+      spaceName: spaceNameById.get(m.spaceId) ?? null,
+    }));
+
     return {
-      data,
+      data: enriched,
       meta: { page, limit: safeLimit, total, totalPages: Math.ceil(total / safeLimit) },
     };
   }

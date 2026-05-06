@@ -777,7 +777,7 @@ export class SpacesService {
       merchantMappings.map(m => [m.spaceElementId, m.weezeventMerchantId]),
     );
 
-    // --- Per-event × shop × product granular data (3-dimension raw SQL) ---
+     // --- Per-event × shop × product granular data (3-dimension raw SQL) ---
     // Joins: WeezeventTransaction → TransactionItems → MerchantElementMapping
     //        → SpaceElement / WeezeventEvent / WeezeventProduct
     //        → WeezeventProductMapping → MenuItem → ProductType / ProductCategory
@@ -807,7 +807,7 @@ export class SpacesService {
           INNER JOIN "WeezeventTransactionItem" ti
             ON ti."transactionId" = t.id
           INNER JOIN "WeezeventMerchantElementMapping" mem
-            ON mem."weezeventMerchantId" = t."merchantId"
+            ON mem."weezeventMerchantId" = t."locationId"
            AND mem."tenantId"         = ${tenantId}
            AND mem."spaceElementId"   = ANY(${shopIds})
           INNER JOIN "SpaceElement" se

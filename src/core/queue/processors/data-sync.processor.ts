@@ -8,9 +8,7 @@ import { WeezeventIncrementalSyncService } from '../../../features/weezevent/ser
 import { RedisService } from '../../redis/redis.service';
 
 // lockDuration: 5 min — long enough for 100-product detail sync with slow DB (12-14s per DELETE).
-// blockingTimeout: 30s — BRPOPLPUSH wait time. Default is ~1s which hits Upstash free-tier
-// (500k req/month) in ~1 day with 4 idle workers. 30s reduces idle polling 30×.
-@Processor(QUEUES.DATA_SYNC, { lockDuration: 300000, blockingTimeout: 30000 })
+@Processor(QUEUES.DATA_SYNC, { lockDuration: 300000 })
 export class DataSyncProcessor extends WorkerHost {
   private readonly logger = new Logger(DataSyncProcessor.name);
 

@@ -4,7 +4,7 @@ import { Job } from 'bullmq';
 import { QUEUES } from '../queue.constants';
 import { AnalyticsJobData } from '../queue.service';
 
-@Processor(QUEUES.ANALYTICS)
+@Processor(QUEUES.ANALYTICS, { blockingTimeout: 30000 })
 export class AnalyticsProcessor extends WorkerHost {
   private readonly logger = new Logger(AnalyticsProcessor.name);
 

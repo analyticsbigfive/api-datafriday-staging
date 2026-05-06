@@ -4,7 +4,7 @@ import { Job } from 'bullmq';
 import { QUEUES } from '../queue.constants';
 import { NotificationJobData } from '../queue.service';
 
-@Processor(QUEUES.NOTIFICATIONS)
+@Processor(QUEUES.NOTIFICATIONS, { blockingTimeout: 30000 })
 export class NotificationProcessor extends WorkerHost {
   private readonly logger = new Logger(NotificationProcessor.name);
 

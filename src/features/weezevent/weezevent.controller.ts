@@ -123,6 +123,34 @@ export class WeezeventController {
 
         const fromDate = dto.fromDate ? new Date(dto.fromDate) : undefined;
 
+        // Helper: returns true if error is a Redis quota / connection error
+        const isRedisUnavailable = (e: Error) => {
+            const m = e.message || '';
+            return m.includes('max requests limit exceeded') ||
+                m.includes('ECONNREFUSED') ||
+                m.includes('ENOTFOUND') ||
+                m.includes('Connection is closed') ||
+                m.includes('connect ETIMEDOUT');
+        };
+
+        // Helper: run sync directly in-process (fire-and-forget background task).
+        // Used as fallback when the Redis queue is unavailable.
+        const runDirectSync = (fn: () => Promise<any>, syncType: string) => {
+            const id = `direct-${tenantId}-${syncType}-${Date.now()}`;
+            fn().then(() => {
+                this.logger.log(`Direct sync ${id} completed`);
+            }).catch((e) => {
+                this.logger.error(`Direct sync ${id} failed: ${e.message}`);
+            });
+            return {
+                jobId: id,
+                status: 'running_direct',
+                syncType,
+                message: `Redis queue unavailable — sync running in-process. ` +
+                    `Set REDIS_QUEUE_URL to a dedicated Redis to restore persistent queuing.`,
+            };
+        };
+
         try {
             switch (dto.type) {
                 case 'transactions':
@@ -179,16 +207,41 @@ export class WeezeventController {
                     throw new Error(`Sync type ${dto.type} not yet implemented`);
             }
         } catch (error) {
-            const msg = (error as Error).message || '';
-            // Upstash free-tier quota exceeded — surface a clear 503 instead of opaque 500
-            if (msg.includes('max requests limit exceeded') || msg.includes('ECONNREFUSED') || msg.includes('ENOTFOUND')) {
-                this.logger.error(`Redis queue unavailable: ${msg}`);
-                throw Object.assign(new Error(
-                    'Queue Redis unavailable (quota exceeded or connection error). ' +
-                    'Set REDIS_QUEUE_URL to a dedicated Redis instance to separate BullMQ from cache Redis.',
-                ), { status: 503 });
+            if (!isRedisUnavailable(error as Error)) throw error;
+
+            // ─── Redis quota / connection error → run sync in-process ───────────
+            this.logger.warn(
+                `Redis queue unavailable (${(error as Error).message}). ` +
+                `Falling back to direct in-process sync for tenant ${tenantId}.`,
+            );
+
+            switch (dto.type) {
+                case 'transactions':
+                    return runDirectSync(
+                        () => this.incrementalSyncService.syncTransactionsIncremental(tenantId, {
+                            forceFullSync: dto.full,
+                            updatedSince: fromDate,
+                        }),
+                        'transactions',
+                    );
+                case 'events':
+                    return runDirectSync(
+                        () => this.incrementalSyncService.syncEventsIncremental(tenantId, {
+                            forceFullSync: dto.full,
+                        }),
+                        'events',
+                    );
+                case 'products':
+                    return runDirectSync(
+                        () => this.syncService.syncProducts(tenantId),
+                        'products',
+                    );
+                default:
+                    throw Object.assign(
+                        new Error(`Redis unavailable and no direct fallback for sync type '${dto.type}'.`),
+                        { status: 503 },
+                    );
             }
-            throw error;
         }
     }
 

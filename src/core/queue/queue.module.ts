@@ -18,11 +18,17 @@ export { QUEUES } from './queue.constants';
     BullModule.forRootAsync({
       useFactory: (configService: ConfigService) => ({
         connection: {
-          url: configService.get<string>('REDIS_URL', 'redis://localhost:6379'),
+          // Use REDIS_QUEUE_URL (dedicated queue Redis, e.g. local Docker redis) if available,
+          // otherwise fall back to REDIS_URL (Upstash). Using Upstash for BullMQ workers
+          // exhausts the free-tier request quota quickly due to constant polling.
+          url: configService.get<string>(
+            'REDIS_QUEUE_URL',
+            configService.get<string>('REDIS_URL', 'redis://localhost:6379'),
+          ),
         },
         defaultJobOptions: {
-          removeOnComplete: 100, // Keep last 100 completed jobs
-          removeOnFail: 500, // Keep last 500 failed jobs
+          removeOnComplete: 20, // Keep only last 20 completed jobs
+          removeOnFail: 20,    // Keep only last 20 failed jobs (was 500 — stored in Redis)
           attempts: 3,
           backoff: {
             type: 'exponential',

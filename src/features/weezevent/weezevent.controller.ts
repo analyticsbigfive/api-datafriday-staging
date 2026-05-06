@@ -123,59 +123,72 @@ export class WeezeventController {
 
         const fromDate = dto.fromDate ? new Date(dto.fromDate) : undefined;
 
-        switch (dto.type) {
-            case 'transactions':
-            case 'events':
-            case 'products': {
-                // Enqueue via BullMQ: persistent, retried automatically (3×), deduped by jobId
-                const job = await this.queueService.queueWeezeventSyncType(
-                    tenantId,
-                    dto.type,
-                    {
-                        fullSync: dto.full,
-                        startDate: fromDate?.toISOString(),
-                        endDate: dto.toDate,
-                    },
-                );
-                return {
-                    jobId: job.id,
-                    status: 'queued',
-                    syncType: dto.type,
-                    message: `${dto.type} sync queued — poll GET /weezevent/sync/status for progress`,
-                };
-            }
+        try {
+            switch (dto.type) {
+                case 'transactions':
+                case 'events':
+                case 'products': {
+                    // Enqueue via BullMQ: persistent, retried automatically (3×), deduped by jobId
+                    const job = await this.queueService.queueWeezeventSyncType(
+                        tenantId,
+                        dto.type,
+                        {
+                            fullSync: dto.full,
+                            startDate: fromDate?.toISOString(),
+                            endDate: dto.toDate,
+                        },
+                    );
+                    return {
+                        jobId: job.id,
+                        status: 'queued',
+                        syncType: dto.type,
+                        message: `${dto.type} sync queued — poll GET /weezevent/sync/status for progress`,
+                    };
+                }
 
-            case 'orders': {
-                if (!dto.eventId) throw new Error('eventId is required for orders sync');
-                const job = await this.queueService.queueWeezeventSyncType(
-                    tenantId,
-                    'orders',
-                    { eventId: dto.eventId },
-                );
-                return { jobId: job.id, status: 'queued', syncType: 'orders' };
-            }
+                case 'orders': {
+                    if (!dto.eventId) throw new Error('eventId is required for orders sync');
+                    const job = await this.queueService.queueWeezeventSyncType(
+                        tenantId,
+                        'orders',
+                        { eventId: dto.eventId },
+                    );
+                    return { jobId: job.id, status: 'queued', syncType: 'orders' };
+                }
 
-            case 'prices': {
-                const job = await this.queueService.queueWeezeventSyncType(
-                    tenantId,
-                    'prices',
-                    { eventId: dto.eventId },
-                );
-                return { jobId: job.id, status: 'queued', syncType: 'prices' };
-            }
+                case 'prices': {
+                    const job = await this.queueService.queueWeezeventSyncType(
+                        tenantId,
+                        'prices',
+                        { eventId: dto.eventId },
+                    );
+                    return { jobId: job.id, status: 'queued', syncType: 'prices' };
+                }
 
-            case 'attendees': {
-                if (!dto.eventId) throw new Error('eventId is required for attendees sync');
-                const job = await this.queueService.queueWeezeventSyncType(
-                    tenantId,
-                    'attendees',
-                    { eventId: dto.eventId },
-                );
-                return { jobId: job.id, status: 'queued', syncType: 'attendees' };
-            }
+                case 'attendees': {
+                    if (!dto.eventId) throw new Error('eventId is required for attendees sync');
+                    const job = await this.queueService.queueWeezeventSyncType(
+                        tenantId,
+                        'attendees',
+                        { eventId: dto.eventId },
+                    );
+                    return { jobId: job.id, status: 'queued', syncType: 'attendees' };
+                }
 
-            default:
-                throw new Error(`Sync type ${dto.type} not yet implemented`);
+                default:
+                    throw new Error(`Sync type ${dto.type} not yet implemented`);
+            }
+        } catch (error) {
+            const msg = (error as Error).message || '';
+            // Upstash free-tier quota exceeded — surface a clear 503 instead of opaque 500
+            if (msg.includes('max requests limit exceeded') || msg.includes('ECONNREFUSED') || msg.includes('ENOTFOUND')) {
+                this.logger.error(`Redis queue unavailable: ${msg}`);
+                throw Object.assign(new Error(
+                    'Queue Redis unavailable (quota exceeded or connection error). ' +
+                    'Set REDIS_QUEUE_URL to a dedicated Redis instance to separate BullMQ from cache Redis.',
+                ), { status: 503 });
+            }
+            throw error;
         }
     }
 

@@ -8,7 +8,7 @@ import {
   UseGuards,
   Logger,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiBody, ApiQuery } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { AggregationService } from './aggregation.service';
@@ -29,6 +29,7 @@ export class AggregationController {
     description: 'Retourne l\'état de traitement (pending/processing/done/error) de chaque événement Weezevent lié à cet espace.',
   })
   @ApiParam({ name: 'spaceId', description: 'ID du space DataFriday' })
+  @ApiQuery({ name: 'integrationId', required: false, description: 'ID de l\'intégration Weezevent (scope multi-instance)' })
   @ApiResponse({
     status: 200,
     description: 'Liste des événements avec leur statut de traitement',
@@ -51,9 +52,10 @@ export class AggregationController {
   @ApiResponse({ status: 404, description: 'Space non trouvé' })
   getEventsTimeline(
     @Param('spaceId') spaceId: string,
+    @Query('integrationId') integrationId: string | undefined,
     @CurrentUser() user: any,
   ) {
-    return this.aggregationService.getEventsTimelineStatus(user.tenantId, spaceId);
+    return this.aggregationService.getEventsTimelineStatus(user.tenantId, spaceId, integrationId);
   }
 
   @Post('process-events')
@@ -81,7 +83,7 @@ export class AggregationController {
     @CurrentUser() user: any,
   ) {
     this.logger.log(`POST /aggregation/process-events - space=${dto.spaceId}`);
-    return this.aggregationService.processEvents(user.tenantId, dto.spaceId, dto.eventIds);
+    return this.aggregationService.processEvents(user.tenantId, dto.spaceId, dto.eventIds, dto.integrationId);
   }
 
   @Post('synchronize')
@@ -108,7 +110,7 @@ export class AggregationController {
     @CurrentUser() user: any,
   ) {
     this.logger.log(`POST /aggregation/synchronize - space=${dto.spaceId}`);
-    return this.aggregationService.synchronize(user.tenantId, dto.spaceId);
+    return this.aggregationService.synchronize(user.tenantId, dto.spaceId, dto.integrationId);
   }
 
   @Get('progress/:jobId')

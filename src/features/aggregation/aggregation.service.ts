@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 
 @Injectable()
@@ -10,7 +11,7 @@ export class AggregationService {
   /**
    * Get events with their processing status for a space
    */
-  async getEventsTimelineStatus(tenantId: string, spaceId: string) {
+  async getEventsTimelineStatus(tenantId: string, spaceId: string, integrationId?: string) {
     this.logger.log(`Getting events timeline status for space ${spaceId}`);
 
     // Verify space exists
@@ -48,13 +49,22 @@ export class AggregationService {
       }),
     );
 
-    // Get unregistered dates (dates with weezevent transactions but no event)
-    const locationMapping = await this.prisma.weezeventLocationSpaceMapping.findFirst({
-      where: { tenantId, spaceId },
-    });
+    // Get unregistered dates — transactions that exist but have no matching Event configured.
+    // Step 1 saves integrationId as weezeventLocationId, so we look it up directly.
+    // Then we resolve the actual WeezeventLocation.ids to filter transactions.
+    let integrationLocationIds: string[] = [];
+    if (integrationId) {
+      const locations = await this.prisma.weezeventLocation.findMany({
+        where: { tenantId, integrationId },
+        select: { id: true },
+      });
+      integrationLocationIds = locations.map((l) => l.id);
+    }
 
     let unregisteredDates: any[] = [];
-    if (locationMapping) {
+    if (integrationId && integrationLocationIds.length > 0) {
+      const locationIdsFilter = Prisma.sql`AND t."locationId" = ANY(ARRAY[${Prisma.join(integrationLocationIds)}]::text[])`;
+      const integrationFilter = Prisma.sql`AND t."integrationId" = ${integrationId}`;
       const transactionDates = await this.prisma.$queryRaw<any[]>`
         SELECT 
           DATE(t."transactionDate") as "date",
@@ -62,7 +72,8 @@ export class AggregationService {
           SUM(t."amount")::float as "revenue"
         FROM "WeezeventTransaction" t
         WHERE t."tenantId" = ${tenantId}
-          AND t."locationId" = ${locationMapping.weezeventLocationId}
+          ${integrationFilter}
+          ${locationIdsFilter}
           AND DATE(t."transactionDate") NOT IN (
             SELECT DATE(e."eventDate") FROM "Event" e WHERE e."tenantId" = ${tenantId} AND e."spaceId" = ${spaceId}
           )
@@ -87,7 +98,7 @@ export class AggregationService {
   /**
    * Process events: aggregate transaction data per event
    */
-  async processEvents(tenantId: string, spaceId: string, eventIds?: string[]) {
+  async processEvents(tenantId: string, spaceId: string, eventIds?: string[], integrationId?: string) {
     this.logger.log(`Processing events for space ${spaceId}`);
 
     const where: any = { tenantId, spaceId };
@@ -121,13 +132,32 @@ export class AggregationService {
     let processedCount = 0;
 
     try {
-      // Get location mapping to find weezevent data
-      const locationMapping = await this.prisma.weezeventLocationSpaceMapping.findFirst({
-        where: { tenantId, spaceId },
-      });
+      // Step 1 of the wizard saves `integration.id` as `weezeventLocationId` in
+      // WeezeventLocationSpaceMapping. We verify the integration is mapped to this space.
+      if (integrationId) {
+        const spaceLink = await this.prisma.weezeventLocationSpaceMapping.findFirst({
+          where: { tenantId, weezeventLocationId: integrationId },
+        });
+        if (!spaceLink) {
+          throw new Error(`Integration ${integrationId} is not mapped to any space. Complete step 1 of the wizard.`);
+        }
+        if (spaceLink.spaceId !== spaceId) {
+          throw new Error(`Integration ${integrationId} is mapped to a different space (${spaceLink.spaceId}).`);
+        }
+      }
 
-      if (!locationMapping) {
-        throw new Error('No location mapped to this space');
+      // Get the real WeezeventLocation DB ids for this integration.
+      // Step 2 of the wizard saves these as weezeventMerchantId in WeezeventMerchantElementMapping.
+      const integrationLocations = integrationId
+        ? await this.prisma.weezeventLocation.findMany({
+            where: { tenantId, integrationId },
+            select: { id: true },
+          })
+        : [];
+      const locationIds = integrationLocations.map((l) => l.id);
+
+      if (integrationId && locationIds.length === 0) {
+        throw new Error(`No Weezevent locations found for integration ${integrationId}. Sync locations first.`);
       }
 
       for (const event of events) {
@@ -136,11 +166,15 @@ export class AggregationService {
           const nextDay = new Date(eventDate);
           nextDay.setDate(nextDay.getDate() + 1);
 
-          // Get transactions for this event date
+          // Get transactions scoped to this integration's locations.
+          // Group by locationId (point de vente), NOT by merchantId:
+          //   - Step 2 maps WeezeventLocation → SpaceElement (weezeventMerchantId = location.id)
+          //   - We therefore need to group revenue by the location, not by the merchant/standiste.
           const transactions = await this.prisma.weezeventTransaction.findMany({
             where: {
               tenantId,
-              locationId: locationMapping.weezeventLocationId,
+              ...(integrationId ? { integrationId } : {}),
+              ...(locationIds.length ? { locationId: { in: locationIds } } : {}),
               transactionDate: {
                 gte: eventDate,
                 lt: nextDay,
@@ -149,24 +183,33 @@ export class AggregationService {
             include: { items: true },
           });
 
-          // Aggregate revenue by merchant
-          const merchantRevenue = new Map<string, { revenue: number; count: number; items: number }>();
-
+          // Aggregate revenue by locationId (point de vente physique)
+          const locationRevenue = new Map<string, { revenue: number; count: number; items: number }>();
           for (const tx of transactions) {
-            const merchantId = tx.merchantId || 'unknown';
-            const current = merchantRevenue.get(merchantId) || { revenue: 0, count: 0, items: 0 };
+            if (!tx.locationId) continue; // skip transactions with no location
+            const current = locationRevenue.get(tx.locationId) || { revenue: 0, count: 0, items: 0 };
             current.revenue += Number(tx.amount || 0);
             current.count += 1;
             current.items += tx.items?.length || 0;
-            merchantRevenue.set(merchantId, current);
+            locationRevenue.set(tx.locationId, current);
           }
 
-          // Upsert daily aggregation records
-          for (const [merchantId, data] of merchantRevenue) {
-            // Find the element mapping for this merchant
+          const unmappedLocationIds: string[] = [];
+
+          // Upsert daily aggregation records, one row per mapped location
+          for (const [locationId, data] of locationRevenue) {
+            // Step 2 wizard saves: WeezeventMerchantElementMapping.weezeventMerchantId = WeezeventLocation.id
+            // So we look up the SpaceElement by the location id.
             const elementMapping = await this.prisma.weezeventMerchantElementMapping.findFirst({
-              where: { tenantId, weezeventMerchantId: merchantId },
+              where: { tenantId, weezeventMerchantId: locationId },
             });
+
+            if (!elementMapping) {
+              // No mapping configured in step 2 — skip silently would hide data.
+              // Record it so the caller can surface it to the user.
+              unmappedLocationIds.push(locationId);
+              continue;
+            }
 
             await this.prisma.spaceRevenueDailyAgg.upsert({
               where: {
@@ -175,9 +218,9 @@ export class AggregationService {
                   spaceId,
                   day: eventDate,
                   weezeventEventId: event.id,
-                  weezeventLocationId: locationMapping.weezeventLocationId,
-                  weezeventMerchantId: merchantId,
-                  spaceElementId: elementMapping?.spaceElementId || '',
+                  weezeventLocationId: locationId,
+                  weezeventMerchantId: locationId, // same id: location acts as the shop grouping dimension
+                  spaceElementId: elementMapping.spaceElementId,
                 },
               },
               create: {
@@ -185,9 +228,9 @@ export class AggregationService {
                 spaceId,
                 day: eventDate,
                 weezeventEventId: event.id,
-                weezeventLocationId: locationMapping.weezeventLocationId,
-                weezeventMerchantId: merchantId,
-                spaceElementId: elementMapping?.spaceElementId || '',
+                weezeventLocationId: locationId,
+                weezeventMerchantId: locationId,
+                spaceElementId: elementMapping.spaceElementId,
                 revenueHt: data.revenue,
                 transactionsCount: data.count,
                 itemsCount: data.items,
@@ -206,7 +249,8 @@ export class AggregationService {
             eventName: event.name,
             date: event.eventDate,
             transactions: transactions.length,
-            revenue: Array.from(merchantRevenue.values()).reduce((s, v) => s + v.revenue, 0),
+            revenue: Array.from(locationRevenue.values()).reduce((s, v) => s + v.revenue, 0),
+            unmappedLocations: unmappedLocationIds,
             status: 'success',
           });
         } catch (err) {
@@ -251,7 +295,7 @@ export class AggregationService {
   /**
    * Synchronize: cleanup + rebuild all aggregation data for a space
    */
-  async synchronize(tenantId: string, spaceId: string) {
+  async synchronize(tenantId: string, spaceId: string, integrationId?: string) {
     this.logger.log(`Synchronizing aggregated data for space ${spaceId}`);
 
     // Phase 1: Cleanup old data
@@ -260,7 +304,7 @@ export class AggregationService {
     });
 
     // Phase 2: Process all events
-    const result = await this.processEvents(tenantId, spaceId);
+    const result = await this.processEvents(tenantId, spaceId, undefined, integrationId);
 
     // Phase 3: Compute space summary metrics
     const summary = await this.prisma.spaceRevenueDailyAgg.aggregate({

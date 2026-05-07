@@ -21,6 +21,32 @@ export class RedisService implements OnModuleDestroy {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
+  /**
+   * Acquire a distributed lock via Redis SET NX EX.
+   * Returns true if the lock was acquired, false if already held by another process.
+   */
+  async acquireLock(key: string, value: string, ttlSec: number): Promise<boolean> {
+    const fullKey = `${this.keyPrefix}lock:${key}`;
+    const result = await this.redis.set(fullKey, value, 'EX', ttlSec, 'NX');
+    return result === 'OK';
+  }
+
+  /**
+   * Release a distributed lock only if we still own it.
+   * Uses a Lua CAS-delete to prevent releasing someone else's lock.
+   */
+  async releaseLock(key: string, expectedValue: string): Promise<void> {
+    const fullKey = `${this.keyPrefix}lock:${key}`;
+    const luaScript = `
+      if redis.call("get", KEYS[1]) == ARGV[1] then
+        return redis.call("del", KEYS[1])
+      else
+        return 0
+      end
+    `;
+    await this.redis.eval(luaScript, 1, fullKey, expectedValue);
+  }
+
   async onModuleDestroy() {
     await this.redis.quit();
     this.logger.log('Redis connection closed');

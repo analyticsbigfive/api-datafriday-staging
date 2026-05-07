@@ -3,6 +3,10 @@ import { RouterModule, APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { LoggerModule } from 'nestjs-pino';
+import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
+import * as Joi from 'joi';
+import Redis from 'ioredis';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './core/database/prisma.module';
@@ -35,6 +39,7 @@ import { AggregationModule } from './features/aggregation/aggregation.module';
 import { AuditModule } from './core/audit/audit.module';
 import { WebhooksModule } from './core/webhooks/webhooks.module';
 import { TenantThrottlerGuard } from './core/throttle/tenant-throttler.guard';
+import { REDIS_CLIENT } from './core/redis/redis.module';
 
 @Module({
   imports: [
@@ -48,12 +53,48 @@ import { TenantThrottlerGuard } from './core/throttle/tenant-throttler.guard';
         '.env',
       ],
       expandVariables: true,
+      validationSchema: Joi.object({
+        NODE_ENV: Joi.string()
+          .valid('development', 'staging', 'production', 'test')
+          .default('development'),
+        DATABASE_URL: Joi.string().required(),
+        JWT_SECRET: Joi.string().required(),
+        PORT: Joi.number().default(3000),
+      }),
+      validationOptions: {
+        allowUnknown: true,
+        abortEarly: false,
+      },
     }),
-    ThrottlerModule.forRoot([
-      { name: 'short', ttl: 1000, limit: 20 },   // 20 req/s per tenant
-      { name: 'medium', ttl: 60000, limit: 300 }, // 300 req/min per tenant
-      { name: 'long', ttl: 3600000, limit: 5000 }, // 5000 req/h per tenant
-    ]),
+    ThrottlerModule.forRootAsync({
+      inject: [REDIS_CLIENT],
+      useFactory: (redisClient: Redis) => ({
+        throttlers: [
+          { name: 'short', ttl: 1000, limit: 20 },   // 20 req/s per tenant
+          { name: 'medium', ttl: 60000, limit: 300 }, // 300 req/min per tenant
+          { name: 'long', ttl: 3600000, limit: 5000 }, // 5000 req/h per tenant
+        ],
+        storage: new ThrottlerStorageRedisService(redisClient),
+      }),
+    }),
+    LoggerModule.forRoot({
+      pinoHttp: {
+        level: process.env.LOG_LEVEL || 'info',
+        transport:
+          process.env.NODE_ENV !== 'production'
+            ? { target: 'pino-pretty', options: { singleLine: true, colorize: true } }
+            : undefined,
+        redact: [
+          'req.headers.authorization',
+          'req.headers.cookie',
+          'req.headers["x-api-key"]',
+        ],
+        customProps: (req: any) => ({
+          tenantId: req.user?.tenantId ?? undefined,
+          userId: req.user?.id ?? undefined,
+        }),
+      },
+    }),
     ScheduleModule.forRoot(),
     EncryptionModule,
     CacheModule,

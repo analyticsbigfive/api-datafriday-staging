@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 
@@ -9,9 +10,9 @@ export interface JwtPayload {
   sub: string; // userId Supabase
   email: string;
   role?: string;
+  org_id?: string; // Legacy Supabase claim — kept for backward compat with onboarding flow
   iat?: number;
   exp?: number;
-  // ⚠️ Plus besoin de org_id dans le token !
 }
 
 /**
@@ -70,12 +71,14 @@ export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
       return cachedUser;
     }
 
+    // Same-process deduplication: reuse in-flight promise for the same key.
     const pendingLookup = this.pendingLookups.get(cacheKey);
     if (pendingLookup) {
       return pendingLookup;
     }
 
-    const lookupPromise = this.lookupAndCacheUser(cacheKey, payload);
+    // Cross-process deduplication: use a distributed Redis lock.
+    const lookupPromise = this.lookupWithDistributedLock(cacheKey, payload);
     this.pendingLookups.set(cacheKey, lookupPromise);
 
     try {
@@ -105,6 +108,34 @@ export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
       user,
       expiresAt: Date.now() + this.LOCAL_AUTH_CACHE_TTL_MS,
     });
+  }
+
+  /**
+   * Acquires a short-lived Redis lock to prevent cache stampede across multiple
+   * pods/workers. Falls back to a retry-from-cache pattern if the lock is held.
+   */
+  private async lookupWithDistributedLock(cacheKey: string, payload: JwtPayload): Promise<any> {
+    const lockValue = randomUUID();
+    const acquired = await this.redis.acquireLock(cacheKey, lockValue, 5);
+
+    if (acquired) {
+      try {
+        return await this.lookupAndCacheUser(cacheKey, payload);
+      } finally {
+        await this.redis.releaseLock(cacheKey, lockValue);
+      }
+    }
+
+    // Lock held by another pod — wait briefly and retry from cache.
+    await new Promise<void>((resolve) => setTimeout(resolve, 60));
+    const freshCache = await this.redis.get<any>(cacheKey);
+    if (freshCache) {
+      this.setLocalCachedUser(cacheKey, freshCache);
+      return freshCache;
+    }
+
+    // Very rare case (e.g. lock expired before DB write): fall through to DB.
+    return this.lookupAndCacheUser(cacheKey, payload);
   }
 
   private async lookupAndCacheUser(cacheKey: string, payload: JwtPayload) {

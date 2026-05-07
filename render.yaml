@@ -33,7 +33,9 @@ services:
       - key: REDIS_URL
         sync: false  # Upstash Redis URL
       - key: CORS_ORIGINS
-        value: "*"
+        sync: false  # Set in Render dashboard: https://datafriday.fr,https://app.datafriday.fr
+      - key: REDIS_QUEUE_URL
+        sync: false  # Upstash Redis URL for BullMQ queues (can share with REDIS_URL)
       - key: LOG_LEVEL
         value: info
 

@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ValidationPipe } from '@nestjs/common';
+import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './core/exceptions/all-exceptions.filter';
 import fastifyHelmet from '@fastify/helmet';
@@ -11,7 +12,8 @@ async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter({
-      logger: process.env.NODE_ENV !== 'production',
+      // Disable Fastify's built-in logger — nestjs-pino (pino-http) handles all request logging.
+      logger: false,
       // P2: Connection pooling optimization
       connectionTimeout: 30000,
       keepAliveTimeout: 65000,
@@ -21,7 +23,11 @@ async function bootstrap() {
       // pour récupérer la vraie IP client (X-Forwarded-For)
       trustProxy: true,
     }),
+    { bufferLogs: true },
   );
+
+  // Attach pino structured logger (bufferLogs flushes any early NestJS messages).
+  app.useLogger(app.get(Logger));
 
   // Determine if we are allowed to relax CSP for the embedded Swagger UI in non-prod.
   const isProd = process.env.NODE_ENV === 'production';

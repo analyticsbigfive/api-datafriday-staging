@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtOnboardingStrategy } from './strategies/jwt-onboarding.strategy';
 import { JwtDatabaseStrategy } from './strategies/jwt-db-lookup.strategy';
 import { PrismaModule } from '../database/prisma.module';
@@ -23,9 +22,8 @@ import { PrismaModule } from '../database/prisma.module';
     PrismaModule, // 🔍 Nécessaire pour JwtDatabaseStrategy
   ],
   providers: [
-    JwtStrategy,           // Ancienne stratégie (garde pour compatibilité)
     JwtOnboardingStrategy, // Pour onboarding
-    JwtDatabaseStrategy,   // ✅ Nouvelle stratégie recommandée
+    JwtDatabaseStrategy,   // ✅ Stratégie recommandée (DB lookup + cache Redis)
   ],
   exports: [PassportModule, JwtModule],
 })

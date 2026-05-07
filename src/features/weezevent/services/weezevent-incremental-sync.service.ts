@@ -189,12 +189,10 @@ export class WeezeventIncrementalSyncService {
                 `✅ Events sync completed: ${result.itemsSynced} synced (${result.itemsCreated} new, ${result.itemsUpdated} updated, ${result.itemsSkipped} skipped) in ${result.duration}ms`,
             );
 
-            // 9. Sync locations for all events of this tenant
-            try {
-                await this.syncLocationsFromApi(tenantId, organizationId);
-            } catch (locErr) {
+            // 9. Sync locations for all events of this tenant (fire-and-forget — truly non-blocking)
+            this.syncLocationsFromApi(tenantId, organizationId).catch(locErr => {
                 this.logger.warn(`Locations sync failed (non-blocking): ${(locErr as Error).message}`);
-            }
+            });
 
             return result;
 

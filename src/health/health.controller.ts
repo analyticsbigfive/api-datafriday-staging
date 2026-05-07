@@ -1,5 +1,6 @@
 import { Controller, Get, UseGuards, Inject, Optional } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { JwtDatabaseGuard } from '../core/auth/guards/jwt-db.guard';
 import { RolesGuard } from '../core/auth/guards/roles.guard';
 import { Roles } from '../core/auth/decorators/roles.decorator';
@@ -13,6 +14,7 @@ import { PrismaService } from '../core/database/prisma.service';
 /**
  * Health check controller to validate infrastructure is working
  */
+@SkipThrottle()
 @ApiTags('Health')
 @Controller('health')
 export class HealthController {

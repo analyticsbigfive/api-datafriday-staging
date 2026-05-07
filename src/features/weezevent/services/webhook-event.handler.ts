@@ -5,6 +5,7 @@ import { WeezeventSyncService } from './weezevent-sync.service';
 interface WebhookEvent {
     id: string;
     tenantId: string;
+    integrationId: string;
     eventType: string;
     method: string;
     payload: any;
@@ -103,7 +104,7 @@ export class WebhookEventHandler {
             case 'update':
                 // Sync the transaction from Weezevent API
                 // We fetch fresh data from API to ensure consistency
-                await this.syncTransactionById(event.tenantId, transactionId);
+                await this.syncTransactionById(event.tenantId, event.integrationId, transactionId);
                 break;
 
             case 'delete':
@@ -121,25 +122,17 @@ export class WebhookEventHandler {
      */
     private async syncTransactionById(
         tenantId: string,
+        integrationId: string,
         transactionId: string,
     ): Promise<void> {
-        // Get tenant's Weezevent organization ID
-        const tenant = await this.prisma.tenant.findUnique({
-            where: { id: tenantId },
-        });
-
-        if (!tenant?.weezeventEnabled) {
-            throw new Error('Weezevent not enabled for this tenant');
-        }
-
-        // Sync the single transaction from Weezevent API
         this.logger.log(
-            `Syncing transaction ${transactionId} from Weezevent API (tenant: ${tenantId})`,
+            `Syncing transaction ${transactionId} from Weezevent API (tenant: ${tenantId}, integration: ${integrationId})`,
         );
 
         try {
             const result = await this.syncService.syncSingleTransaction(
                 tenantId,
+                integrationId,
                 transactionId,
             );
 
@@ -195,7 +188,7 @@ export class WebhookEventHandler {
             case 'create':
             case 'update':
                 // Trigger immediate sync for this event's orders
-                await this.syncService.syncOrders(event.tenantId, eventId);
+                await this.syncService.syncOrders(event.tenantId, event.integrationId, eventId);
                 break;
 
             default:
@@ -219,7 +212,7 @@ export class WebhookEventHandler {
         switch (method) {
             case 'update':
                 // Trigger full products sync to get updated data
-                await this.syncService.syncProducts(event.tenantId);
+                await this.syncService.syncProducts(event.tenantId, event.integrationId);
                 break;
 
             default:

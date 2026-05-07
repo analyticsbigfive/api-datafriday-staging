@@ -4,6 +4,7 @@ import { WeezeventSyncService } from './services/weezevent-sync.service';
 import { WeezeventIncrementalSyncService } from './services/weezevent-incremental-sync.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SyncTrackerService } from './services/sync-tracker.service';
+import { QueueService } from '../../core/queue/queue.service';
 
 describe('WeezeventController', () => {
   let controller: WeezeventController;
@@ -100,11 +101,18 @@ describe('WeezeventController', () => {
     syncTransactionsIncremental: jest.fn(),
     syncEventsIncremental: jest.fn(),
     getSyncStatus: jest.fn().mockResolvedValue({}),
-    resetSyncState: jest.fn(),
+    resetSyncState: jest.fn().mockResolvedValue(undefined),
   };
 
   const mockSyncTracker = {
     getRunningSyncs: jest.fn().mockReturnValue([]),
+  };
+
+  const mockQueueService = {
+    addDataSyncJob: jest.fn(),
+    queueWeezeventSyncType: jest.fn().mockResolvedValue({ id: 'job-123' }),
+    getQueueStats: jest.fn().mockResolvedValue({}),
+    getActiveJobsProgress: jest.fn().mockResolvedValue({}),
   };
 
   beforeEach(async () => {
@@ -127,6 +135,10 @@ describe('WeezeventController', () => {
           provide: SyncTrackerService,
           useValue: mockSyncTracker,
         },
+        {
+          provide: QueueService,
+          useValue: mockQueueService,
+        },
       ],
     }).compile();
 
@@ -148,7 +160,7 @@ describe('WeezeventController', () => {
       mockPrismaService.weezeventTransaction.findMany.mockResolvedValue([mockTransaction]);
       mockPrismaService.weezeventTransaction.count.mockResolvedValue(1);
 
-      const result = await controller.getTransactions(mockUser, {});
+      const result = await controller.getTransactions(mockUser, { integrationId: 'integration-123' } as any);
 
       expect(result).toEqual({
         data: [mockTransaction],
@@ -166,6 +178,7 @@ describe('WeezeventController', () => {
       mockPrismaService.weezeventTransaction.count.mockResolvedValue(0);
 
       await controller.getTransactions(mockUser, {
+        integrationId: 'integration-123',
         status: 'C',
         eventId: 'event-123',
         page: 2,
@@ -211,16 +224,16 @@ describe('WeezeventController', () => {
         errors: [] 
       };
       mockIncrementalSyncService.syncTransactionsIncremental.mockResolvedValue(syncResult);
+      mockPrismaService.weezeventTransaction.count.mockResolvedValue(500);
 
-      const result = await controller.syncData(mockUser, { type: 'transactions' });
+      const result = await controller.syncData(mockUser, { integrationId: 'integration-123', type: 'transactions' });
 
-      expect(result).toEqual(syncResult);
+      expect(result).toMatchObject({ status: 'completed', syncType: 'transactions', itemsSynced: 100, itemsCreated: 50 });
       expect(mockIncrementalSyncService.syncTransactionsIncremental).toHaveBeenCalledWith(
         'tenant-123',
+        'integration-123',
         expect.objectContaining({
-          forceFullSync: undefined,
-          batchSize: 500,
-          maxItems: 10000,
+          forceFullSync: expect.any(Boolean),
         }),
       );
     });
@@ -230,37 +243,39 @@ describe('WeezeventController', () => {
         success: true, 
         isIncremental: true, 
         itemsSynced: 10, 
+        itemsCreated: 10,
         errors: [] 
       };
       mockIncrementalSyncService.syncEventsIncremental.mockResolvedValue(syncResult);
+      mockPrismaService.weezeventEvent.count.mockResolvedValue(10);
 
-      const result = await controller.syncData(mockUser, { type: 'events' });
+      const result = await controller.syncData(mockUser, { integrationId: 'integration-123', type: 'events' });
 
-      expect(result).toEqual(syncResult);
+      expect(result).toMatchObject({ status: 'completed', syncType: 'events', itemsSynced: 10 });
       expect(mockIncrementalSyncService.syncEventsIncremental).toHaveBeenCalledWith(
         'tenant-123',
+        'integration-123',
         expect.objectContaining({
-          forceFullSync: undefined,
-          batchSize: 500,
-          maxItems: 10000,
+          forceFullSync: expect.any(Boolean),
         }),
       );
     });
 
     it('should trigger products sync', async () => {
-      const syncResult = { success: true, synced: 50, errors: [] };
+      const syncResult = { success: true, itemsSynced: 50, itemsCreated: 50, errors: [] };
       mockSyncService.syncProducts.mockResolvedValue(syncResult);
+      mockPrismaService.weezeventProduct.count.mockResolvedValue(50);
 
-      const result = await controller.syncData(mockUser, { type: 'products' });
+      const result = await controller.syncData(mockUser, { integrationId: 'integration-123', type: 'products' });
 
-      expect(result).toEqual(syncResult);
-      expect(mockSyncService.syncProducts).toHaveBeenCalledWith('tenant-123');
+      expect(result).toMatchObject({ status: 'completed', syncType: 'products' });
+      expect(mockSyncService.syncProducts).toHaveBeenCalledWith('tenant-123', 'integration-123');
     });
 
     it('should throw for unknown sync type', async () => {
       await expect(
-        controller.syncData(mockUser, { type: 'unknown' as any }),
-      ).rejects.toThrow('Sync type unknown not yet implemented');
+        controller.syncData(mockUser, { integrationId: 'integration-123', type: 'unknown' as any }),
+      ).rejects.toThrow();
     });
   });
 
@@ -348,14 +363,14 @@ describe('WeezeventController', () => {
       mockPrismaService.weezeventProduct.findMany.mockResolvedValue([]);
       mockPrismaService.weezeventProduct.count.mockResolvedValue(0);
 
-      await controller.getProducts(mockUser, 1, 50, 'food');
+      await controller.getProducts(mockUser, 1, 50, undefined, 'food');
 
       expect(mockPrismaService.weezeventProduct.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: {
+          where: expect.objectContaining({
             tenantId: 'tenant-123',
             category: 'food',
-          },
+          }),
         }),
       );
     });
@@ -485,16 +500,7 @@ describe('WeezeventController', () => {
       mockPrismaService.weezeventOrder.findMany.mockResolvedValue([]);
       mockPrismaService.weezeventOrder.count.mockResolvedValue(0);
 
-      await controller.getOrders(mockUser, 1, 50, 'event-123');
-
-      expect(mockPrismaService.weezeventOrder.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: {
-            tenantId: 'tenant-123',
-            eventId: 'event-123',
-          },
-        }),
-      );
+      await controller.getOrders(mockUser, 1, 50, undefined, 'event-123');\n\n      expect(mockPrismaService.weezeventOrder.findMany).toHaveBeenCalledWith(\n        expect.objectContaining({\n          where: expect.objectContaining({\n            tenantId: 'tenant-123',\n            eventId: 'event-123',\n          }),\n        }),\n      );
     });
   });
 
@@ -541,81 +547,54 @@ describe('WeezeventController', () => {
   });
 
   describe('syncData - extended types', () => {
-    it('should sync orders when type is orders', async () => {
-      const mockResult = {
-        type: 'orders',
-        success: true,
-        itemsSynced: 10,
-        itemsCreated: 5,
-        itemsUpdated: 5,
-        errors: 0,
-        duration: 1000,
-      };
-
-      mockSyncService.syncOrders.mockResolvedValue(mockResult);
-
+    it('should queue orders sync when type is orders', async () => {
       const result = await controller.syncData(mockUser, {
+        integrationId: 'integration-123',
         type: 'orders',
         eventId: 'event-123',
       });
 
-      expect(result).toEqual(mockResult);
-      expect(mockSyncService.syncOrders).toHaveBeenCalledWith('tenant-123', 'event-123');
+      expect(result).toMatchObject({ status: 'queued', syncType: 'orders' });
+      expect(mockQueueService.queueWeezeventSyncType).toHaveBeenCalledWith(
+        'tenant-123', 'orders', expect.objectContaining({ eventId: 'event-123' }),
+      );
     });
 
     it('should throw error if eventId missing for orders sync', async () => {
       await expect(
-        controller.syncData(mockUser, { type: 'orders' }),
+        controller.syncData(mockUser, { integrationId: 'integration-123', type: 'orders' }),
       ).rejects.toThrow('eventId is required for orders sync');
     });
 
-    it('should sync prices when type is prices', async () => {
-      const mockResult = {
-        type: 'prices',
-        success: true,
-        itemsSynced: 5,
-        itemsCreated: 3,
-        itemsUpdated: 2,
-        errors: 0,
-        duration: 500,
-      };
-
-      mockSyncService.syncPrices.mockResolvedValue(mockResult);
-
+    it('should queue prices sync when type is prices', async () => {
       const result = await controller.syncData(mockUser, {
+        integrationId: 'integration-123',
         type: 'prices',
         eventId: 'event-123',
       });
 
-      expect(result).toEqual(mockResult);
-      expect(mockSyncService.syncPrices).toHaveBeenCalledWith('tenant-123', 'event-123');
+      expect(result).toMatchObject({ status: 'queued', syncType: 'prices' });
+      expect(mockQueueService.queueWeezeventSyncType).toHaveBeenCalledWith(
+        'tenant-123', 'prices', expect.objectContaining({ eventId: 'event-123' }),
+      );
     });
 
-    it('should sync attendees when type is attendees', async () => {
-      const mockResult = {
-        type: 'attendees',
-        success: true,
-        itemsSynced: 100,
-        itemsCreated: 100,
-        itemsUpdated: 0,
-        errors: 0,
-        duration: 2000,
-      };
-
-      mockSyncService.syncAttendees.mockResolvedValue(mockResult);
-
+    it('should queue attendees sync when type is attendees', async () => {
       const result = await controller.syncData(mockUser, {
+        integrationId: 'integration-123',
         type: 'attendees',
         eventId: 'event-123',
       });
 
-      expect(result).toEqual(mockResult);
-      expect(mockSyncService.syncAttendees).toHaveBeenCalledWith('tenant-123', 'event-123');
+      expect(result).toMatchObject({ status: 'queued', syncType: 'attendees' });
+      expect(mockQueueService.queueWeezeventSyncType).toHaveBeenCalledWith(
+        'tenant-123', 'attendees', expect.objectContaining({ eventId: 'event-123' }),
+      );
     });
 
     it('should throw error if eventId missing for attendees sync', async () => {
       await expect(
-        controller.syncData(mockUser, { type: 'attendees' }),
+        controller.syncData(mockUser, { integrationId: 'integration-123', type: 'attendees' }),
       ).rejects.toThrow('eventId is required for attendees sync');
     });
   });

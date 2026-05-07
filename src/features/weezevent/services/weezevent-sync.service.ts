@@ -42,6 +42,7 @@ export class WeezeventSyncService {
      */
     async syncTransactions(
         tenantId: string,
+        integrationId: string,
         options?: SyncTransactionsOptions,
     ): Promise<SyncResult> {
         const startTime = Date.now();
@@ -58,29 +59,20 @@ export class WeezeventSyncService {
         };
 
         try {
-            // Get tenant to retrieve Weezevent organization ID
-            const tenant = await this.prisma.tenant.findUnique({
-                where: { id: tenantId },
-                select: {
-                    id: true,
-                    weezeventOrganizationId: true,
-                    weezeventEnabled: true,
-                },
+            const integration = await this.prisma.weezeventIntegration.findUnique({
+                where: { id: integrationId },
+                select: { id: true, organizationId: true, enabled: true, tenantId: true },
             });
-
-            if (!tenant) {
-                throw new Error(`Tenant ${tenantId} not found`);
+            if (!integration || integration.tenantId !== tenantId) {
+                throw new Error(`Weezevent integration ${integrationId} not found for tenant ${tenantId}`);
             }
-
-            if (!tenant.weezeventEnabled) {
-                throw new Error(`Weezevent not enabled for tenant ${tenantId}`);
+            if (!integration.enabled) {
+                throw new Error(`Weezevent integration ${integrationId} is disabled`);
             }
-
-            if (!tenant.weezeventOrganizationId) {
-                throw new Error(`Weezevent organization ID not configured for tenant ${tenantId}`);
+            if (!integration.organizationId) {
+                throw new Error(`Weezevent organization ID not configured for integration ${integrationId}`);
             }
-
-            const organizationId = tenant.weezeventOrganizationId;
+            const organizationId = integration.organizationId;
 
             this.logger.log(
                 `Starting transaction sync for tenant ${tenantId}, organization ${organizationId}`,
@@ -112,6 +104,7 @@ export class WeezeventSyncService {
                     try {
                         const { created, updated } = await this.syncTransaction(
                             tenantId,
+                            integrationId,
                             apiTransaction,
                         );
 
@@ -142,7 +135,7 @@ export class WeezeventSyncService {
             // Backfill WeezeventLocation from ALL transactions in DB for this tenant.
             // Runs every sync — safe (idempotent upserts). Ensures locations are visible
             // in the UI even when data was imported before this feature was added.
-            await this.backfillLocationsFromTransactions(tenantId);
+            await this.backfillLocationsFromTransactions(tenantId, integrationId);
 
             return result;
         } catch (error) {
@@ -158,28 +151,22 @@ export class WeezeventSyncService {
      */
     async syncSingleTransaction(
         tenantId: string,
+        integrationId: string,
         transactionId: string | number,
     ): Promise<{ created: boolean; updated: boolean }> {
         this.logger.log(`Syncing single transaction ${transactionId} for tenant ${tenantId}`);
 
-        // Get tenant to retrieve Weezevent organization ID
-        const tenant = await this.prisma.tenant.findUnique({
-            where: { id: tenantId },
-            select: {
-                id: true,
-                weezeventOrganizationId: true,
-            },
+        const integration = await this.prisma.weezeventIntegration.findUnique({
+            where: { id: integrationId },
+            select: { id: true, organizationId: true, tenantId: true },
         });
-
-        if (!tenant) {
-            throw new Error(`Tenant ${tenantId} not found`);
+        if (!integration || integration.tenantId !== tenantId) {
+            throw new Error(`Weezevent integration ${integrationId} not found for tenant ${tenantId}`);
         }
-
-        if (!tenant.weezeventOrganizationId) {
-            throw new Error(`Weezevent organization ID not configured for tenant ${tenantId}`);
+        if (!integration.organizationId) {
+            throw new Error(`Weezevent organization ID not configured for integration ${integrationId}`);
         }
-
-        const organizationId = tenant.weezeventOrganizationId;
+        const organizationId = integration.organizationId;
 
         // Fetch transaction from Weezevent API
         const apiTransaction = await this.weezeventClient.getTransaction(
@@ -189,7 +176,7 @@ export class WeezeventSyncService {
         );
 
         // Sync the transaction
-        return this.syncTransaction(tenantId, apiTransaction);
+        return this.syncTransaction(tenantId, integrationId, apiTransaction);
     }
 
     /**
@@ -197,7 +184,7 @@ export class WeezeventSyncService {
      * Extracts distinct (location_id, locationName) from rawData JSON.
      * Safe to run multiple times — all upserts are idempotent.
      */
-    private async backfillLocationsFromTransactions(tenantId: string): Promise<void> {
+    private async backfillLocationsFromTransactions(tenantId: string, integrationId: string): Promise<void> {
         type Row = { wid: string; name: string };
         const rows = await this.prisma.$queryRaw<Row[]>`
             SELECT DISTINCT
@@ -205,6 +192,7 @@ export class WeezeventSyncService {
                 t."locationName"              AS name
             FROM "WeezeventTransaction" t
             WHERE t."tenantId"             = ${tenantId}
+              AND t."integrationId"        = ${integrationId}
               AND (t."rawData"->>'location_id') IS NOT NULL
               AND t."locationName"         IS NOT NULL
         `;
@@ -213,10 +201,11 @@ export class WeezeventSyncService {
         for (const row of rows) {
             if (!row.wid || !row.name) continue;
             await this.prisma.weezeventLocation.upsert({
-                where: { tenantId_weezeventId: { tenantId, weezeventId: row.wid } },
+                where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId: row.wid } },
                 create: {
                     weezeventId: row.wid,
                     tenantId,
+                    integrationId,
                     name: row.name,
                     rawData: {},
                     syncedAt: new Date(),
@@ -239,13 +228,14 @@ export class WeezeventSyncService {
      */
     private async syncTransaction(
         tenantId: string,
+        integrationId: string,
         apiTransaction: ApiTransaction,
     ): Promise<{ created: boolean; updated: boolean }> {
         const weezeventId = apiTransaction.id.toString();
 
         // Check if transaction exists
         const existing = await this.prisma.weezeventTransaction.findUnique({
-            where: { tenantId_weezeventId: { tenantId, weezeventId } },
+            where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
         });
 
         // Calculate total amount from rows
@@ -280,10 +270,11 @@ export class WeezeventSyncService {
         const locationName = apiTransaction.location_name ?? rawTx.location_name ?? null;
         if (locationWeezeventId && locationName) {
             const loc = await this.prisma.weezeventLocation.upsert({
-                where: { tenantId_weezeventId: { tenantId, weezeventId: locationWeezeventId } },
+                where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId: locationWeezeventId } },
                 create: {
                     weezeventId: locationWeezeventId,
                     tenantId,
+                    integrationId,
                     name: locationName,
                     rawData: {},
                     syncedAt: new Date(),
@@ -299,10 +290,11 @@ export class WeezeventSyncService {
 
         // Upsert transaction
         const transaction = await this.prisma.weezeventTransaction.upsert({
-            where: { tenantId_weezeventId: { tenantId, weezeventId } },
+            where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
             create: {
                 weezeventId,
                 tenantId,
+                integrationId,
                 amount: totalAmount,
                 status: statusValue,
                 transactionDate,
@@ -410,6 +402,7 @@ export class WeezeventSyncService {
      */
     async syncWallet(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         walletId: string,
     ): Promise<any> {
@@ -430,10 +423,11 @@ export class WeezeventSyncService {
             : (typeof walletStatus === 'string' ? walletStatus : 'unknown');
 
         return this.prisma.weezeventWallet.upsert({
-            where: { tenantId_weezeventId: { tenantId, weezeventId } },
+            where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
             create: {
                 weezeventId,
                 tenantId,
+                integrationId,
                 balance: apiWallet.balance,
                 currency: 'EUR', // Default
                 userId: apiWallet.user_id?.toString(),
@@ -461,6 +455,7 @@ export class WeezeventSyncService {
      */
     async syncUser(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         userId: string,
     ): Promise<any> {
@@ -475,10 +470,11 @@ export class WeezeventSyncService {
         const weezeventId = apiUser.id.toString();
 
         return this.prisma.weezeventUser.upsert({
-            where: { tenantId_weezeventId: { tenantId, weezeventId } },
+            where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
             create: {
                 weezeventId,
                 tenantId,
+                integrationId,
                 email: apiUser.email,
                 firstName: apiUser.first_name,
                 lastName: apiUser.last_name,
@@ -512,6 +508,7 @@ export class WeezeventSyncService {
      */
     async syncEvents(
         tenantId: string,
+        integrationId: string,
     ): Promise<SyncResult> {
         const startTime = Date.now();
         const result: SyncResult = {
@@ -525,24 +522,17 @@ export class WeezeventSyncService {
         };
 
         try {
-            // Get tenant to retrieve Weezevent organization ID
-            const tenant = await this.prisma.tenant.findUnique({
-                where: { id: tenantId },
-                select: {
-                    id: true,
-                    weezeventOrganizationId: true,
-                },
+            const integration = await this.prisma.weezeventIntegration.findUnique({
+                where: { id: integrationId },
+                select: { id: true, organizationId: true, enabled: true, tenantId: true },
             });
-
-            if (!tenant) {
-                throw new Error(`Tenant ${tenantId} not found`);
+            if (!integration || integration.tenantId !== tenantId) {
+                throw new Error(`Weezevent integration ${integrationId} not found for tenant ${tenantId}`);
             }
-
-            if (!tenant.weezeventOrganizationId) {
-                throw new Error(`Weezevent organization ID not configured for tenant ${tenantId}`);
+            if (!integration.organizationId) {
+                throw new Error(`Weezevent organization ID not configured for integration ${integrationId}`);
             }
-
-            const organizationId = tenant.weezeventOrganizationId;
+            const organizationId = integration.organizationId;
 
             this.logger.log(`Syncing events for tenant ${tenantId}, organization ${organizationId}`);
 
@@ -564,7 +554,7 @@ export class WeezeventSyncService {
             
             // Single query to get all existing events
             const existingEvents = await this.prisma.weezeventEvent.findMany({
-                where: { weezeventId: { in: weezeventIds } },
+                where: { tenantId, integrationId, weezeventId: { in: weezeventIds } },
                 select: { weezeventId: true },
             });
             const existingIds = new Set(existingEvents.map(e => e.weezeventId));
@@ -610,6 +600,7 @@ export class WeezeventSyncService {
                         eventsToCreate.push({
                             weezeventId,
                             tenantId,
+                            integrationId,
                             ...eventData,
                         });
                     }
@@ -633,7 +624,7 @@ export class WeezeventSyncService {
                 await this.prisma.$transaction(
                     eventsToUpdate.map(({ weezeventId, data }) =>
                         this.prisma.weezeventEvent.update({
-                            where: { tenantId_weezeventId: { tenantId, weezeventId } },
+                            where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
                             data,
                         })
                     )
@@ -648,9 +639,10 @@ export class WeezeventSyncService {
 
             // Update sync state so the frontend can detect completion via lastSyncedAt
             await this.prisma.weezeventSyncState.upsert({
-                where: { tenantId_syncType: { tenantId, syncType: 'events' } },
+                where: { tenantId_integrationId_syncType: { tenantId, integrationId, syncType: 'events' } },
                 create: {
                     tenantId,
+                    integrationId,
                     syncType: 'events',
                     lastSyncedAt: new Date(),
                     lastSyncCount: result.itemsSynced,
@@ -695,7 +687,7 @@ export class WeezeventSyncService {
     /**
      * Sync all products
      */
-    async syncProducts(tenantId: string): Promise<SyncResult> {
+    async syncProducts(tenantId: string, integrationId: string): Promise<SyncResult> {
         const startTime = Date.now();
         const result: SyncResult = {
             type: 'products',
@@ -708,24 +700,17 @@ export class WeezeventSyncService {
         };
 
         try {
-            // Get tenant to retrieve Weezevent organization ID
-            const tenant = await this.prisma.tenant.findUnique({
-                where: { id: tenantId },
-                select: {
-                    id: true,
-                    weezeventOrganizationId: true,
-                },
+            const integration = await this.prisma.weezeventIntegration.findUnique({
+                where: { id: integrationId },
+                select: { id: true, organizationId: true, enabled: true, tenantId: true },
             });
-
-            if (!tenant) {
-                throw new Error(`Tenant ${tenantId} not found`);
+            if (!integration || integration.tenantId !== tenantId) {
+                throw new Error(`Weezevent integration ${integrationId} not found for tenant ${tenantId}`);
             }
-
-            if (!tenant.weezeventOrganizationId) {
-                throw new Error(`Weezevent organization ID not configured for tenant ${tenantId}`);
+            if (!integration.organizationId) {
+                throw new Error(`Weezevent organization ID not configured for integration ${integrationId}`);
             }
-
-            const organizationId = tenant.weezeventOrganizationId;
+            const organizationId = integration.organizationId;
 
             this.logger.log(`Syncing products for tenant ${tenantId}, organization ${organizationId}`);
 
@@ -740,7 +725,7 @@ export class WeezeventSyncService {
 
             // Single query to get all existing products WITH rawData for change detection
             const existingProducts = await this.prisma.weezeventProduct.findMany({
-                where: { weezeventId: { in: weezeventIds } },
+                where: { tenantId, integrationId, weezeventId: { in: weezeventIds } },
                 select: { weezeventId: true, rawData: true },
             });
             const existingMap = new Map(existingProducts.map(p => [p.weezeventId, p.rawData]));
@@ -779,7 +764,7 @@ export class WeezeventSyncService {
                         productIdsNeedingDetailSync.push(weezeventId);
                     }
                 } else {
-                    productsToCreate.push({ weezeventId, tenantId, ...productData });
+                    productsToCreate.push({ weezeventId, tenantId, integrationId, ...productData });
                     productIdsNeedingDetailSync.push(weezeventId);
                 }
             }
@@ -798,7 +783,7 @@ export class WeezeventSyncService {
                 await this.prisma.$transaction(
                     productsToUpdate.map(({ weezeventId, data }) =>
                         this.prisma.weezeventProduct.update({
-                            where: { tenantId_weezeventId: { tenantId, weezeventId } },
+                            where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
                             data,
                         })
                     )
@@ -820,7 +805,7 @@ export class WeezeventSyncService {
                 const chunk = productIdsNeedingDetailSync.slice(i, i + CONCURRENCY);
                 await Promise.allSettled(
                     chunk.map(productId =>
-                        this.syncProductDetails(tenantId, organizationId, productId)
+                        this.syncProductDetails(tenantId, integrationId, organizationId, productId)
                             .catch((error: Error) =>
                                 this.logger.warn(`Failed to sync details for product ${productId}: ${error.message}`)
                             )
@@ -835,9 +820,10 @@ export class WeezeventSyncService {
 
             // Update sync state so the frontend can detect completion via lastSyncedAt
             await this.prisma.weezeventSyncState.upsert({
-                where: { tenantId_syncType: { tenantId, syncType: 'products' } },
+                where: { tenantId_integrationId_syncType: { tenantId, integrationId, syncType: 'products' } },
                 create: {
                     tenantId,
+                    integrationId,
                     syncType: 'products',
                     lastSyncedAt: new Date(),
                     lastSyncCount: result.itemsSynced,
@@ -867,12 +853,13 @@ export class WeezeventSyncService {
      */
     private async syncProductDetails(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         productId: string,
     ): Promise<void> {
         // Get the product from DB to link relations
         const product = await this.prisma.weezeventProduct.findUnique({
-            where: { tenantId_weezeventId: { tenantId, weezeventId: productId } },
+            where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId: productId } },
             select: { id: true, weezeventId: true },
         });
 
@@ -902,6 +889,7 @@ export class WeezeventSyncService {
                     const variantsData = variants.map((v: any) => ({
                         weezeventId: v.id?.toString() || `${productId}-variant-${v.name}`,
                         tenantId,
+                        integrationId,
                         productId: product.id,
                         name: v.name || 'Unnamed Variant',
                         description: v.description || null,
@@ -943,6 +931,7 @@ export class WeezeventSyncService {
                     const componentsData = components.map((c: any) => ({
                         weezeventId: c.id?.toString() || `${productId}-component-${c.name}`,
                         tenantId,
+                        integrationId,
                         productId: product.id,
                         name: c.name || 'Unnamed Component',
                         description: c.description || null,
@@ -975,7 +964,7 @@ export class WeezeventSyncService {
     /**
      * Sync orders for an event
      */
-    async syncOrders(tenantId: string, eventId: string): Promise<SyncResult> {
+    async syncOrders(tenantId: string, integrationId: string, eventId: string): Promise<SyncResult> {
         const startTime = Date.now();
         const result: SyncResult = {
             type: 'orders',
@@ -988,16 +977,14 @@ export class WeezeventSyncService {
         };
 
         try {
-            const tenant = await this.prisma.tenant.findUnique({
-                where: { id: tenantId },
-                select: { weezeventOrganizationId: true },
+            const integration = await this.prisma.weezeventIntegration.findUnique({
+                where: { id: integrationId },
+                select: { id: true, organizationId: true, tenantId: true },
             });
-
-            if (!tenant?.weezeventOrganizationId) {
-                throw new Error('Weezevent not configured for tenant');
+            if (!integration || integration.tenantId !== tenantId || !integration.organizationId) {
+                throw new Error(`Weezevent integration ${integrationId} not configured for tenant ${tenantId}`);
             }
-
-            const organizationId = tenant.weezeventOrganizationId;
+            const organizationId = integration.organizationId;
 
             this.logger.log(`Syncing orders for event ${eventId}`);
 
@@ -1016,14 +1003,15 @@ export class WeezeventSyncService {
                     try {
                         const weezeventId = apiOrder.id.toString();
                         const existing = await this.prisma.weezeventOrder.findUnique({
-                            where: { tenantId_weezeventId: { tenantId, weezeventId } },
+                            where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
                         });
 
                         await this.prisma.weezeventOrder.upsert({
-                            where: { tenantId_weezeventId: { tenantId, weezeventId } },
+                            where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
                             create: {
                                 weezeventId,
                                 tenantId,
+                                integrationId,
                                 eventId,
                                 eventName: apiOrder.event_name || null,
                                 userId: apiOrder.user_id?.toString() || null,
@@ -1074,7 +1062,7 @@ export class WeezeventSyncService {
     /**
      * Sync prices
      */
-    async syncPrices(tenantId: string, eventId?: string): Promise<SyncResult> {
+    async syncPrices(tenantId: string, integrationId: string, eventId?: string): Promise<SyncResult> {
         const startTime = Date.now();
         const result: SyncResult = {
             type: 'prices',
@@ -1087,16 +1075,14 @@ export class WeezeventSyncService {
         };
 
         try {
-            const tenant = await this.prisma.tenant.findUnique({
-                where: { id: tenantId },
-                select: { weezeventOrganizationId: true },
+            const integration = await this.prisma.weezeventIntegration.findUnique({
+                where: { id: integrationId },
+                select: { id: true, organizationId: true, tenantId: true },
             });
-
-            if (!tenant?.weezeventOrganizationId) {
-                throw new Error('Weezevent not configured for tenant');
+            if (!integration || integration.tenantId !== tenantId || !integration.organizationId) {
+                throw new Error(`Weezevent integration ${integrationId} not configured for tenant ${tenantId}`);
             }
-
-            const organizationId = tenant.weezeventOrganizationId;
+            const organizationId = integration.organizationId;
 
             this.logger.log(`Syncing prices${eventId ? ` for event ${eventId}` : ''}`);
 
@@ -1111,14 +1097,15 @@ export class WeezeventSyncService {
                 try {
                     const weezeventId = apiPrice.id.toString();
                     const existing = await this.prisma.weezeventPrice.findUnique({
-                        where: { tenantId_weezeventId: { tenantId, weezeventId } },
+                        where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
                     });
 
                     await this.prisma.weezeventPrice.upsert({
-                        where: { tenantId_weezeventId: { tenantId, weezeventId } },
+                        where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
                         create: {
                             weezeventId,
                             tenantId,
+                            integrationId,
                             eventId: eventId || apiPrice.event_id?.toString() || null,
                             productId: apiPrice.product_id?.toString() || null,
                             name: apiPrice.name || 'Unnamed Price',
@@ -1166,7 +1153,7 @@ export class WeezeventSyncService {
     /**
      * Sync attendees for an event
      */
-    async syncAttendees(tenantId: string, eventId: string): Promise<SyncResult> {
+    async syncAttendees(tenantId: string, integrationId: string, eventId: string): Promise<SyncResult> {
         const startTime = Date.now();
         const result: SyncResult = {
             type: 'attendees',
@@ -1179,16 +1166,14 @@ export class WeezeventSyncService {
         };
 
         try {
-            const tenant = await this.prisma.tenant.findUnique({
-                where: { id: tenantId },
-                select: { weezeventOrganizationId: true },
+            const integration = await this.prisma.weezeventIntegration.findUnique({
+                where: { id: integrationId },
+                select: { id: true, organizationId: true, tenantId: true },
             });
-
-            if (!tenant?.weezeventOrganizationId) {
-                throw new Error('Weezevent not configured for tenant');
+            if (!integration || integration.tenantId !== tenantId || !integration.organizationId) {
+                throw new Error(`Weezevent integration ${integrationId} not configured for tenant ${tenantId}`);
             }
-
-            const organizationId = tenant.weezeventOrganizationId;
+            const organizationId = integration.organizationId;
 
             this.logger.log(`Syncing attendees for event ${eventId}`);
 
@@ -1207,14 +1192,15 @@ export class WeezeventSyncService {
                     try {
                         const weezeventId = apiAttendee.id.toString();
                         const existing = await this.prisma.weezeventAttendee.findUnique({
-                            where: { tenantId_weezeventId: { tenantId, weezeventId } },
+                            where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
                         });
 
                         await this.prisma.weezeventAttendee.upsert({
-                            where: { tenantId_weezeventId: { tenantId, weezeventId } },
+                            where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
                             create: {
                                 weezeventId,
                                 tenantId,
+                                integrationId,
                                 eventId,
                                 eventName: apiAttendee.event_name || null,
                                 email: apiAttendee.email || null,

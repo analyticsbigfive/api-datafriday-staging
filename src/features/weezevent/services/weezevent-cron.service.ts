@@ -36,31 +36,39 @@ export class WeezeventCronService implements OnModuleInit {
         const tenants = await this.getWeezeventEnabledTenants();
 
         for (const tenant of tenants) {
-            // Skip if sync already running for this tenant
+            // Get all enabled integrations for this tenant
+            const integrations = await this.prisma.weezeventIntegration.findMany({
+                where: { tenantId: tenant.id, enabled: true },
+                select: { id: true },
+            });
+
+            for (const integration of integrations) {
+            // Skip if sync already running for this tenant/integration
             if (this.syncTracker.getRunningSyncs(tenant.id).some(s => s.type === 'transactions')) {
-                this.logger.warn(`Skipping tenant ${tenant.id} - transactions sync already running`);
+                this.logger.warn(`Skipping tenant ${tenant.id}/integration ${integration.id} - transactions sync already running`);
                 continue;
             }
 
             try {
                 // Use incremental sync - only fetches NEW transactions
-                const result = await this.incrementalSyncService.syncTransactionsIncremental(tenant.id, {
+                const result = await this.incrementalSyncService.syncTransactionsIncremental(tenant.id, integration.id, {
                     batchSize: 500,
                     maxItems: 5000, // Limit per run to prevent overload
                 });
 
                 this.logger.log(
-                    `✅ Tenant ${tenant.id}: ${result.isIncremental ? 'INCREMENTAL' : 'FULL'} - ${result.itemsSynced} transactions (${result.itemsCreated} new, ${result.itemsSkipped} skipped) in ${result.duration}ms`,
+                    `✅ Tenant ${tenant.id} [${integration.id}]: ${result.isIncremental ? 'INCREMENTAL' : 'FULL'} - ${result.itemsSynced} transactions (${result.itemsCreated} new, ${result.itemsSkipped} skipped) in ${result.duration}ms`,
                 );
 
                 // If there's more data, log it
                 if (result.hasMore) {
-                    this.logger.warn(`⚠️ Tenant ${tenant.id}: More transactions available, will continue next run`);
+                    this.logger.warn(`⚠️ Tenant ${tenant.id} [${integration.id}]: More transactions available, will continue next run`);
                 }
             } catch (error) {
                 this.logger.error(
-                    `❌ Tenant ${tenant.id}: transactions sync failed - ${error.message}`,
+                    `❌ Tenant ${tenant.id} [${integration.id}]: transactions sync failed - ${error.message}`,
                 );
+            }
             }
         }
 
@@ -80,25 +88,32 @@ export class WeezeventCronService implements OnModuleInit {
         const tenants = await this.getWeezeventEnabledTenants();
 
         for (const tenant of tenants) {
+            const integrations = await this.prisma.weezeventIntegration.findMany({
+                where: { tenantId: tenant.id, enabled: true },
+                select: { id: true },
+            });
+
+            for (const integration of integrations) {
             try {
                 // Sync events INCREMENTALLY
-                const eventsResult = await this.incrementalSyncService.syncEventsIncremental(tenant.id, {
+                const eventsResult = await this.incrementalSyncService.syncEventsIncremental(tenant.id, integration.id, {
                     batchSize: 500,
                     maxItems: 10000,
                 });
                 this.logger.log(
-                    `✅ Tenant ${tenant.id}: ${eventsResult.isIncremental ? 'INCREMENTAL' : 'FULL'} events - ${eventsResult.itemsSynced} synced (${eventsResult.itemsSkipped} skipped)`,
+                    `✅ Tenant ${tenant.id} [${integration.id}]: ${eventsResult.isIncremental ? 'INCREMENTAL' : 'FULL'} events - ${eventsResult.itemsSynced} synced (${eventsResult.itemsSkipped} skipped)`,
                 );
 
                 // Sync products (use existing service - products are usually fewer)
-                const productsResult = await this.syncService.syncProducts(tenant.id);
+                const productsResult = await this.syncService.syncProducts(tenant.id, integration.id);
                 this.logger.log(
-                    `✅ Tenant ${tenant.id}: synced ${productsResult.itemsSynced} products`,
+                    `✅ Tenant ${tenant.id} [${integration.id}]: synced ${productsResult.itemsSynced} products`,
                 );
             } catch (error) {
                 this.logger.error(
-                    `❌ Tenant ${tenant.id}: reference data sync failed - ${error.message}`,
+                    `❌ Tenant ${tenant.id} [${integration.id}]: reference data sync failed - ${error.message}`,
                 );
+            }
             }
         }
 
@@ -118,20 +133,26 @@ export class WeezeventCronService implements OnModuleInit {
         const tenants = await this.getWeezeventEnabledTenants();
 
         for (const tenant of tenants) {
+            const integrations = await this.prisma.weezeventIntegration.findMany({
+                where: { tenantId: tenant.id, enabled: true },
+                select: { id: true },
+            });
+
+            for (const integration of integrations) {
             try {
                 // Force full sync for events (reset incremental state)
-                const eventsResult = await this.incrementalSyncService.syncEventsIncremental(tenant.id, {
+                const eventsResult = await this.incrementalSyncService.syncEventsIncremental(tenant.id, integration.id, {
                     forceFullSync: true,
                     batchSize: 1000,
                     maxItems: 50000, // Allow more for weekly full sync
                 });
 
                 this.logger.log(
-                    `✅ Tenant ${tenant.id}: FULL events sync - ${eventsResult.itemsSynced} synced`,
+                    `✅ Tenant ${tenant.id} [${integration.id}]: FULL events sync - ${eventsResult.itemsSynced} synced`,
                 );
 
                 // Force full sync for transactions (last 30 days)
-                const transactionsResult = await this.incrementalSyncService.syncTransactionsIncremental(tenant.id, {
+                const transactionsResult = await this.incrementalSyncService.syncTransactionsIncremental(tenant.id, integration.id, {
                     forceFullSync: true,
                     batchSize: 1000,
                     maxItems: 100000,
@@ -139,12 +160,13 @@ export class WeezeventCronService implements OnModuleInit {
                 });
 
                 this.logger.log(
-                    `✅ Tenant ${tenant.id}: FULL transactions sync - ${transactionsResult.itemsSynced} synced`,
+                    `✅ Tenant ${tenant.id} [${integration.id}]: FULL transactions sync - ${transactionsResult.itemsSynced} synced`,
                 );
             } catch (error) {
                 this.logger.error(
-                    `❌ Tenant ${tenant.id}: full sync failed - ${error.message}`,
+                    `❌ Tenant ${tenant.id} [${integration.id}]: full sync failed - ${error.message}`,
                 );
+            }
             }
         }
 
@@ -174,40 +196,42 @@ export class WeezeventCronService implements OnModuleInit {
      * Manual trigger for testing
      */
     async triggerSync(
-        tenantId: string, 
+        tenantId: string,
+        integrationId: string,
         type: 'transactions' | 'events' | 'products' | 'full',
         options?: { forceFullSync?: boolean },
     ): Promise<any> {
-        this.logger.log(`Manual CRON trigger: ${type} for tenant ${tenantId} (forceFullSync: ${options?.forceFullSync || false})`);
+        this.logger.log(`Manual CRON trigger: ${type} for tenant ${tenantId} [${integrationId}] (forceFullSync: ${options?.forceFullSync || false})`);
 
         switch (type) {
             case 'transactions':
-                return this.incrementalSyncService.syncTransactionsIncremental(tenantId, {
+                return this.incrementalSyncService.syncTransactionsIncremental(tenantId, integrationId, {
                     forceFullSync: options?.forceFullSync,
                     batchSize: 500,
                     maxItems: 10000,
                 });
             case 'events':
-                return this.incrementalSyncService.syncEventsIncremental(tenantId, {
+                return this.incrementalSyncService.syncEventsIncremental(tenantId, integrationId, {
                     forceFullSync: options?.forceFullSync,
                     batchSize: 500,
                     maxItems: 10000,
                 });
             case 'products':
-                return this.syncService.syncProducts(tenantId);
-            case 'full':
+                return this.syncService.syncProducts(tenantId, integrationId);
+            case 'full': {
                 // Full sync for both
-                const events = await this.incrementalSyncService.syncEventsIncremental(tenantId, {
+                const events = await this.incrementalSyncService.syncEventsIncremental(tenantId, integrationId, {
                     forceFullSync: true,
                     batchSize: 1000,
                     maxItems: 50000,
                 });
-                const transactions = await this.incrementalSyncService.syncTransactionsIncremental(tenantId, {
+                const transactions = await this.incrementalSyncService.syncTransactionsIncremental(tenantId, integrationId, {
                     forceFullSync: true,
                     batchSize: 1000,
                     maxItems: 100000,
                 });
                 return { events, transactions };
+            }
         }
     }
 

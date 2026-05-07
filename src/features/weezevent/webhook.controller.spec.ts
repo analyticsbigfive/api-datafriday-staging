@@ -37,8 +37,16 @@ describe('WebhookController', () => {
     processed: false,
   };
 
+  const mockIntegration = {
+    id: 'integration-123',
+    tenantId: 'tenant-123',
+  };
+
   const mockPrismaService = {
     tenant: {
+      findUnique: jest.fn(),
+    },
+    weezeventIntegration: {
       findUnique: jest.fn(),
     },
     weezeventWebhookEvent: {
@@ -88,12 +96,14 @@ describe('WebhookController', () => {
 
   describe('receiveWebhook', () => {
     it('should receive and store webhook event', async () => {
+      mockPrismaService.weezeventIntegration.findUnique.mockResolvedValue(mockIntegration);
       mockPrismaService.tenant.findUnique.mockResolvedValue(mockTenant);
       mockSignatureService.validateSignature.mockReturnValue(true);
       mockPrismaService.weezeventWebhookEvent.create.mockResolvedValue(mockWebhookEvent);
 
       const result = await controller.receiveWebhook(
         'tenant-123',
+        'integration-123',
         'valid-signature',
         mockPayload as any,
       );
@@ -106,42 +116,47 @@ describe('WebhookController', () => {
     });
 
     it('should throw BadRequestException when tenant not found', async () => {
+      mockPrismaService.weezeventIntegration.findUnique.mockResolvedValue(mockIntegration);
       mockPrismaService.tenant.findUnique.mockResolvedValue(null);
 
       await expect(
-        controller.receiveWebhook('non-existent', 'signature', mockPayload as any),
+        controller.receiveWebhook('non-existent', 'integration-123', 'signature', mockPayload as any),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('should throw UnauthorizedException when webhooks disabled', async () => {
+      mockPrismaService.weezeventIntegration.findUnique.mockResolvedValue(mockIntegration);
       mockPrismaService.tenant.findUnique.mockResolvedValue({
         ...mockTenant,
         weezeventWebhookEnabled: false,
       });
 
       await expect(
-        controller.receiveWebhook('tenant-123', 'signature', mockPayload as any),
+        controller.receiveWebhook('tenant-123', 'integration-123', 'signature', mockPayload as any),
       ).rejects.toThrow(UnauthorizedException);
     });
 
     it('should throw UnauthorizedException when signature missing', async () => {
+      mockPrismaService.weezeventIntegration.findUnique.mockResolvedValue(mockIntegration);
       mockPrismaService.tenant.findUnique.mockResolvedValue(mockTenant);
 
       await expect(
-        controller.receiveWebhook('tenant-123', '', mockPayload as any),
+        controller.receiveWebhook('tenant-123', 'integration-123', '', mockPayload as any),
       ).rejects.toThrow(UnauthorizedException);
     });
 
     it('should throw UnauthorizedException when signature invalid', async () => {
+      mockPrismaService.weezeventIntegration.findUnique.mockResolvedValue(mockIntegration);
       mockPrismaService.tenant.findUnique.mockResolvedValue(mockTenant);
       mockSignatureService.validateSignature.mockReturnValue(false);
 
       await expect(
-        controller.receiveWebhook('tenant-123', 'invalid-signature', mockPayload as any),
+        controller.receiveWebhook('tenant-123', 'integration-123', 'invalid-signature', mockPayload as any),
       ).rejects.toThrow(UnauthorizedException);
     });
 
     it('should accept webhook without signature when secret not configured', async () => {
+      mockPrismaService.weezeventIntegration.findUnique.mockResolvedValue(mockIntegration);
       mockPrismaService.tenant.findUnique.mockResolvedValue({
         ...mockTenant,
         weezeventWebhookSecret: null,
@@ -150,6 +165,7 @@ describe('WebhookController', () => {
 
       const result = await controller.receiveWebhook(
         'tenant-123',
+        'integration-123',
         '',
         mockPayload as any,
       );

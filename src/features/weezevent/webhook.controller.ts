@@ -31,14 +31,16 @@ export class WebhookController {
      * Receive webhook from Weezevent
      * POST /webhooks/weezevent/:tenantId
      */
-    @Post(':tenantId')
+    @Post(':tenantId/:integrationId')
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'Recevoir un webhook Weezevent' })
     @ApiParam({ name: 'tenantId', description: 'ID du tenant destinataire du webhook' })
+    @ApiParam({ name: 'integrationId', description: 'ID de l\'intégration Weezevent' })
     @ApiBody({ type: WeezeventWebhookPayloadDto })
     @ApiResponse({ status: 200, description: 'Webhook reçu et enregistré pour traitement' })
     async receiveWebhook(
         @Param('tenantId') tenantId: string,
+        @Param('integrationId') integrationId: string,
         @Headers('x-weezevent-signature') signature: string,
         @Body() payload: WeezeventWebhookPayloadDto,
     ): Promise<{ received: boolean; eventId: string }> {
@@ -47,6 +49,15 @@ export class WebhookController {
         );
 
         try {
+            const integration = await this.prisma.weezeventIntegration.findUnique({
+                where: { id: integrationId },
+                select: { id: true, tenantId: true },
+            });
+
+            if (!integration || integration.tenantId !== tenantId) {
+                throw new BadRequestException('Integration not found');
+            }
+
             // 1. Get tenant configuration
             const tenant = await this.prisma.tenant.findUnique({
                 where: { id: tenantId },
@@ -84,6 +95,7 @@ export class WebhookController {
             const webhookEvent = await this.prisma.weezeventWebhookEvent.create({
                 data: {
                     tenantId,
+                    integrationId,
                     eventType: payload.type,
                     method: payload.method,
                     payload: payload as any,

@@ -14,9 +14,9 @@ export class CreateWeezeventInstanceDto {
     @MinLength(1)
     clientSecret!: string;
 
-    @IsOptional()
     @IsString()
-    organizationId?: string;
+    @MinLength(1)
+    organizationId!: string;
 
     @IsOptional()
     @IsBoolean()

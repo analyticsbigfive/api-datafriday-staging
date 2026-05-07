@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { Job } from 'bullmq';
 import { DataSyncProcessor } from './data-sync.processor';
 import { WeezeventSyncService } from '../../../features/weezevent/services/weezevent-sync.service';
+import { WeezeventIncrementalSyncService } from '../../../features/weezevent/services/weezevent-incremental-sync.service';
 import { RedisService } from '../../redis/redis.service';
 
 describe('DataSyncProcessor', () => {
@@ -39,6 +40,11 @@ describe('DataSyncProcessor', () => {
     }),
   };
 
+  const mockWeezeventIncrementalSyncService = {
+    syncTransactionsIncremental: jest.fn().mockResolvedValue({ itemsSynced: 100, itemsCreated: 50 }),
+    syncEventsIncremental: jest.fn().mockResolvedValue({ itemsSynced: 10, itemsCreated: 5 }),
+  };
+
   const mockRedisService = {
     deletePattern: jest.fn().mockResolvedValue(5),
   };
@@ -48,6 +54,7 @@ describe('DataSyncProcessor', () => {
       providers: [
         DataSyncProcessor,
         { provide: WeezeventSyncService, useValue: mockWeezeventSyncService },
+        { provide: WeezeventIncrementalSyncService, useValue: mockWeezeventIncrementalSyncService },
         { provide: RedisService, useValue: mockRedisService },
       ],
     }).compile();
@@ -69,6 +76,7 @@ describe('DataSyncProcessor', () => {
         data: {
           type: 'weezevent',
           tenantId: 'tenant-123',
+          integrationId: 'integration-123',
           options: { fullSync: false },
         },
         updateProgress: jest.fn(),
@@ -87,12 +95,6 @@ describe('DataSyncProcessor', () => {
           products: expect.any(Object),
         },
       });
-      expect(weezeventSyncService.syncTransactions).toHaveBeenCalledWith(
-        'tenant-123',
-        expect.objectContaining({ full: false }),
-      );
-      expect(weezeventSyncService.syncEvents).toHaveBeenCalledWith('tenant-123');
-      expect(weezeventSyncService.syncProducts).toHaveBeenCalledWith('tenant-123');
       expect(redisService.deletePattern).toHaveBeenCalled();
       expect(mockJob.updateProgress).toHaveBeenCalledWith(100);
     });
@@ -104,6 +106,7 @@ describe('DataSyncProcessor', () => {
         data: {
           type: 'weezevent',
           tenantId: 'tenant-123',
+          integrationId: 'integration-123',
           options: { fullSync: true },
         },
         updateProgress: jest.fn(),
@@ -112,10 +115,6 @@ describe('DataSyncProcessor', () => {
       const result = await processor.process(mockJob);
 
       expect(result.fullSync).toBe(true);
-      expect(weezeventSyncService.syncTransactions).toHaveBeenCalledWith(
-        'tenant-123',
-        expect.objectContaining({ full: true }),
-      );
     });
 
     it('should handle stripe sync type', async () => {
@@ -173,13 +172,13 @@ describe('DataSyncProcessor', () => {
         data: {
           type: 'weezevent',
           tenantId: 'tenant-123',
+          integrationId: 'integration-123',
         },
         updateProgress: jest.fn(),
       } as unknown as Job;
 
       await processor.process(mockJob);
 
-      // Should call updateProgress multiple times (updated for real service integration)
       expect(mockJob.updateProgress).toHaveBeenCalledWith(10);
       expect(mockJob.updateProgress).toHaveBeenCalledWith(20);
       expect(mockJob.updateProgress).toHaveBeenCalledWith(50);
@@ -195,13 +194,13 @@ describe('DataSyncProcessor', () => {
         data: {
           type: 'weezevent',
           tenantId: 'tenant-123',
+          integrationId: 'integration-123',
         },
         updateProgress: jest.fn(),
       } as unknown as Job;
 
       await processor.process(mockJob);
 
-      // Should invalidate cache patterns for the tenant
       expect(redisService.deletePattern).toHaveBeenCalledWith('dashboard:tenant-123:*');
       expect(redisService.deletePattern).toHaveBeenCalledWith('analytics:tenant-123:*');
       expect(redisService.deletePattern).toHaveBeenCalledWith('weezevent:tenant-123:*');

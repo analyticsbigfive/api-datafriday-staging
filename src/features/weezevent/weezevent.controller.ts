@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Body, Query, Param, UseGuards, Logger } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Query, Param, UseGuards, Logger, BadRequestException } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { WeezeventSyncService, SyncResult } from './services/weezevent-sync.service';
 import { WeezeventIncrementalSyncService, IncrementalSyncResult } from './services/weezevent-incremental-sync.service';
@@ -37,9 +37,9 @@ export class WeezeventController {
         @Query() query: GetTransactionsQueryDto,
     ) {
         const tenantId = user.tenantId;
-        const { page = 1, perPage = 50, status, fromDate, toDate, eventId, merchantId } = query;
+        const { integrationId, page = 1, perPage = 50, status, fromDate, toDate, eventId, merchantId } = query;
 
-        const where: any = { tenantId };
+        const where: any = { tenantId, integrationId };
 
         if (status) where.status = status;
         if (eventId) where.eventId = eventId;
@@ -129,14 +129,15 @@ export class WeezeventController {
         // This fixes the case where data was purged but sync state still has lastSyncedAt set —
         // an incremental sync would skip everything and return 0.
         const autoFullForType = async (type: 'transactions' | 'events' | 'products'): Promise<boolean> => {
+            const integrationId = dto.integrationId;
             const counter =
-                type === 'transactions' ? this.prisma.weezeventTransaction.count({ where: { tenantId } }) :
-                type === 'events' ? this.prisma.weezeventEvent.count({ where: { tenantId } }) :
-                this.prisma.weezeventProduct.count({ where: { tenantId } });
+                type === 'transactions' ? this.prisma.weezeventTransaction.count({ where: { tenantId, integrationId } }) :
+                type === 'events' ? this.prisma.weezeventEvent.count({ where: { tenantId, integrationId } }) :
+                this.prisma.weezeventProduct.count({ where: { tenantId, integrationId } });
             const n = await counter;
             if (n === 0 && !dto.full) {
                 this.logger.warn(`Auto full-sync: ${type} DB is empty for tenant ${tenantId}, resetting sync state`);
-                await this.incrementalSyncService.resetSyncState(tenantId, type).catch(() => undefined);
+                await this.incrementalSyncService.resetSyncState(tenantId, integrationId, type).catch(() => undefined);
                 return true;
             }
             return Boolean(dto.full);
@@ -146,11 +147,11 @@ export class WeezeventController {
             case 'transactions': {
                 const t0 = Date.now();
                 const forceFull = await autoFullForType('transactions');
-                const result = await this.incrementalSyncService.syncTransactionsIncremental(tenantId, {
+                const result = await this.incrementalSyncService.syncTransactionsIncremental(tenantId, dto.integrationId, {
                     forceFullSync: forceFull,
                     updatedSince: fromDate,
                 });
-                const count = await this.prisma.weezeventTransaction.count({ where: { tenantId } });
+                const count = await this.prisma.weezeventTransaction.count({ where: { tenantId, integrationId: dto.integrationId } });
                 const duration = Date.now() - t0;
                 this.logger.log(`Manual sync: transactions done in ${duration}ms — ${result.itemsSynced} synced, total=${count}`);
                 return { status: 'completed', syncType: 'transactions', count, itemsSynced: result.itemsSynced, itemsCreated: result.itemsCreated, duration };
@@ -159,10 +160,10 @@ export class WeezeventController {
             case 'events': {
                 const t0 = Date.now();
                 const forceFull = await autoFullForType('events');
-                const result = await this.incrementalSyncService.syncEventsIncremental(tenantId, {
+                const result = await this.incrementalSyncService.syncEventsIncremental(tenantId, dto.integrationId, {
                     forceFullSync: forceFull,
                 });
-                const count = await this.prisma.weezeventEvent.count({ where: { tenantId } });
+                const count = await this.prisma.weezeventEvent.count({ where: { tenantId, integrationId: dto.integrationId } });
                 const duration = Date.now() - t0;
                 this.logger.log(`Manual sync: events done in ${duration}ms — ${result.itemsSynced} synced, total=${count}`);
                 return { status: 'completed', syncType: 'events', count, itemsSynced: result.itemsSynced, itemsCreated: result.itemsCreated, duration };
@@ -171,8 +172,8 @@ export class WeezeventController {
             case 'products': {
                 const t0 = Date.now();
                 await autoFullForType('products');
-                const result = await this.syncService.syncProducts(tenantId);
-                const count = await this.prisma.weezeventProduct.count({ where: { tenantId } });
+                const result = await this.syncService.syncProducts(tenantId, dto.integrationId);
+                const count = await this.prisma.weezeventProduct.count({ where: { tenantId, integrationId: dto.integrationId } });
                 const duration = Date.now() - t0;
                 this.logger.log(`Manual sync: products done in ${duration}ms — ${result.itemsSynced} synced, total=${count}`);
                 return { status: 'completed', syncType: 'products', count, itemsSynced: result.itemsSynced, itemsCreated: result.itemsCreated, duration };
@@ -211,16 +212,20 @@ export class WeezeventController {
      */
     @Get('sync/status')
     @ApiOperation({ summary: 'Obtenir le statut de synchronisation Weezevent' })
+    @ApiQuery({ name: 'integrationId', required: false, description: 'Filtrer par intégration — si omis, retourne les totaux toutes intégrations confondues' })
     @ApiResponse({ status: 200, description: 'Statut des synchronisations Weezevent' })
-    async getSyncStatus(@CurrentUser() user: any) {
+    async getSyncStatus(
+        @CurrentUser() user: any,
+        @Query('integrationId') integrationId?: string,
+    ) {
         const tenantId = user.tenantId;
 
         const [incrementalStatus, transactionCount, eventCount, productCount, queueStats, jobsProgress] =
             await Promise.all([
-                this.incrementalSyncService.getSyncStatus(tenantId),
-                this.prisma.weezeventTransaction.count({ where: { tenantId } }),
-                this.prisma.weezeventEvent.count({ where: { tenantId } }),
-                this.prisma.weezeventProduct.count({ where: { tenantId } }),
+                this.incrementalSyncService.getSyncStatus(tenantId, integrationId),
+                this.prisma.weezeventTransaction.count({ where: { tenantId, ...(integrationId ? { integrationId } : {}) } }),
+                this.prisma.weezeventEvent.count({ where: { tenantId, ...(integrationId ? { integrationId } : {}) } }),
+                this.prisma.weezeventProduct.count({ where: { tenantId, ...(integrationId ? { integrationId } : {}) } }),
                 this.queueService.getQueueStats('data-sync').catch(() => null),
                 this.queueService.getActiveJobsProgress('data-sync').catch(() => ({})),
             ]);
@@ -241,16 +246,18 @@ export class WeezeventController {
      */
     @Delete('sync/state')
     @ApiOperation({ summary: 'Réinitialiser l’état de synchronisation Weezevent' })
-    @ApiQuery({ name: 'type', required: false, type: String, description: 'Type de sync à réinitialiser' })
+    @ApiQuery({ name: 'integrationId', required: false, description: 'ID de l\'intégration à réinitialiser — si omis, réinitialise toutes les intégrations du tenant' })
+    @ApiQuery({ name: 'type', required: false, type: String, description: 'Type de sync à réinitialiser : transactions | events | products' })
     @ApiResponse({ status: 200, description: 'État de synchronisation réinitialisé' })
     async resetSyncState(
         @CurrentUser() user: any,
+        @Query('integrationId') integrationId?: string,
         @Query('type') syncType?: string,
     ) {
         const tenantId = user.tenantId;
-        this.logger.log(`Resetting sync state for tenant ${tenantId}${syncType ? ` (type: ${syncType})` : ''}`);
+        this.logger.log(`Resetting sync state for tenant ${tenantId}${integrationId ? ` (integration: ${integrationId})` : ''}${syncType ? ` (type: ${syncType})` : ''}`);
         
-        await this.incrementalSyncService.resetSyncState(tenantId, syncType);
+        await this.incrementalSyncService.resetSyncState(tenantId, integrationId, syncType);
         
         return { 
             success: true, 
@@ -267,12 +274,18 @@ export class WeezeventController {
      */
     @Delete('data')
     @ApiOperation({ summary: 'Supprimer toutes les données Weezevent synchronisées' })
+    @ApiQuery({ name: 'integrationId', required: false, description: 'Supprimer uniquement les données de cette intégration — si omis, supprime TOUT le tenant' })
     @ApiResponse({ status: 200, description: 'Données supprimées' })
-    async purgeData(@CurrentUser() user: any) {
+    async purgeData(
+        @CurrentUser() user: any,
+        @Query('integrationId') integrationId?: string,
+    ) {
         const tenantId = user.tenantId;
-        this.logger.warn(`Purging all Weezevent data for tenant ${tenantId}`);
+        const label = integrationId ? `integration ${integrationId}` : `tenant ${tenantId}`;
+        this.logger.warn(`Purging all Weezevent data for ${label}`);
 
-        const where = { tenantId };
+        const where: any = { tenantId };
+        if (integrationId) where.integrationId = integrationId;
 
         // Delete in dependency order (children first)
         const [
@@ -338,11 +351,19 @@ export class WeezeventController {
      */
     @Get('events')
     @ApiOperation({ summary: 'Lister les événements Weezevent synchronisés' })
+    @ApiQuery({ name: 'integrationId', required: false, description: 'ID de l\'intégration Weezevent' })
+    @ApiQuery({ name: 'page', required: false, type: Number, description: 'Numéro de page', example: 1 })
+    @ApiQuery({ name: 'perPage', required: false, type: Number, description: 'Résultats par page (max 500)', example: 50 })
+    @ApiQuery({ name: 'status', required: false, description: 'Statut de l\'événement' })
+    @ApiQuery({ name: 'search', required: false, description: 'Recherche dans le nom' })
+    @ApiQuery({ name: 'startDateFrom', required: false, description: 'Date de début min (ISO 8601)' })
+    @ApiQuery({ name: 'startDateTo', required: false, description: 'Date de début max (ISO 8601)' })
     @ApiResponse({ status: 200, description: 'Liste paginée des événements Weezevent' })
     async getEvents(
         @CurrentUser() user: any,
         @Query('page') page: any = 1,
         @Query('perPage') perPage: any = 50,
+        @Query('integrationId') integrationId?: string,
         @Query('status') status?: string,
         @Query('search') search?: string,
         @Query('startDateFrom') startDateFrom?: string,
@@ -354,6 +375,7 @@ export class WeezeventController {
 
         // Filters: status (exact, or "all" to skip), name search, date range on startDate
         const where: any = { tenantId };
+        if (integrationId) where.integrationId = integrationId;
         if (status && status !== 'all') {
             where.status = status;
         }
@@ -399,20 +421,24 @@ export class WeezeventController {
      */
     @Get('locations')
     @ApiOperation({ summary: 'Lister les locations Weezevent synchronisées' })
+    @ApiQuery({ name: 'integrationId', required: false, description: 'ID de l\'intégration Weezevent' })
+    @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+    @ApiQuery({ name: 'perPage', required: false, type: Number, example: 100 })
+    @ApiQuery({ name: 'type', required: false, description: 'Type de location : sale | all — défaut : sale' })
     @ApiResponse({ status: 200, description: 'Liste des locations Weezevent' })
     async getLocations(
         @CurrentUser() user: any,
         @Query('page') page: any = 1,
         @Query('perPage') perPage: any = 100,
+        @Query('integrationId') integrationId?: string,
         @Query('type') type?: string,
     ) {
         const tenantId = user.tenantId;
         const p = parseInt(page, 10) || 1;
         const pp = Math.min(parseInt(perPage, 10) || 100, 500);
 
-        // By default only return sale locations (physical F&B stands).
-        // Pass type=all to get every type, or type=topup etc. for a specific one.
         const where: any = { tenantId };
+        if (integrationId) where.integrationId = integrationId;
         if (type === 'all') {
             // no type filter
         } else if (type) {
@@ -447,11 +473,16 @@ export class WeezeventController {
      */
     @Get('merchants')
     @ApiOperation({ summary: 'Lister les merchants Weezevent synchronisés' })
+    @ApiQuery({ name: 'integrationId', required: false, description: 'ID de l\'intégration Weezevent' })
+    @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+    @ApiQuery({ name: 'perPage', required: false, type: Number, example: 100 })
+    @ApiQuery({ name: 'locationId', required: false, description: 'Filtrer les merchants ayant des transactions à cette location' })
     @ApiResponse({ status: 200, description: 'Liste des merchants Weezevent' })
     async getMerchants(
         @CurrentUser() user: any,
         @Query('page') page: any = 1,
         @Query('perPage') perPage: any = 100,
+        @Query('integrationId') integrationId?: string,
         @Query('locationId') locationId?: string,
     ) {
         const tenantId = user.tenantId;
@@ -460,16 +491,20 @@ export class WeezeventController {
 
         // If locationId provided, find merchants via transactions at that location
         if (locationId) {
+            const txWhere: any = { tenantId, locationId, merchantId: { not: null } };
+            if (integrationId) txWhere.integrationId = integrationId;
             const merchantIds = await this.prisma.weezeventTransaction.findMany({
-                where: { tenantId, locationId, merchantId: { not: null } },
+                where: txWhere,
                 select: { merchantId: true },
                 distinct: ['merchantId'],
             });
             const ids = merchantIds.map(m => m.merchantId).filter(Boolean);
 
             if (ids.length > 0) {
+                const mWhere: any = { tenantId, id: { in: ids } };
+                if (integrationId) mWhere.integrationId = integrationId;
                 const merchants = await this.prisma.weezeventMerchant.findMany({
-                    where: { tenantId, id: { in: ids } },
+                    where: mWhere,
                     orderBy: { name: 'asc' },
                 });
                 return { data: merchants, meta: { total: merchants.length } };
@@ -477,14 +512,16 @@ export class WeezeventController {
             // Fallback: no transactions at this location yet — return all tenant merchants
         }
 
+        const mWhere2: any = { tenantId };
+        if (integrationId) mWhere2.integrationId = integrationId;
         const [merchants, total] = await Promise.all([
             this.prisma.weezeventMerchant.findMany({
-                where: { tenantId },
+                where: mWhere2,
                 orderBy: { name: 'asc' },
                 skip: (p - 1) * pp,
                 take: pp,
             }),
-            this.prisma.weezeventMerchant.count({ where: { tenantId } }),
+            this.prisma.weezeventMerchant.count({ where: mWhere2 }),
         ]);
 
         return {
@@ -503,17 +540,23 @@ export class WeezeventController {
      */
     @Get('products')
     @ApiOperation({ summary: 'Lister les produits Weezevent synchronisés' })
+    @ApiQuery({ name: 'integrationId', required: false, description: 'ID de l\'intégration Weezevent' })
+    @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+    @ApiQuery({ name: 'perPage', required: false, type: Number, example: 50 })
+    @ApiQuery({ name: 'category', required: false, description: 'Filtrer par catégorie de produit' })
     @ApiResponse({ status: 200, description: 'Liste paginée des produits Weezevent' })
     async getProducts(
         @CurrentUser() user: any,
         @Query('page') page: number = 1,
         @Query('perPage') perPage: number = 50,
+        @Query('integrationId') integrationId?: string,
         @Query('category') category?: string,
     ) {
         const tenantId = user.tenantId;
         const p = Math.max(1, parseInt(String(page), 10) || 1);
         const pp = Math.min(Math.max(1, parseInt(String(perPage), 10) || 50), 500);
         const where: any = { tenantId };
+        if (integrationId) where.integrationId = integrationId;
         if (category) where.category = category;
 
         const [products, total] = await Promise.all([
@@ -663,17 +706,23 @@ export class WeezeventController {
      */
     @Get('orders')
     @ApiOperation({ summary: 'Lister les commandes Weezevent synchronisées' })
+    @ApiQuery({ name: 'integrationId', required: false, description: 'ID de l\'intégration Weezevent' })
+    @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+    @ApiQuery({ name: 'perPage', required: false, type: Number, example: 50 })
+    @ApiQuery({ name: 'eventId', required: false, description: 'Filtrer par ID événement Weezevent' })
     @ApiResponse({ status: 200, description: 'Liste paginée des commandes Weezevent' })
     async getOrders(
         @CurrentUser() user: any,
         @Query('page') page: number = 1,
         @Query('perPage') perPage: number = 50,
+        @Query('integrationId') integrationId?: string,
         @Query('eventId') eventId?: string,
     ) {
         const tenantId = user.tenantId;
         const p = Math.max(1, parseInt(String(page), 10) || 1);
         const pp = Math.min(Math.max(1, parseInt(String(perPage), 10) || 50), 500);
         const where: any = { tenantId };
+        if (integrationId) where.integrationId = integrationId;
         if (eventId) where.eventId = eventId;
 
         const [orders, total] = await Promise.all([
@@ -702,17 +751,23 @@ export class WeezeventController {
      */
     @Get('prices')
     @ApiOperation({ summary: 'Lister les tarifs Weezevent synchronisés' })
+    @ApiQuery({ name: 'integrationId', required: false, description: 'ID de l\'intégration Weezevent' })
+    @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+    @ApiQuery({ name: 'perPage', required: false, type: Number, example: 50 })
+    @ApiQuery({ name: 'eventId', required: false, description: 'Filtrer par ID événement Weezevent' })
     @ApiResponse({ status: 200, description: 'Liste paginée des tarifs Weezevent' })
     async getPrices(
         @CurrentUser() user: any,
         @Query('page') page: number = 1,
         @Query('perPage') perPage: number = 50,
+        @Query('integrationId') integrationId?: string,
         @Query('eventId') eventId?: string,
     ) {
         const tenantId = user.tenantId;
         const p = Math.max(1, parseInt(String(page), 10) || 1);
         const pp = Math.min(Math.max(1, parseInt(String(perPage), 10) || 50), 500);
         const where: any = { tenantId };
+        if (integrationId) where.integrationId = integrationId;
         if (eventId) where.eventId = eventId;
 
         const [prices, total] = await Promise.all([
@@ -741,15 +796,21 @@ export class WeezeventController {
      */
     @Get('attendees')
     @ApiOperation({ summary: 'Lister les participants Weezevent synchronisés' })
+    @ApiQuery({ name: 'integrationId', required: false, description: 'ID de l\'intégration Weezevent' })
+    @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+    @ApiQuery({ name: 'perPage', required: false, type: Number, example: 50 })
+    @ApiQuery({ name: 'eventId', required: false, description: 'Filtrer par ID événement Weezevent' })
     @ApiResponse({ status: 200, description: 'Liste paginée des participants Weezevent' })
     async getAttendees(
         @CurrentUser() user: any,
         @Query('page') page: number = 1,
         @Query('perPage') perPage: number = 50,
+        @Query('integrationId') integrationId?: string,
         @Query('eventId') eventId?: string,
     ) {
         const tenantId = user.tenantId;
         const where: any = { tenantId };
+        if (integrationId) where.integrationId = integrationId;
         if (eventId) where.eventId = eventId;
 
         const [attendees, total] = await Promise.all([

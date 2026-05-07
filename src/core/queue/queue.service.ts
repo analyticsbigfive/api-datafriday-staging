@@ -17,6 +17,8 @@ export interface DataSyncJobData {
   type: 'weezevent' | 'weezevent-partial' | 'stripe' | 'manual';
   tenantId: string;
   userId?: string;
+  /** Weezevent integration ID (required for weezevent sync types) */
+  integrationId?: string;
   /** For weezevent-partial: which data type to sync */
   syncType?: WeezeventSyncType;
   options?: {

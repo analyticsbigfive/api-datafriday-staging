@@ -47,10 +47,14 @@ export class DataSyncProcessor extends WorkerHost {
   // ==================== GRANULAR SYNC (per data type) ====================
 
   private async processWeezeventPartialSync(job: Job<DataSyncJobData>): Promise<any> {
-    const { tenantId, syncType, options } = job.data;
+    const { tenantId, syncType, options, integrationId } = job.data;
 
     if (!syncType) {
       throw new Error('syncType is required for weezevent-partial jobs');
+    }
+
+    if (!integrationId) {
+      throw new Error('integrationId is required for weezevent-partial jobs');
     }
 
     this.logger.log(`Starting weezevent-${syncType} sync for tenant ${tenantId}`);
@@ -66,7 +70,7 @@ export class DataSyncProcessor extends WorkerHost {
         // Transactions can be very long (cursor pagination, no total).
         // We emit checkpoints at fixed points in the process.
         await job.updateProgress(10);
-        result = await this.incrementalSyncService.syncTransactionsIncremental(tenantId, {
+        result = await this.incrementalSyncService.syncTransactionsIncremental(tenantId, integrationId, {
           forceFullSync: options?.fullSync,
           updatedSince: fromDate,
           batchSize: 500,
@@ -80,7 +84,7 @@ export class DataSyncProcessor extends WorkerHost {
 
       case 'events':
         await job.updateProgress(10);
-        result = await this.incrementalSyncService.syncEventsIncremental(tenantId, {
+        result = await this.incrementalSyncService.syncEventsIncremental(tenantId, integrationId, {
           forceFullSync: options?.fullSync,
           batchSize: 500,
           maxItems: 10000,
@@ -92,24 +96,24 @@ export class DataSyncProcessor extends WorkerHost {
 
       case 'products':
         await job.updateProgress(10);
-        result = await this.weezeventSyncService.syncProducts(tenantId);
+        result = await this.weezeventSyncService.syncProducts(tenantId, integrationId);
         break;
 
       case 'orders':
         if (!eventId) throw new Error('eventId is required for orders sync');
         await job.updateProgress(10);
-        result = await this.weezeventSyncService.syncOrders(tenantId, eventId);
+        result = await this.weezeventSyncService.syncOrders(tenantId, integrationId, eventId);
         break;
 
       case 'prices':
         await job.updateProgress(10);
-        result = await this.weezeventSyncService.syncPrices(tenantId, eventId);
+        result = await this.weezeventSyncService.syncPrices(tenantId, integrationId, eventId);
         break;
 
       case 'attendees':
         if (!eventId) throw new Error('eventId is required for attendees sync');
         await job.updateProgress(10);
-        result = await this.weezeventSyncService.syncAttendees(tenantId, eventId);
+        result = await this.weezeventSyncService.syncAttendees(tenantId, integrationId, eventId);
         break;
 
       default:
@@ -136,30 +140,36 @@ export class DataSyncProcessor extends WorkerHost {
   // ==================== FULL SYNC (all types, used by cron) ====================
 
   private async processWeezeventFullSync(job: Job<DataSyncJobData>): Promise<any> {
-    const { tenantId, options } = job.data;
+    const { tenantId, integrationId, options } = job.data;
+
+    if (!integrationId) {
+      throw new Error('integrationId is required for weezevent full sync jobs');
+    }
     
     await job.updateProgress(10);
-    this.logger.log(`Starting Weezevent full sync for tenant ${tenantId}`);
+    this.logger.log(`Starting Weezevent full sync for tenant ${tenantId}, integration ${integrationId}`);
 
     try {
       // Step 1: Sync transactions
       await job.updateProgress(20);
-      const transactionsResult = await this.weezeventSyncService.syncTransactions(
+      const transactionsResult = await this.incrementalSyncService.syncTransactionsIncremental(
         tenantId,
+        integrationId,
         {
-          full: options?.fullSync ?? false,
-          fromDate: options?.startDate ? new Date(options.startDate) : undefined,
-          toDate: options?.endDate ? new Date(options.endDate) : undefined,
-        }
+          forceFullSync: options?.fullSync ?? false,
+          updatedSince: options?.startDate ? new Date(options.startDate) : undefined,
+        },
       );
 
       // Step 2: Sync events
       await job.updateProgress(50);
-      const eventsResult = await this.weezeventSyncService.syncEvents(tenantId);
+      const eventsResult = await this.incrementalSyncService.syncEventsIncremental(tenantId, integrationId, {
+        forceFullSync: options?.fullSync ?? false,
+      });
 
       // Step 3: Sync products
       await job.updateProgress(70);
-      const productsResult = await this.weezeventSyncService.syncProducts(tenantId);
+      const productsResult = await this.weezeventSyncService.syncProducts(tenantId, integrationId);
 
       // Step 4: Invalidate cache
       await job.updateProgress(90);

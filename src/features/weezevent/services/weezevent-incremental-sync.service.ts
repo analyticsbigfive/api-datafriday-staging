@@ -57,6 +57,7 @@ export class WeezeventIncrementalSyncService {
      */
     async syncEventsIncremental(
         tenantId: string,
+        integrationId: string,
         options: IncrementalSyncOptions = {},
     ): Promise<IncrementalSyncResult> {
         const startTime = Date.now();
@@ -76,12 +77,12 @@ export class WeezeventIncrementalSyncService {
         };
 
         try {
-            // 1. Get tenant config
-            const tenant = await this.getTenantConfig(tenantId);
-            const organizationId = tenant.weezeventOrganizationId!;
+            // 1. Get integration config
+            const integration = await this.getIntegrationConfig(tenantId, integrationId);
+            const organizationId = integration.organizationId!;
 
             // 2. Get sync state (last sync info)
-            const syncState = await this.getSyncState(tenantId, syncType);
+            const syncState = await this.getSyncState(tenantId, integrationId, syncType);
             
             // 3. Determine sync strategy
             const isFirstSync = !syncState.lastSyncedAt;
@@ -103,7 +104,7 @@ export class WeezeventIncrementalSyncService {
             }
 
             // 5. Get all existing event IDs in one query (for fast lookup)
-            const existingEventsMap = await this.getExistingEventsMap(tenantId);
+            const existingEventsMap = await this.getExistingEventsMap(tenantId, integrationId);
 
             // 6. Paginate through API results
             let page = 1;
@@ -129,6 +130,7 @@ export class WeezeventIncrementalSyncService {
                 // 7. Process batch with optimized upsert
                 const batchResult = await this.processBatchEvents(
                     tenantId,
+                    integrationId,
                     organizationId,
                     events,
                     existingEventsMap,
@@ -170,7 +172,7 @@ export class WeezeventIncrementalSyncService {
             result.hasMore = hasMore;
 
             // 8. Update sync state
-            await this.updateSyncState(tenantId, syncType, {
+            await this.updateSyncState(tenantId, integrationId, syncType, {
                 lastSyncedAt: new Date(),
                 lastUpdatedAt: lastProcessedUpdatedAt || new Date(),
                 lastSyncCount: result.itemsSynced,
@@ -190,7 +192,7 @@ export class WeezeventIncrementalSyncService {
             );
 
             // 9. Sync locations for all events of this tenant (fire-and-forget — truly non-blocking)
-            this.syncLocationsFromApi(tenantId, organizationId).catch(locErr => {
+            this.syncLocationsFromApi(tenantId, integrationId, organizationId).catch(locErr => {
                 this.logger.warn(`Locations sync failed (non-blocking): ${(locErr as Error).message}`);
             });
 
@@ -201,7 +203,7 @@ export class WeezeventIncrementalSyncService {
             this.logger.error('Events sync failed', err.stack);
 
             // Update error state
-            await this.updateSyncStateError(tenantId, syncType, err.message);
+            await this.updateSyncStateError(tenantId, integrationId, syncType, err.message);
 
             result.success = false;
             result.duration = Date.now() - startTime;
@@ -216,6 +218,7 @@ export class WeezeventIncrementalSyncService {
      */
     async syncTransactionsIncremental(
         tenantId: string,
+        integrationId: string,
         options: IncrementalSyncOptions = {},
     ): Promise<IncrementalSyncResult> {
         const startTime = Date.now();
@@ -235,10 +238,10 @@ export class WeezeventIncrementalSyncService {
         };
 
         try {
-            const tenant = await this.getTenantConfig(tenantId);
-            const organizationId = tenant.weezeventOrganizationId!;
+            const integration = await this.getIntegrationConfig(tenantId, integrationId);
+            const organizationId = integration.organizationId!;
 
-            const syncState = await this.getSyncState(tenantId, syncType);
+            const syncState = await this.getSyncState(tenantId, integrationId, syncType);
             const isFirstSync = !syncState.lastSyncedAt;
             const useIncremental = !options.forceFullSync && !isFirstSync;
 
@@ -254,7 +257,7 @@ export class WeezeventIncrementalSyncService {
                 : options.updatedSince ?? null; // null = no filter = all time on first sync
 
             // Get existing transaction IDs for fast lookup
-            const existingIds = await this.getExistingTransactionIds(tenantId, fromDate);
+            const existingIds = await this.getExistingTransactionIds(tenantId, integrationId, fromDate);
 
             let page = 1;
             let hasMore = true;
@@ -291,6 +294,7 @@ export class WeezeventIncrementalSyncService {
                     // Batch upsert
                     const batchResult = await this.processBatchTransactions(
                         tenantId,
+                        integrationId,
                         newTransactions,
                         existingIds,
                     );
@@ -324,7 +328,7 @@ export class WeezeventIncrementalSyncService {
             result.hasMore = hasMore;
 
             // Update sync state
-            await this.updateSyncState(tenantId, syncType, {
+            await this.updateSyncState(tenantId, integrationId, syncType, {
                 lastSyncedAt: new Date(),
                 lastSyncCount: result.itemsSynced,
                 lastSyncDuration: Date.now() - startTime,
@@ -344,7 +348,7 @@ export class WeezeventIncrementalSyncService {
         } catch (error) {
             const err = error as Error;
             this.logger.error('Transactions sync failed', err.stack);
-            await this.updateSyncStateError(tenantId, syncType, err.message);
+            await this.updateSyncStateError(tenantId, integrationId, syncType, err.message);
             result.success = false;
             result.duration = Date.now() - startTime;
             throw error;
@@ -354,40 +358,36 @@ export class WeezeventIncrementalSyncService {
     // ==================== HELPER METHODS ====================
 
     /**
-     * Get tenant config with validation
+     * Get integration config with validation
      */
-    private async getTenantConfig(tenantId: string) {
-        const tenant = await this.prisma.tenant.findUnique({
-            where: { id: tenantId },
+    private async getIntegrationConfig(tenantId: string, integrationId: string) {
+        const integration = await this.prisma.weezeventIntegration.findFirst({
+            where: { id: integrationId, tenantId, enabled: true },
             select: {
                 id: true,
-                weezeventOrganizationId: true,
-                weezeventEnabled: true,
+                organizationId: true,
+                enabled: true,
             },
         });
 
-        if (!tenant) {
-            throw new Error(`Tenant ${tenantId} not found`);
+        if (!integration) {
+            throw new Error(`Weezevent integration ${integrationId} not found or disabled for tenant ${tenantId}`);
         }
 
-        if (!tenant.weezeventEnabled) {
-            throw new Error(`Weezevent not enabled for tenant ${tenantId}`);
+        if (!integration.organizationId) {
+            throw new Error(`Weezevent organizationId not configured for integration ${integrationId}`);
         }
 
-        if (!tenant.weezeventOrganizationId) {
-            throw new Error(`Weezevent organization ID not configured for tenant ${tenantId}`);
-        }
-
-        return tenant;
+        return integration;
     }
 
     /**
      * Get sync state from database
      */
-    private async getSyncState(tenantId: string, syncType: string): Promise<SyncState> {
+    private async getSyncState(tenantId: string, integrationId: string, syncType: string): Promise<SyncState> {
         const state = await this.prisma.weezeventSyncState.findUnique({
             where: {
-                tenantId_syncType: { tenantId, syncType },
+                tenantId_integrationId_syncType: { tenantId, integrationId, syncType },
             },
         });
 
@@ -405,6 +405,7 @@ export class WeezeventIncrementalSyncService {
      */
     private async updateSyncState(
         tenantId: string,
+        integrationId: string,
         syncType: string,
         data: {
             lastSyncedAt?: Date;
@@ -421,10 +422,11 @@ export class WeezeventIncrementalSyncService {
     ) {
         await this.prisma.weezeventSyncState.upsert({
             where: {
-                tenantId_syncType: { tenantId, syncType },
+                tenantId_integrationId_syncType: { tenantId, integrationId, syncType },
             },
             create: {
                 tenantId,
+                integrationId,
                 syncType,
                 ...data,
             },
@@ -435,15 +437,16 @@ export class WeezeventIncrementalSyncService {
     /**
      * Update sync state on error
      */
-    private async updateSyncStateError(tenantId: string, syncType: string, error: string) {
+    private async updateSyncStateError(tenantId: string, integrationId: string, syncType: string, error: string) {
         const current = await this.prisma.weezeventSyncState.findUnique({
-            where: { tenantId_syncType: { tenantId, syncType } },
+            where: { tenantId_integrationId_syncType: { tenantId, integrationId, syncType } },
         });
 
         await this.prisma.weezeventSyncState.upsert({
-            where: { tenantId_syncType: { tenantId, syncType } },
+            where: { tenantId_integrationId_syncType: { tenantId, integrationId, syncType } },
             create: {
                 tenantId,
+                integrationId,
                 syncType,
                 lastError: error,
                 consecutiveErrors: 1,
@@ -458,9 +461,9 @@ export class WeezeventIncrementalSyncService {
     /**
      * Get all existing event IDs as a Map for O(1) lookup
      */
-    private async getExistingEventsMap(tenantId: string): Promise<Map<string, { syncedAt: Date }>> {
+    private async getExistingEventsMap(tenantId: string, integrationId: string): Promise<Map<string, { syncedAt: Date }>> {
         const events = await this.prisma.weezeventEvent.findMany({
-            where: { tenantId },
+            where: { tenantId, integrationId },
             select: { weezeventId: true, syncedAt: true },
         });
 
@@ -471,10 +474,11 @@ export class WeezeventIncrementalSyncService {
      * Get existing transaction IDs as a Set for O(1) lookup
      * Only fetch IDs for transactions after fromDate to limit memory
      */
-    private async getExistingTransactionIds(tenantId: string, fromDate: Date | null): Promise<Set<string>> {
+    private async getExistingTransactionIds(tenantId: string, integrationId: string, fromDate: Date | null): Promise<Set<string>> {
         const transactions = await this.prisma.weezeventTransaction.findMany({
             where: {
                 tenantId,
+                integrationId,
                 ...(fromDate ? { transactionDate: { gte: fromDate } } : {}),
             },
             select: { weezeventId: true },
@@ -488,6 +492,7 @@ export class WeezeventIncrementalSyncService {
      */
     private async processBatchEvents(
         tenantId: string,
+        integrationId: string,
         organizationId: string,
         events: any[],
         existingMap: Map<string, { syncedAt: Date }>,
@@ -544,6 +549,7 @@ export class WeezeventIncrementalSyncService {
                     toCreate.push({
                         weezeventId,
                         tenantId,
+                        integrationId,
                         ...eventData,
                     });
                     // Add to map for subsequent checks
@@ -569,7 +575,7 @@ export class WeezeventIncrementalSyncService {
             await this.prisma.$transaction(
                 toUpdate.map(({ weezeventId, data }) =>
                     this.prisma.weezeventEvent.update({
-                        where: { tenantId_weezeventId: { tenantId, weezeventId } },
+                        where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
                         data,
                     })
                 )
@@ -585,6 +591,7 @@ export class WeezeventIncrementalSyncService {
      */
     private async processBatchTransactions(
         tenantId: string,
+        integrationId: string,
         transactions: any[],
         existingIds: Set<string>,
     ): Promise<{ created: number; updated: number; errors: number }> {
@@ -606,6 +613,7 @@ export class WeezeventIncrementalSyncService {
             const events = await this.prisma.weezeventEvent.findMany({
                 where: {
                     tenantId,
+                    integrationId,
                     weezeventId: { in: referencedEventWeezeventIds },
                 },
                 select: { id: true, weezeventId: true },
@@ -629,6 +637,7 @@ export class WeezeventIncrementalSyncService {
             const locations = await this.prisma.weezeventLocation.findMany({
                 where: {
                     tenantId,
+                    integrationId,
                     weezeventId: { in: referencedLocationWeezeventIds },
                 },
                 select: { id: true, weezeventId: true },
@@ -652,6 +661,7 @@ export class WeezeventIncrementalSyncService {
             const merchants = await this.prisma.weezeventMerchant.findMany({
                 where: {
                     tenantId,
+                    integrationId,
                     weezeventId: { in: referencedMerchantWeezeventIds },
                 },
                 select: { id: true, weezeventId: true },
@@ -715,6 +725,7 @@ export class WeezeventIncrementalSyncService {
                 const transactionData = {
                     weezeventId,
                     tenantId,
+                    integrationId,
                     amount: apiTransaction.amount || 0,
                     status: statusValue,
                     transactionDate,
@@ -758,13 +769,15 @@ export class WeezeventIncrementalSyncService {
     /**
      * Get sync status for a tenant
      */
-    async getSyncStatus(tenantId: string) {
-        const states = await this.prisma.weezeventSyncState.findMany({
-            where: { tenantId },
-        });
+    async getSyncStatus(tenantId: string, integrationId?: string) {
+        const where: any = { tenantId };
+        if (integrationId) where.integrationId = integrationId;
+
+        const states = await this.prisma.weezeventSyncState.findMany({ where });
 
         return states.reduce((acc, state) => {
-            acc[state.syncType] = {
+            const key = integrationId ? state.syncType : `${state.integrationId}:${state.syncType}`;
+            acc[key] = {
                 lastSyncedAt: state.lastSyncedAt,
                 lastSyncCount: state.lastSyncCount,
                 lastSyncDuration: state.lastSyncDuration,
@@ -779,18 +792,14 @@ export class WeezeventIncrementalSyncService {
     /**
      * Reset sync state (force full sync next time)
      */
-    async resetSyncState(tenantId: string, syncType?: string) {
-        if (syncType) {
-            await this.prisma.weezeventSyncState.deleteMany({
-                where: { tenantId, syncType },
-            });
-        } else {
-            await this.prisma.weezeventSyncState.deleteMany({
-                where: { tenantId },
-            });
-        }
+    async resetSyncState(tenantId: string, integrationId?: string, syncType?: string) {
+        const where: any = { tenantId };
+        if (integrationId) where.integrationId = integrationId;
+        if (syncType) where.syncType = syncType;
 
-        this.logger.log(`Reset sync state for tenant ${tenantId}${syncType ? ` (${syncType})` : ''}`);
+        await this.prisma.weezeventSyncState.deleteMany({ where });
+
+        this.logger.log(`Reset sync state for tenant ${tenantId}${integrationId ? ` (integration: ${integrationId})` : ''}${syncType ? ` (type: ${syncType})` : ''}`);
     }
 
     // ==================== LOCATIONS SYNC ====================
@@ -799,9 +808,9 @@ export class WeezeventIncrementalSyncService {
      * Sync locations directly from WeezPay API for all events of this tenant.
      * Called at the end of syncEventsIncremental (non-blocking).
      */
-    private async syncLocationsFromApi(tenantId: string, organizationId: string): Promise<void> {
+    private async syncLocationsFromApi(tenantId: string, integrationId: string, organizationId: string): Promise<void> {
         const events = await this.prisma.weezeventEvent.findMany({
-            where: { tenantId },
+            where: { tenantId, integrationId },
             select: { id: true, weezeventId: true },
         });
 
@@ -831,10 +840,11 @@ export class WeezeventIncrementalSyncService {
 
                     for (const loc of locations) {
                         await this.prisma.weezeventLocation.upsert({
-                            where: { tenantId_weezeventId: { tenantId, weezeventId: String(loc.id) } },
+                            where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId: String(loc.id) } },
                             create: {
                                 weezeventId: String(loc.id),
                                 tenantId,
+                                integrationId,
                                 eventId: event.id,
                                 name: loc.name || loc.public_name || `Location ${loc.id}`,
                                 type: loc.type ?? null,

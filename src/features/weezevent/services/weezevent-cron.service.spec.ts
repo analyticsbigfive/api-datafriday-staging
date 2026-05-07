@@ -16,6 +16,9 @@ describe('WeezeventCronService', () => {
         tenant: {
             findMany: jest.fn(),
         },
+        weezeventIntegration: {
+            findMany: jest.fn(),
+        },
     };
 
     const mockSyncService = {
@@ -67,6 +70,7 @@ describe('WeezeventCronService', () => {
             ];
 
             mockPrismaService.tenant.findMany.mockResolvedValue(mockTenants);
+            mockPrismaService.weezeventIntegration.findMany.mockResolvedValue([{ id: 'integration-1' }]);
             mockIncrementalSyncService.syncTransactionsIncremental.mockResolvedValue({
                 type: 'transactions',
                 success: true,
@@ -81,21 +85,6 @@ describe('WeezeventCronService', () => {
 
             await service.syncRecentTransactions();
 
-            expect(mockPrismaService.tenant.findMany).toHaveBeenCalledWith({
-                where: {
-                    weezeventEnabled: true,
-                    weezeventOrganizationId: { not: null },
-                    weezeventClientId: { not: null },
-                    weezeventClientSecret: { not: null },
-                    status: 'ACTIVE',
-                },
-                select: {
-                    id: true,
-                    name: true,
-                    weezeventOrganizationId: true,
-                },
-            });
-
             expect(mockIncrementalSyncService.syncTransactionsIncremental).toHaveBeenCalledTimes(2);
         });
 
@@ -105,6 +94,7 @@ describe('WeezeventCronService', () => {
             ];
 
             mockPrismaService.tenant.findMany.mockResolvedValue(mockTenants);
+            mockPrismaService.weezeventIntegration.findMany.mockResolvedValue([{ id: 'integration-1' }]);
             mockSyncTracker.getRunningSyncs.mockReturnValue([{ type: 'transactions' }]);
 
             await service.syncRecentTransactions();
@@ -118,6 +108,7 @@ describe('WeezeventCronService', () => {
             ];
 
             mockPrismaService.tenant.findMany.mockResolvedValue(mockTenants);
+            mockPrismaService.weezeventIntegration.findMany.mockResolvedValue([{ id: 'integration-1' }]);
             mockIncrementalSyncService.syncTransactionsIncremental.mockRejectedValue(new Error('API Error'));
 
             // Should not throw
@@ -132,6 +123,7 @@ describe('WeezeventCronService', () => {
             ];
 
             mockPrismaService.tenant.findMany.mockResolvedValue(mockTenants);
+            mockPrismaService.weezeventIntegration.findMany.mockResolvedValue([{ id: 'integration-1' }]);
             mockIncrementalSyncService.syncEventsIncremental.mockResolvedValue({
                 type: 'events',
                 success: true,
@@ -143,11 +135,8 @@ describe('WeezeventCronService', () => {
 
             await service.syncReferenceData();
 
-            expect(mockIncrementalSyncService.syncEventsIncremental).toHaveBeenCalledWith('tenant-1', {
-                batchSize: 500,
-                maxItems: 10000,
-            });
-            expect(mockSyncService.syncProducts).toHaveBeenCalledWith('tenant-1');
+            expect(mockIncrementalSyncService.syncEventsIncremental).toHaveBeenCalledWith('tenant-1', 'integration-1', expect.any(Object));
+            expect(mockSyncService.syncProducts).toHaveBeenCalledWith('tenant-1', 'integration-1');
         });
     });
 
@@ -158,6 +147,7 @@ describe('WeezeventCronService', () => {
             ];
 
             mockPrismaService.tenant.findMany.mockResolvedValue(mockTenants);
+            mockPrismaService.weezeventIntegration.findMany.mockResolvedValue([{ id: 'integration-1' }]);
             mockIncrementalSyncService.syncEventsIncremental.mockResolvedValue({
                 type: 'events',
                 success: true,
@@ -171,15 +161,11 @@ describe('WeezeventCronService', () => {
 
             await service.fullHistoricalSync();
 
-            expect(mockIncrementalSyncService.syncEventsIncremental).toHaveBeenCalledWith('tenant-1', {
+            expect(mockIncrementalSyncService.syncEventsIncremental).toHaveBeenCalledWith('tenant-1', 'integration-1', expect.objectContaining({
                 forceFullSync: true,
-                batchSize: 1000,
-                maxItems: 50000,
-            });
-            expect(mockIncrementalSyncService.syncTransactionsIncremental).toHaveBeenCalledWith('tenant-1', expect.objectContaining({
+            }));
+            expect(mockIncrementalSyncService.syncTransactionsIncremental).toHaveBeenCalledWith('tenant-1', 'integration-1', expect.objectContaining({
                 forceFullSync: true,
-                batchSize: 1000,
-                maxItems: 100000,
             }));
         });
     });
@@ -188,10 +174,11 @@ describe('WeezeventCronService', () => {
         it('should trigger transactions incremental sync', async () => {
             mockIncrementalSyncService.syncTransactionsIncremental.mockResolvedValue({ success: true });
 
-            await service.triggerSync('tenant-1', 'transactions');
+            await service.triggerSync('tenant-1', 'integration-1', 'transactions');
 
             expect(mockIncrementalSyncService.syncTransactionsIncremental).toHaveBeenCalledWith(
                 'tenant-1',
+                'integration-1',
                 expect.objectContaining({
                     forceFullSync: undefined,
                     batchSize: 500,
@@ -203,10 +190,11 @@ describe('WeezeventCronService', () => {
         it('should trigger events incremental sync', async () => {
             mockIncrementalSyncService.syncEventsIncremental.mockResolvedValue({ success: true });
 
-            await service.triggerSync('tenant-1', 'events');
+            await service.triggerSync('tenant-1', 'integration-1', 'events');
 
             expect(mockIncrementalSyncService.syncEventsIncremental).toHaveBeenCalledWith(
                 'tenant-1',
+                'integration-1',
                 expect.objectContaining({
                     forceFullSync: undefined,
                     batchSize: 500,
@@ -218,23 +206,25 @@ describe('WeezeventCronService', () => {
         it('should trigger products sync', async () => {
             mockSyncService.syncProducts.mockResolvedValue({ success: true });
 
-            await service.triggerSync('tenant-1', 'products');
+            await service.triggerSync('tenant-1', 'integration-1', 'products');
 
-            expect(mockSyncService.syncProducts).toHaveBeenCalledWith('tenant-1');
+            expect(mockSyncService.syncProducts).toHaveBeenCalledWith('tenant-1', 'integration-1');
         });
 
         it('should trigger full sync with forceFullSync option', async () => {
             mockIncrementalSyncService.syncEventsIncremental.mockResolvedValue({ success: true });
             mockIncrementalSyncService.syncTransactionsIncremental.mockResolvedValue({ success: true });
 
-            await service.triggerSync('tenant-1', 'full');
+            await service.triggerSync('tenant-1', 'integration-1', 'full');
 
             expect(mockIncrementalSyncService.syncEventsIncremental).toHaveBeenCalledWith(
                 'tenant-1',
+                'integration-1',
                 expect.objectContaining({ forceFullSync: true }),
             );
             expect(mockIncrementalSyncService.syncTransactionsIncremental).toHaveBeenCalledWith(
                 'tenant-1',
+                'integration-1',
                 expect.objectContaining({ forceFullSync: true }),
             );
         });

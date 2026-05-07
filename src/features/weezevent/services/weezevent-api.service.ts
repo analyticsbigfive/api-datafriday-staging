@@ -4,7 +4,9 @@ import { WeezeventAuthService } from './weezevent-auth.service';
 import { WeezeventApiException } from '../exceptions/weezevent-api.exception';
 import { WeezeventAuthException } from '../exceptions/weezevent-auth.exception';
 import { AxiosRequestConfig, AxiosResponse } from 'axios';
-import CircuitBreaker from 'opossum';
+// opossum est un module CommonJS sans export default => import en require pour
+// rester compatible avec `esModuleInterop: false` du tsconfig.
+import CircuitBreaker = require('opossum');
 
 @Injectable()
 export class WeezeventApiService {

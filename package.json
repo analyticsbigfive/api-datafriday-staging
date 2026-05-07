@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "API DataFriday - NestJS with Fastify and Prisma for Supabase",
   "author": "",
+  "packageManager": "pnpm@10.28.1",
   "pnpm": {
     "onlyBuiltDependencies": [
       "@nestjs/core",

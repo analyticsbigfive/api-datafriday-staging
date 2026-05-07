@@ -343,18 +343,44 @@ export class WeezeventController {
         @CurrentUser() user: any,
         @Query('page') page: any = 1,
         @Query('perPage') perPage: any = 50,
+        @Query('status') status?: string,
+        @Query('search') search?: string,
+        @Query('startDateFrom') startDateFrom?: string,
+        @Query('startDateTo') startDateTo?: string,
     ) {
         const tenantId = user.tenantId;
         const p = parseInt(page, 10) || 1;
-        const pp = Math.min(parseInt(perPage, 10) || 50, 200);
+        const pp = Math.min(parseInt(perPage, 10) || 50, 500);
+
+        // Filters: status (exact, or "all" to skip), name search, date range on startDate
+        const where: any = { tenantId };
+        if (status && status !== 'all') {
+            where.status = status;
+        }
+        if (search && search.trim()) {
+            where.name = { contains: search.trim(), mode: 'insensitive' };
+        }
+        if (startDateFrom || startDateTo) {
+            where.startDate = {};
+            if (startDateFrom) {
+                const d = new Date(startDateFrom);
+                if (!isNaN(d.getTime())) where.startDate.gte = d;
+            }
+            if (startDateTo) {
+                const d = new Date(startDateTo);
+                if (!isNaN(d.getTime())) where.startDate.lte = d;
+            }
+            if (Object.keys(where.startDate).length === 0) delete where.startDate;
+        }
+
         const [events, total] = await Promise.all([
             this.prisma.weezeventEvent.findMany({
-                where: { tenantId },
+                where,
                 orderBy: { startDate: 'desc' },
                 skip: (p - 1) * pp,
                 take: pp,
             }),
-            this.prisma.weezeventEvent.count({ where: { tenantId } }),
+            this.prisma.weezeventEvent.count({ where }),
         ]);
 
         return {

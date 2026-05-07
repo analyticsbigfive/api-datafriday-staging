@@ -24,14 +24,23 @@ export class PrismaService
       errorFormat: 'colorless',
     });
 
-    // Log queries in development
-    if (process.env.NODE_ENV === 'development') {
-      this.$on('query' as never, (e: any) => {
-        this.logger.debug(`Query: ${e.query}`);
-        this.logger.debug(`Params: ${e.params}`);
-        this.logger.debug(`Duration: ${e.duration}ms`);
-      });
-    }
+    const slowQueryThresholdMs = Number(
+      process.env.PRISMA_SLOW_QUERY_MS ||
+        (process.env.NODE_ENV === 'production' ? 500 : 0),
+    );
+
+    // Log queries:
+    //  - en développement: tout (debug)
+    //  - en production: uniquement les requêtes lentes (> seuil) en warn
+    this.$on('query' as never, (e: any) => {
+      if (process.env.NODE_ENV !== 'production') {
+        this.logger.debug(`Query: ${e.query} | Params: ${e.params} | ${e.duration}ms`);
+        return;
+      }
+      if (slowQueryThresholdMs > 0 && e.duration >= slowQueryThresholdMs) {
+        this.logger.warn(`SLOW QUERY (${e.duration}ms): ${e.query}`);
+      }
+    });
 
     // Log errors
     this.$on('error' as never, (e: any) => {

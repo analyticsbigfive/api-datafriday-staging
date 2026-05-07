@@ -3,7 +3,8 @@ import { HttpService } from '@nestjs/axios';
 import { WeezeventAuthService } from './weezevent-auth.service';
 import { WeezeventApiException } from '../exceptions/weezevent-api.exception';
 import { WeezeventAuthException } from '../exceptions/weezevent-auth.exception';
-import { AxiosRequestConfig } from 'axios';
+import { AxiosRequestConfig, AxiosResponse } from 'axios';
+import CircuitBreaker from 'opossum';
 
 @Injectable()
 export class WeezeventApiService {
@@ -12,10 +13,39 @@ export class WeezeventApiService {
     private readonly maxRetries = 3;
     private readonly retryDelay = 1000; // ms
 
+    /**
+     * Circuit breaker partagé pour tous les appels Weezevent.
+     * Évite l'effondrement en cascade quand l'API est down (10k+ users × retries).
+     *  - opens after 50% errors over 10 calls
+     *  - resetTimeout: tente une réouverture après 30s
+     */
+    private readonly breaker: CircuitBreaker<[AxiosRequestConfig], AxiosResponse<any>>;
+
     constructor(
         private readonly httpService: HttpService,
         private readonly authService: WeezeventAuthService,
-    ) { }
+    ) {
+        this.breaker = new CircuitBreaker(
+            (config: AxiosRequestConfig) => this.httpService.axiosRef.request(config),
+            {
+                timeout: Number(process.env.WEEZEVENT_HTTP_TIMEOUT_MS || 15000),
+                errorThresholdPercentage: Number(process.env.WEEZEVENT_BREAKER_THRESHOLD || 50),
+                resetTimeout: Number(process.env.WEEZEVENT_BREAKER_RESET_MS || 30000),
+                volumeThreshold: 10,
+                rollingCountTimeout: 10000,
+                name: 'weezevent-api',
+            },
+        );
+        this.breaker.on('open', () =>
+            this.logger.error('🔴 Circuit breaker OPEN — appels Weezevent suspendus 30s'),
+        );
+        this.breaker.on('halfOpen', () =>
+            this.logger.warn('🟡 Circuit breaker HALF-OPEN — test de récupération'),
+        );
+        this.breaker.on('close', () =>
+            this.logger.log('🟢 Circuit breaker CLOSED — Weezevent opérationnel'),
+        );
+    }
 
     /**
      * Execute GET request
@@ -73,6 +103,8 @@ export class WeezeventApiService {
         const token = await this.authService.getAccessToken(tenantId);
 
         // Build request config
+        // ⚠️ timeout placé APRÈS le spread pour qu'aucun appelant ne puisse l'écraser
+        const HARD_TIMEOUT_MS = Number(process.env.WEEZEVENT_HTTP_TIMEOUT_MS || 15000);
         const config: AxiosRequestConfig = {
             method,
             url: `${this.baseUrl}${endpoint}`,
@@ -82,6 +114,8 @@ export class WeezeventApiService {
                 'Accept': 'application/json',
             },
             ...options,
+            // Plafond ferme: aucun appel ne peut hanger plus de 15s
+            timeout: Math.min(options.timeout ?? HARD_TIMEOUT_MS, HARD_TIMEOUT_MS),
         };
 
         return this.executeWithRetry<T>(config, tenantId);
@@ -100,14 +134,23 @@ export class WeezeventApiService {
                 `[Attempt ${attempt}/${this.maxRetries}] ${config.method} ${config.url}`,
             );
 
-            const response = await this.httpService.axiosRef.request<T>(config);
+            // ⚡ Passe par le circuit breaker pour fail-fast quand l'API est down
+            const response = await this.breaker.fire(config);
 
             this.logger.debug(
                 `Request successful: ${config.method} ${config.url}`,
             );
 
-            return response.data;
+            return response.data as T;
         } catch (error) {
+            // Circuit ouvert => fail fast, pas de retry
+            if (error?.code === 'EOPENBREAKER' || /breaker/i.test(error?.message || '')) {
+                throw new WeezeventApiException(
+                    'Weezevent API temporairement indisponible (circuit breaker ouvert)',
+                    error,
+                );
+            }
+
             const shouldRetry = this.shouldRetry(error, attempt);
 
             if (shouldRetry) {

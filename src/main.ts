@@ -4,46 +4,76 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './core/exceptions/all-exceptions.filter';
-import helmet from 'helmet';
-const compression = require('compression');
+import fastifyHelmet from '@fastify/helmet';
+import fastifyCompress from '@fastify/compress';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ 
-      logger: true,
+    new FastifyAdapter({
+      logger: process.env.NODE_ENV !== 'production',
       // P2: Connection pooling optimization
       connectionTimeout: 30000,
       keepAliveTimeout: 65000,
+      // Sécurité: limite la taille du body (anti-DoS mémoire)
+      bodyLimit: 5 * 1024 * 1024, // 5 MB
+      // Requis derrière un load balancer / CDN (Render, Cloudflare, etc.)
+      // pour récupérer la vraie IP client (X-Forwarded-For)
+      trustProxy: true,
     }),
   );
 
-  // P0: Security headers (Helmet) - Using Express middleware with Fastify adapter
-  app.use(helmet({
+  // Determine if we are allowed to relax CSP for the embedded Swagger UI in non-prod.
+  const isProd = process.env.NODE_ENV === 'production';
+  const swaggerCspExtras = isProd ? [] : ["'unsafe-inline'"];
+  const allowedConnectSrc = [
+    "'self'",
+    process.env.WEEZEVENT_API_URL || 'https://api.weezevent.com',
+    process.env.SUPABASE_URL,
+  ].filter(Boolean) as string[];
+
+  // P0: Security headers (Fastify-native plugin — plus performant que le middleware Express)
+  await app.register(fastifyHelmet as any, {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
+        // En prod: pas de unsafe-inline. En dev: autorisé pour Swagger UI uniquement.
+        styleSrc: ["'self'", ...swaggerCspExtras],
+        scriptSrc: ["'self'", ...swaggerCspExtras],
         imgSrc: ["'self'", 'data:', 'https:'],
+        fontSrc: ["'self'", 'data:'],
+        connectSrc: allowedConnectSrc,
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
       },
     },
     crossOriginEmbedderPolicy: false,
-  }));
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    hsts: isProd ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
+  });
 
-  // P2: Response compression
-  app.use(compression({
-    threshold: 1024, // Only compress responses > 1KB
-  }));
+  // P2: Response compression (Fastify-native, gzip + brotli)
+  await app.register(fastifyCompress as any, {
+    threshold: 1024,
+    encodings: ['gzip', 'deflate', 'br'],
+  });
 
   // Global exception filter for standardized error responses
   app.useGlobalFilters(new AllExceptionsFilter());
 
   // Global validation pipe for automatic DTO validation
   app.useGlobalPipes(new ValidationPipe({
-    transform: true,  // Enable transformation using class-transformer
-    whitelist: true,  // Strip properties that don't have decorators
+    transform: true,           // Enable transformation using class-transformer
+    whitelist: true,           // Strip properties that don't have decorators
+    forbidNonWhitelisted: true,// Reject unknown fields (anti-mass-assignment)
+    transformOptions: { enableImplicitConversion: true },
+    validationError: { target: false, value: false }, // Ne pas renvoyer le payload dans les erreurs
   }));
+
+  // Graceful shutdown — ferme proprement Prisma, Redis, BullMQ
+  app.enableShutdownHooks();
 
   // P0: CORS configuration (strict in production)
   const corsOriginEnv = process.env.CORS_ORIGIN || process.env.CORS_ORIGINS;
@@ -169,6 +199,21 @@ Tous les autres endpoints nécessitent un utilisateur lié à un tenant.
 
   const port = process.env.PORT || 3000;
   await app.listen(port, '0.0.0.0');
+
+  // Handlers SIGTERM/SIGINT pour orchestrateurs (k8s, Render, Docker)
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.once(signal, async () => {
+      console.log(`\n📥 ${signal} reçu — arrêt gracieux...`);
+      try {
+        await app.close();
+        console.log('✅ Application fermée proprement');
+        process.exit(0);
+      } catch (err) {
+        console.error('❌ Erreur durant le shutdown', err);
+        process.exit(1);
+      }
+    });
+  }
 
   console.log(`\n🚀 Application is running on: http://localhost:${port}/api/v1`);
   console.log(`📚 API Documentation available at: http://localhost:${port}/docs`);

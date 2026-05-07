@@ -40,7 +40,14 @@ import { TenantThrottlerGuard } from './core/throttle/tenant-throttler.guard';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: 'envFiles/.env.development',
+      // Charge le fichier d'env spécifique à l'environnement, avec fallback en cascade.
+      // En production/staging/conteneur, on s'appuie aussi sur process.env injecté par l'orchestrateur.
+      envFilePath: [
+        `envFiles/.env.${process.env.NODE_ENV || 'development'}`,
+        'envFiles/.env',
+        '.env',
+      ],
+      expandVariables: true,
     }),
     ThrottlerModule.forRoot([
       { name: 'short', ttl: 1000, limit: 20 },   // 20 req/s per tenant

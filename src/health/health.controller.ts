@@ -8,6 +8,7 @@ import { CurrentTenant } from '../core/auth/decorators/current-tenant.decorator'
 import { UserRole } from '@prisma/client';
 import { RedisService } from '../core/redis/redis.service';
 import { QueueService } from '../core/queue/queue.service';
+import { PrismaService } from '../core/database/prisma.service';
 
 /**
  * Health check controller to validate infrastructure is working
@@ -18,6 +19,7 @@ export class HealthController {
   constructor(
     @Optional() private readonly redisService: RedisService,
     @Optional() private readonly queueService: QueueService,
+    @Optional() private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -62,6 +64,22 @@ export class HealthController {
       version: '1.0.0',
       architecture: 'HEOS - High Efficiency Orchestration System',
     };
+
+    // Check Database (Prisma)
+    if (this.prisma) {
+      const start = Date.now();
+      try {
+        await this.prisma.$queryRaw`SELECT 1`;
+        checks.database = {
+          status: 'healthy',
+          latencyMs: Date.now() - start,
+        };
+      } catch (error) {
+        checks.database = { status: 'unhealthy', error: error.message };
+      }
+    } else {
+      checks.database = { status: 'not_configured' };
+    }
 
     // Check Redis
     if (this.redisService) {

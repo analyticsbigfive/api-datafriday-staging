@@ -501,22 +501,33 @@ export class SpaceDashboardService {
 
     // Group by shop
     const shopSeries = new Map<string, { label: string; values: number[] }>();
-    
+
+    // ⚡ Fix N+1: charger tous les SpaceElement en UNE requête, puis indexer en Map
+    const elementIds = Array.from(
+      new Set(
+        shopData
+          .map((d) => d.spaceElementId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+    const elements = elementIds.length
+      ? await this.prisma.spaceElement.findMany({
+          where: { id: { in: elementIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const elementNameById = new Map(elements.map((e) => [e.id, e.name]));
+
     for (const data of shopData) {
       if (!data.spaceElementId) continue;
-      
+
       if (!shopSeries.has(data.spaceElementId)) {
-        const element = await this.prisma.spaceElement.findUnique({
-          where: { id: data.spaceElementId },
-          select: { name: true },
-        });
-        
         shopSeries.set(data.spaceElementId, {
-          label: element?.name || 'Unknown',
+          label: elementNameById.get(data.spaceElementId) || 'Unknown',
           values: new Array(labels.length).fill(0),
         });
       }
-      
+
       const dayIndex = labels.indexOf(data.day.toISOString().split('T')[0]);
       if (dayIndex >= 0) {
         shopSeries.get(data.spaceElementId)!.values[dayIndex] = Number(
@@ -576,19 +587,23 @@ export class SpaceDashboardService {
       take: 10,
     });
 
-    const topShopsWithNames = await Promise.all(
-      topShops.map(async (shop) => {
-        const element = await this.prisma.spaceElement.findUnique({
-          where: { id: shop.spaceElementId! },
-          select: { name: true },
-        });
-        return {
-          spaceElementId: shop.spaceElementId!,
-          name: element?.name || 'Unknown',
-          revenueHt: Number(shop._sum.revenueHt || 0),
-        };
-      }),
-    );
+    // ⚡ Fix N+1: une seule requête au lieu de N findUnique
+    const topShopElementIds = topShops
+      .map((s) => s.spaceElementId)
+      .filter((id): id is string => Boolean(id));
+    const topShopElements = topShopElementIds.length
+      ? await this.prisma.spaceElement.findMany({
+          where: { id: { in: topShopElementIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const topShopNameById = new Map(topShopElements.map((e) => [e.id, e.name]));
+
+    const topShopsWithNames = topShops.map((shop) => ({
+      spaceElementId: shop.spaceElementId!,
+      name: topShopNameById.get(shop.spaceElementId!) || 'Unknown',
+      revenueHt: Number(shop._sum.revenueHt || 0),
+    }));
 
     // Top products
     const topProducts = await this.prisma.spaceProductRevenueDailyAgg.groupBy({
@@ -613,20 +628,22 @@ export class SpaceDashboardService {
       take: 10,
     });
 
-    const topProductsWithNames = await Promise.all(
-      topProducts.map(async (product) => {
-        const prod = await this.prisma.weezeventProduct.findUnique({
-          where: { id: product.weezeventProductId },
-          select: { name: true },
-        });
-        return {
-          weezeventProductId: product.weezeventProductId,
-          name: prod?.name || 'Unknown',
-          revenueHt: Number(product._sum.revenueHt || 0),
-          quantity: product._sum.quantity || 0,
-        };
-      }),
-    );
+    // ⚡ Fix N+1: une seule requête au lieu de N findUnique
+    const productIds = topProducts.map((p) => p.weezeventProductId);
+    const products = productIds.length
+      ? await this.prisma.weezeventProduct.findMany({
+          where: { id: { in: productIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const productNameById = new Map(products.map((p) => [p.id, p.name]));
+
+    const topProductsWithNames = topProducts.map((product) => ({
+      weezeventProductId: product.weezeventProductId,
+      name: productNameById.get(product.weezeventProductId) || 'Unknown',
+      revenueHt: Number(product._sum.revenueHt || 0),
+      quantity: product._sum.quantity || 0,
+    }));
 
     return {
       topShops: topShopsWithNames,

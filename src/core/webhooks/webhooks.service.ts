@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { HttpService } from '@nestjs/axios';
-import { createHmac } from 'crypto';
+import { createHmac, randomUUID } from 'crypto';
 import { firstValueFrom } from 'rxjs';
 
 export interface WebhookEvent {
@@ -56,6 +56,11 @@ export class WebhooksService {
 
   /**
    * Send a single webhook request and log the result
+   *
+   * Sécurité:
+   *  - inclut un `id` (nonce unique) et un `timestamp` dans le payload
+   *  - signe `timestamp.body` (style Stripe) pour empêcher le replay
+   *    et l'altération du timestamp séparément de la signature.
    */
   private async send(
     webhook: any,
@@ -63,19 +68,26 @@ export class WebhooksService {
     data: any,
     timestamp: string,
   ): Promise<void> {
-    const body = JSON.stringify({ event, data, timestamp });
+    const nonce = randomUUID();
+    const body = JSON.stringify({ id: nonce, event, data, timestamp });
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'X-Webhook-Event': event,
       'X-Webhook-Timestamp': timestamp,
+      'X-Webhook-Id': nonce,
     };
 
-    // Sign payload with HMAC-SHA256 if secret is configured
+    // Sign "timestamp.body" with HMAC-SHA256 if secret is configured (anti-replay).
+    // Le receveur doit:
+    //   1. vérifier la signature
+    //   2. vérifier que |now - timestamp| < 5 min
+    //   3. stocker le nonce (X-Webhook-Id) en cache pour rejeter les doublons
     if (webhook.secret) {
+      const signedPayload = `${timestamp}.${body}`;
       const signature = createHmac('sha256', webhook.secret)
-        .update(body)
+        .update(signedPayload)
         .digest('hex');
-      headers['X-Webhook-Signature'] = `sha256=${signature}`;
+      headers['X-Webhook-Signature'] = `t=${timestamp},v1=${signature}`;
     }
 
     const startTime = Date.now();

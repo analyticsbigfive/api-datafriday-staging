@@ -1,73 +1,6 @@
-# 🚀 Development Guide
+# Development Guide
 
-## Phase 1: Core Infrastructure ✅ COMPLETE
-
-### Phase 1.1: Database & Tenant Context
-**Files:** `src/core/database/`, `src/shared/interfaces/`
-
-**Features:**
-- PrismaService with logging, transactions, retry
-- TenantInterceptor for automatic multi-tenant isolation
-- Tenant-aware interfaces
-
-**Tests:** 12 passed ✅
-
----
-
-### Phase 1.2: Authentication & Authorization
-**Files:** `src/core/auth/`
-
-**Features:**
-- JWT Strategy for Supabase token validation
-- Guards: JwtGuard, RolesGuard
-- Decorators: @CurrentUser(), @CurrentTenant(), @Roles()
-
-**Tests:** 6 passed ✅
-
-**Usage:**
-```typescript
-@Controller('users')
-@UseGuards(JwtGuard, RolesGuard)
-export class UsersController {
-  @Get()
-  @Roles('ADMIN', 'MANAGER')
-  findAll(@CurrentUser() user, @CurrentTenant() tenantId) {
-    return this.usersService.findAll(tenantId);
-  }
-}
-```
-
----
-
-### Phase 1.3: Exception Handling & Validation
-**Files:** `src/core/exceptions/`, `src/core/pipes/`
-
-**Features:**
-- Global exception filter (standardized error responses)
-- Custom domain exceptions
-- DTO validation pipe
-
-**Tests:** 9 passed ✅
-
-**Usage:**
-```typescript
-// Throw anywhere
-throw new NotFoundException('User', 'user-123');
-
-// Automatic response:
-// {
-//   "statusCode": 404,
-//   "message": "User with identifier 'user-123' not found",
-//   "timestamp": "2024-11-14T...",
-//   "path": "/api/v1/users/user-123"
-// }
-```
-
----
-
-## Phase 2: Features (Next)
-
-### Feature Structure
+## Feature Structure
 
 ```
 src/features/[feature-name]/
@@ -87,15 +20,6 @@ src/features/[feature-name]/
     ├── [feature].controller.spec.ts
     └── [feature].service.spec.ts
 ```
-
-### Planned Features
-
-1. **TENANTS** - CRUD + onboarding
-2. **USERS** - Management + permissions
-3. **SPACES** - Venue management
-4. **MENU-ITEMS** - Catalog + costs
-5. **INGREDIENTS** - Stock management
-6. **SUPPLIERS** - Supplier management
 
 ---
 

@@ -279,9 +279,10 @@ curl https://api.yourdomain.com/api/v1/health
 
 ```
 api-datafriday/
-├── .env.development        # Config dev
-├── .env.staging           # Config staging
-├── .env.production        # Config prod
+├── envFiles/
+│   ├── .env.development   # Config dev
+│   ├── .env.staging       # Config staging
+│   └── .env.production    # Config prod
 ├── docker-compose.yml     # Dev (default)
 ├── docker-compose.staging.yml
 ├── docker-compose.production.yml

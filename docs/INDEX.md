@@ -11,10 +11,9 @@ docs/
 ├── INDEX.md                               ← Vous êtes ici
 │
 ├── getting-started/                       ← DÉMARRAGE
-│   ├── SETUP.md                           ← Installation locale
 │   ├── DEPLOYMENT.md                      ← Déploiement staging/prod
 │   ├── DEVELOPMENT.md                     ← Guide développeur
-│   ├── ENVIRONMENTS.md                    ← Config par environnement
+│   ├── ENVIRONMENTS.md                    ← Config par environnement (référence)
 │   ├── DOCKER_QUICKSTART.md               ← Docker (5 min)
 │   └── HEOS_QUICKSTART.md                 ← BullMQ/Redis HEOS (5 min)
 │
@@ -123,7 +122,7 @@ Référence : [architecture/HEOS_ARCHITECTURE_GUIDE.md](architecture/HEOS_ARCHIT
 
 | Rôle | Par où commencer |
 |------|-----------------|
-| **Nouveau dev** | [SETUP](getting-started/SETUP.md) → [DEVELOPMENT](getting-started/DEVELOPMENT.md) |
+| **Nouveau dev** | [ENVIRONMENTS](getting-started/ENVIRONMENTS.md) → [DEVELOPMENT](getting-started/DEVELOPMENT.md) |
 | **Frontend** | [FRONTEND_API_GUIDE](api/FRONTEND_API_GUIDE.md) → [auth/API_REFERENCE](auth/API_REFERENCE.md) |
 | **DevOps** | [ENVIRONMENTS](getting-started/ENVIRONMENTS.md) → [DEPLOYMENT](getting-started/DEPLOYMENT.md) |
 | **Architecte** | [ARCHITECTURE](architecture/ARCHITECTURE.md) → [HEOS](architecture/HEOS_ARCHITECTURE_GUIDE.md) |

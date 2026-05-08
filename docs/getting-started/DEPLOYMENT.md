@@ -46,78 +46,20 @@ Optionnel (si déploiement hors Docker):
 
 ## 3) Variables d’environnement (ENV)
 
-### 3.1 Fichiers
+## 3) Variables d'environnement (ENV)
 
-- DEV: `envFiles/.env.development`
-- STAGING: `envFiles/.env.staging`
-- PROD: `envFiles/.env.production`
+Voir [ENVIRONMENTS.md](./ENVIRONMENTS.md) pour la liste complète des variables et les templates par environnement.
 
-Template:
-- `.env.example`
-
-### 3.2 Variables minimum (API fonctionnelle)
-
-- `DATABASE_URL`
-- `JWT_SECRET` (doit **matcher** le JWT secret du projet Supabase)
-- `ENCRYPTION_KEY` (32 bytes = 64 chars hex)
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-
-### 3.3 Variables recommandées
-
-- `DIRECT_URL` (connexion directe, utile pour migrations)
-- `REDIS_URL` (ex: `redis://localhost:6379` ou URL Upstash)
-- `CORS_ORIGIN` (le code lit `CORS_ORIGIN`)
-- `CORS_ORIGINS` (présent dans templates / compose, à harmoniser si besoin)
-- `LOG_LEVEL`
-- `RATE_LIMIT_TTL`
-- `RATE_LIMIT_MAX`
-
-### 3.4 Weezevent
-
-- `WEEZEVENT_CLIENT_ID`
-- `WEEZEVENT_CLIENT_SECRET`
-- `WEEZEVENT_CRON_ENABLED` (mettre `false` pour désactiver les CRON)
-
-### 3.5 Supabase CLI (si vous déployez aussi migrations Supabase / edge functions)
-
-- `SUPABASE_PROJECT_ID`
-- `SUPABASE_DB_PASSWORD`
-- `SUPABASE_ACCESS_TOKEN`
+Fichiers ENV : `envFiles/.env.development` / `.env.staging` / `.env.production` (template : `.env.example`)
 
 ## 4) Déploiement via Docker Compose (recommandé)
 
-### 4.1 Development
+Voir [ENVIRONMENTS.md](./ENVIRONMENTS.md) pour la table complète des commandes make par environnement.
 
 ```bash
-make dev-up
-make dev-logs
-```
-
-Healthcheck:
-- `GET http://localhost:3000/api/v1/health`
-
-### 4.2 Staging
-
-Pré-requis:
-- `envFiles/.env.staging` configuré
-
-```bash
-make staging-up
-make staging-migrate
-make staging-logs
-```
-
-### 4.3 Production
-
-Pré-requis:
-- `envFiles/.env.production` configuré
-
-```bash
-make prod-up
-make prod-migrate
-make prod-logs
+make dev-up && make dev-logs       # Dev
+make staging-up && make staging-migrate  # Staging
+make prod-up && make prod-migrate  # Prod
 ```
 
 ## 4bis) Déploiement sans Docker (Node-only)

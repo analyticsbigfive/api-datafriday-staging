@@ -25,10 +25,10 @@ curl http://localhost:3000/api/v1/health/detailed
 
 ```bash
 # 1. Installer les dépendances
-npm install
+pnpm install
 
 # 2. Installer les dépendances HEOS
-npm install @nestjs/bullmq bullmq ioredis
+pnpm add @nestjs/bullmq bullmq ioredis
 
 # 3. Démarrer Redis (via Docker ou local)
 docker run -d -p 6379:6379 --name redis redis:7-alpine
@@ -38,7 +38,7 @@ cp envFiles/.env.example envFiles/.env.development
 # Ajouter: REDIS_URL=redis://localhost:6379
 
 # 5. Démarrer l'API
-npm run start:dev
+pnpm run start:dev
 ```
 
 ## 🧪 Lancer les Tests
@@ -175,11 +175,11 @@ echo $REDIS_URL
 ### Les tests échouent
 ```bash
 # Regénérer les modules
-npm run prisma:generate
+pnpm run prisma:generate
 
 # Nettoyer le cache Jest
-npm test -- --clearCache
+pnpm test -- --clearCache
 
 # Relancer les tests
-npm test -- --testPathPattern='(redis|queue|orchestrator)'
+pnpm test -- --testPathPattern='(redis|queue|orchestrator)'
 ```

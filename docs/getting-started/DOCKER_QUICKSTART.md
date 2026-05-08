@@ -62,19 +62,6 @@ docker-compose --env-file envFiles/.env.development build api-dev
 docker-compose --env-file envFiles/.env.development build frontend-dev
 ```
 
-### Prisma dans Docker
-
-```bash
-# Générer le client Prisma
-docker-compose exec api-dev npx prisma generate
-
-# Créer une migration
-docker-compose exec api-dev npx prisma migrate dev --name nom_migration
-
-# Appliquer les migrations
-docker-compose exec api-dev npx prisma migrate deploy
-```
-
 ## Ports utilisés
 
 | Service | Port | URL |
@@ -95,24 +82,6 @@ Le système de synchronisation incrémentale Weezevent est maintenant activé :
 - **Sync manuel** : Via l'interface `/weezevent`
   - Bouton "Sync Complet" ou par type (événements/produits/transactions)
   - Toggle "Forcer sync complet" pour ignorer l'état incrémental
-
-## Variables d'environnement importantes
-
-Dans `envFiles/.env.development` :
-
-```env
-# Base de données Supabase
-DATABASE_URL="postgresql://..."
-DIRECT_URL="postgresql://..."
-
-# Weezevent
-WEEZEVENT_CLIENT_ID="your_client_id"
-WEEZEVENT_CLIENT_SECRET="your_client_secret"
-ENCRYPTION_KEY="your_32_byte_hex_key"
-
-# CRON jobs (optionnel)
-WEEZEVENT_CRON_ENABLED="true"
-```
 
 ## Troubleshooting
 

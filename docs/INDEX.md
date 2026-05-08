@@ -28,7 +28,6 @@ docs/
 ├── api/                                   ← RÉFÉRENCE API
 │   ├── API_REFERENCE.md                   ← Tous les endpoints
 │   ├── API_VERSIONING.md                  ← Stratégie versioning
-│   ├── ERROR_HANDLING_IMPROVEMENTS.md     ← Conventions erreurs 400/404/500
 │   ├── FRONTEND_API_GUIDE.md              ← Intégration frontend (Axios, JWT)
 │   ├── FRONTEND_MENU_COMPOSITION_API.md   ← API composition menus
 │   ├── HTTP_ERROR_CODES.md                ← Référence codes HTTP + Prisma
@@ -53,7 +52,6 @@ docs/
 │   ├── FRONTEND_HANDOFF_CURL_WEEZEVENT.md ← Curl/payloads complets
 │   ├── WEEZEVENT_ANALYTICS.md             ← Requêtes analytics Prisma
 │   ├── WEEZEVENT_API_CLIENT_USAGE.md      ← Usage WeezeventClientService
-│   ├── WEEZEVENT_BACKEND_AUDIT.md         ← État implem P0/P1 Weezevent
 │   ├── WEEZEVENT_DATA_MAPPING.md          ← Transaction JSON → Prisma
 │   ├── WEEZEVENT_FNB_MAPPING.md           ← Mapping → fnb_sales_raw
 │   ├── WEEZEVENT_PERFORMANCE_GUIDE.md     ← Index, cache patterns
@@ -126,7 +124,7 @@ Référence : [architecture/HEOS_ARCHITECTURE_GUIDE.md](architecture/HEOS_ARCHIT
 | **Frontend** | [FRONTEND_API_GUIDE](api/FRONTEND_API_GUIDE.md) → [API_REFERENCE](api/API_REFERENCE.md) |
 | **DevOps** | [ENVIRONMENTS](getting-started/ENVIRONMENTS.md) → [DEPLOYMENT](getting-started/DEPLOYMENT.md) |
 | **Architecte** | [ARCHITECTURE](architecture/ARCHITECTURE.md) → [HEOS](architecture/HEOS_ARCHITECTURE_GUIDE.md) |
-| **Weezevent** | [WEEZEVENT_BACKEND_AUDIT](weezevent/WEEZEVENT_BACKEND_AUDIT.md) → [WEEZEVENT_SYNC_OPERATIONS](weezevent/WEEZEVENT_SYNC_OPERATIONS.md) |
+| **Weezevent** | [WEEZEVENT_SYNC_OPERATIONS](weezevent/WEEZEVENT_SYNC_OPERATIONS.md) → [WEEZEVENT_ANALYTICS](weezevent/WEEZEVENT_ANALYTICS.md) |
 
 ---
 

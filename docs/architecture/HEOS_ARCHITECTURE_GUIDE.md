@@ -69,32 +69,7 @@ Ou en français : **Système Orchestré Hybride Événementiel**
 
 ## 🔄 Réutilisabilité pour Autres Projets
 
-### ✅ OUI, cette architecture est 100% réutilisable !
-
-J'ai créé un **template générique** que vous pouvez adapter :
-
-```
-heos-template/
-├── src/
-│   ├── core/
-│   │   ├── orchestrator/          # 🎯 Chef d'orchestre (réutilisable)
-│   │   │   ├── orchestrator.service.ts
-│   │   │   ├── orchestrator.module.ts
-│   │   │   └── strategies/
-│   │   │       ├── direct.strategy.ts
-│   │   │       ├── cached.strategy.ts
-│   │   │       ├── edge.strategy.ts
-│   │   │       ├── async.strategy.ts
-│   │   │       └── materialized.strategy.ts
-│   │   ├── cache/                 # 🗄️ Redis cache (réutilisable)
-│   │   ├── queue/                 # 📬 BullMQ (réutilisable)
-│   │   └── edge/                  # ☁️ Edge client (réutilisable)
-│   └── features/                  # 📦 Modules métier (à adapter)
-├── supabase/
-│   ├── functions/                 # Edge Functions templates
-│   └── migrations/                # Views templates
-└── docker-compose.yml             # Infra complète
-```
+L'architecture est réutilisable. Le point d'entrée dans ce projet est `src/features/orchestrator/`.
 
 ---
 
@@ -247,7 +222,7 @@ export class OrchestratorService {
 ### Module HEOS Prêt à l'Emploi
 
 ```typescript
-// src/core/heos/heos.module.ts
+// src/features/orchestrator/heos.module.ts
 import { Module, Global } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { OrchestratorService } from './orchestrator.service';
@@ -285,14 +260,11 @@ export class HeosModule {}
 
 ## 🚀 Guide de Démarrage pour Nouveau Projet
 
-### Étape 1: Cloner le Template
+### Étape 1: Copier le module orchestrateur
 
 ```bash
-# Option A: Depuis DataFriday
-cp -r api-datafriday/src/core/heos nouveau-projet/src/core/
-
-# Option B: npm package (à créer)
-npm install @datafriday/heos-core
+# Copier depuis ce projet
+cp -r api-datafriday-staging/src/features/orchestrator nouveau-projet/src/features/
 ```
 
 ### Étape 2: Configurer les Opérations
@@ -412,38 +384,12 @@ orchestrator.registerOperation('report.compliance', {
 
 ---
 
-## 📦 Roadmap: Package NPM HEOS
-
-### À Venir: `@heos/core`
-
-```bash
-npm install @heos/core @heos/redis @heos/bullmq @heos/supabase
-```
-
-```typescript
-import { HeosModule, Orchestrator, Strategy } from '@heos/core';
-
-@Module({
-  imports: [
-    HeosModule.forRoot({
-      redis: { url: process.env.REDIS_URL },
-      supabase: { url: process.env.SUPABASE_URL },
-      defaultStrategy: Strategy.CACHED,
-    }),
-  ],
-})
-export class AppModule {}
-```
-
----
-
-## 🎯 Résumé
+## Résumé
 
 | Question | Réponse |
 |----------|---------|
 | **Nom** | **HEOS** (Hybrid Event-driven Orchestrated System) |
 | **Coût mensuel** | **$50-200** pour la plupart des projets |
-| **Réutilisable ?** | **OUI**, template générique disponible |
+| **Réutilisable ?** | OUI — copier `src/features/orchestrator/` |
 | **Pour quels projets ?** | SaaS B2B, Analytics, E-commerce, Intégrations API |
 | **Équipe minimale** | 1-3 développeurs |
-| **Time to market** | 2-4 semaines avec le template |

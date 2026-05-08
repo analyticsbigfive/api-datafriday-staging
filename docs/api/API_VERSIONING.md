@@ -180,8 +180,8 @@ if (response.headers.get('Deprecation')) {
 ## 📚 Resources
 
 - [API Reference](./API_REFERENCE.md) - v1 endpoints
-- [API Migration](./API_MIGRATION_V1.md) - Migration guide
-- [API Architecture](./API_ARCHITECTURE.md) - Architecture
+- [Spaces API Guide](./SPACES_API_GUIDE.md) - API Spaces
+- [Frontend API Guide](./FRONTEND_API_GUIDE.md) - Intégration frontend
 
 ---
 

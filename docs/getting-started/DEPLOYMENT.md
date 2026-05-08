@@ -301,4 +301,4 @@ WEEZEVENT_CRON_ENABLED=false
 - `render.yaml`
 - `docs/getting-started/ENVIRONMENTS.md`
 - `docs/architecture/SUPABASE.md`
-- `DOCKER_QUICKSTART.md`
+- `docs/getting-started/DOCKER_QUICKSTART.md`

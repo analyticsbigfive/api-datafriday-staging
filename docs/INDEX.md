@@ -14,12 +14,13 @@ docs/
 │   ├── SETUP.md                           ← Installation locale
 │   ├── DEPLOYMENT.md                      ← Déploiement staging/prod
 │   ├── DEVELOPMENT.md                     ← Guide développeur
-│   └── ENVIRONMENTS.md                    ← Config par environnement
+│   ├── ENVIRONMENTS.md                    ← Config par environnement
+│   ├── DOCKER_QUICKSTART.md               ← Docker (5 min)
+│   └── HEOS_QUICKSTART.md                 ← BullMQ/Redis HEOS (5 min)
 │
 ├── architecture/                          ← ARCHITECTURE
-│   ├── ARCHITECTURE.md                    ← Vue d'ensemble multi-tenant
+│   ├── ARCHITECTURE.md                    ← Vue d'ensemble + Prisma
 │   ├── HEOS_ARCHITECTURE_GUIDE.md         ← Système HEOS (référence)
-│   ├── DATABASE.md                        ← Prisma, migrations, RLS
 │   └── SUPABASE.md                        ← CLI Supabase, linking
 │
 ├── api/                                   ← RÉFÉRENCE API
@@ -29,7 +30,6 @@ docs/
 │   └── SPACES_API_GUIDE.md                ← API Spaces
 │
 ├── auth/                                  ← AUTHENTIFICATION
-│   ├── API_REFERENCE.md                   ← Endpoints auth
 │   ├── AUTH_TESTING_GUIDE.md              ← Tests auth step-by-step
 │   └── MULTI_TENANT.md                    ← Guards, décorateurs multi-tenant
 │

@@ -59,3 +59,9 @@ supabase/config.toml
 *.temp
 /tmp/
 .cache/
+
+# Build info
+*.tsbuildinfo
+
+# Logs at root
+output.log

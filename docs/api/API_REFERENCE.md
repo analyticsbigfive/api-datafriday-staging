@@ -390,6 +390,37 @@ Future versions will be available at `/api/v2/`, etc.
 
 ---
 
-## Examples
+## Tenant Plans
 
-See [AUTH_TESTING_GUIDE.md](./AUTH_TESTING_GUIDE.md) for complete examples.
+| Plan | Status | Features |
+|------|--------|----------|
+| **FREE** | Permanent | 3 spaces, 50 menu items, 2 users |
+| **TRIAL** | 30 jours | Toutes les features PRO |
+| **STARTER** | Payant | 10 spaces, 200 menu items, 5 users |
+| **PROFESSIONAL** | Payant | 50 spaces, illimité menu items, 20 users |
+| **ENTERPRISE** | Payant | Illimité tout |
+
+**Notes:**
+- Nouveau tenant → `TRIAL` pendant 30 jours
+- Après trial → downgrade vers `FREE` ou upgrade payant
+- Slug auto-généré depuis `organizationName`
+
+---
+
+## User Roles
+
+| Role | Permissions |
+|------|-------------|
+| **ADMIN** | Toutes les permissions, gestion tenant |
+| **MANAGER** | Gestion users, spaces, menu items |
+| **STAFF** | Consultation, édition limitée |
+| **VIEWER** | Lecture seule |
+
+**Note:** Premier user créé = toujours ADMIN
+
+---
+
+## See Also
+
+- [Spaces API](./SPACES_API_GUIDE.md) — CRUD complet Spaces, pin/unpin, accès utilisateurs
+- [Auth testing](../auth/AUTH_TESTING_GUIDE.md) — Tests step-by-step

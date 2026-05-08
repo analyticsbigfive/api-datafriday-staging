@@ -6,6 +6,7 @@ import { RolesGuard } from '../core/auth/guards/roles.guard';
 import { Roles } from '../core/auth/decorators/roles.decorator';
 import { CurrentUser } from '../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../core/auth/decorators/current-tenant.decorator';
+import { Public } from '../core/auth/decorators/public.decorator';
 import { UserRole } from '@prisma/client';
 import { RedisService } from '../core/redis/redis.service';
 import { QueueService } from '../core/queue/queue.service';
@@ -28,6 +29,7 @@ export class HealthController {
    * Public health check endpoint
    */
   @Get()
+  @Public()
   @ApiOperation({
     summary: 'Vérifier le status de l\'API',
     description: 'Endpoint public pour vérifier que l\'API est en ligne.',

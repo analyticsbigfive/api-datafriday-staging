@@ -14,6 +14,7 @@ export * from './guards/roles.guard';
 export * from './decorators/current-user.decorator';
 export * from './decorators/current-tenant.decorator';
 export * from './decorators/roles.decorator';
+export * from './decorators/public.decorator';
 
 // Strategies
 export { JwtOnboardingStrategy } from './strategies/jwt-onboarding.strategy';

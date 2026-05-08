@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { RouterModule, APP_GUARD } from '@nestjs/core';
+import { RouterModule, APP_GUARD, Reflector } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -37,6 +37,7 @@ import { AggregationModule } from './features/aggregation/aggregation.module';
 import { AuditModule } from './core/audit/audit.module';
 import { WebhooksModule } from './core/webhooks/webhooks.module';
 import { TenantThrottlerGuard } from './core/throttle/tenant-throttler.guard';
+import { JwtDatabaseGuard } from './core/auth/guards/jwt-db.guard';
 
 @Module({
   imports: [
@@ -120,7 +121,10 @@ import { TenantThrottlerGuard } from './core/throttle/tenant-throttler.guard';
   controllers: [AppController],
   providers: [
     AppService,
+    // Rate limiting guard (first — per tenant)
     { provide: APP_GUARD, useClass: TenantThrottlerGuard },
+    // Global authentication guard (second — skips routes marked @Public())
+    { provide: APP_GUARD, useClass: JwtDatabaseGuard },
   ],
 })
 export class AppModule { }

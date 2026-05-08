@@ -9,6 +9,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
 import { JwtOnboardingGuard } from '../../core/auth/guards/jwt-onboarding.guard';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
+import { Public } from '../../core/auth/decorators/public.decorator';
 import { OnboardingService } from './onboarding.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { JoinByCodeDto } from './dto/join-by-code.dto';
@@ -17,6 +18,7 @@ import { JoinTenantDto } from './dto/join-tenant.dto';
 @ApiTags('Onboarding')
 @ApiBearerAuth('supabase-jwt')
 @Controller('onboarding')
+@Public()
 @UseGuards(JwtOnboardingGuard)
 export class OnboardingController {
   constructor(private onboardingService: OnboardingService) { }

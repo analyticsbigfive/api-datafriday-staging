@@ -14,7 +14,7 @@ export class JwtOnboardingStrategy extends PassportStrategy(Strategy, 'jwt-onboa
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('JWT_SECRET') || 'your-secret-key',
+      secretOrKey: configService.getOrThrow<string>('JWT_SECRET'),
     });
   }
 

@@ -3,8 +3,10 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { RedisService } from '../../core/redis/redis.service';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { QueryTenantDto } from './dto/query-tenant.dto';
@@ -13,7 +15,12 @@ import { TenantPlan, TenantStatus, Prisma } from '@prisma/client';
 
 @Injectable()
 export class TenantsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(TenantsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+  ) {}
 
   private readonly selectFields = {
     id: true,
@@ -386,6 +393,9 @@ export class TenantsService {
         status: true,
         updatedAt: true,
       },
+    }).then(async (result) => {
+      await this.invalidateTenantAuthCache(id);
+      return result;
     });
   }
 
@@ -413,7 +423,39 @@ export class TenantsService {
         status: true,
         updatedAt: true,
       },
+    }).then(async (result) => {
+      await this.invalidateTenantAuthCache(id);
+      return result;
     });
+  }
+
+  /**
+   * Invalidate all auth cache entries for users belonging to a tenant.
+   * Called on suspend/reactivate so the status change takes effect immediately
+   * without waiting for the Redis TTL (up to 60s) to expire.
+   */
+  private async invalidateTenantAuthCache(tenantId: string): Promise<void> {
+    try {
+      const users = await this.prisma.user.findMany({
+        where: { tenantId },
+        select: { supabaseId: true },
+      });
+
+      if (!users.length) return;
+
+      await Promise.all(
+        users.map((u) => this.redis.delete(`auth:user:${u.supabaseId}`)),
+      );
+
+      this.logger.log(
+        `Invalidated auth cache for ${users.length} user(s) of tenant ${tenantId}`,
+      );
+    } catch (error) {
+      // Non-blocking: log but don't fail the suspend/reactivate operation
+      this.logger.error(
+        `Failed to invalidate auth cache for tenant ${tenantId}: ${error.message}`,
+      );
+    }
   }
 
   /**

@@ -438,13 +438,13 @@ export class TenantsService {
     try {
       const users = await this.prisma.user.findMany({
         where: { tenantId },
-        select: { supabaseId: true },
+        select: { id: true },
       });
 
       if (!users.length) return;
 
       await Promise.all(
-        users.map((u) => this.redis.delete(`auth:user:${u.supabaseId}`)),
+        users.map((u) => this.redis.delete(`auth:user:${u.id}`)),
       );
 
       this.logger.log(

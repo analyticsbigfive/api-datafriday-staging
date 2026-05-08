@@ -12,7 +12,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiBody, A
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { AggregationService } from './aggregation.service';
-import { ProcessEventsDto, SynchronizeDto } from './dto/aggregation.dto';
+import { ProcessEventsDto, SynchronizeDto, SkipEventDto } from './dto/aggregation.dto';
 
 @ApiTags('Aggregation')
 @ApiBearerAuth('supabase-jwt')
@@ -111,6 +111,32 @@ export class AggregationController {
   ) {
     this.logger.log(`POST /aggregation/synchronize - space=${dto.spaceId}`);
     return this.aggregationService.synchronize(user.tenantId, dto.spaceId, dto.integrationId);
+  }
+
+  @Post('skip-event')
+  @ApiOperation({
+    summary: 'Ignorer un événement',
+    description: 'Marque un événement comme ignoré (skipped) — pas de données disponibles ou exclusion volontaire. Compte comme "traité" pour la condition de passage au step suivant.',
+  })
+  @ApiBody({ type: SkipEventDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Événement ignoré',
+    schema: {
+      type: 'object',
+      properties: {
+        eventId: { type: 'string' },
+        status: { type: 'string', example: 'skipped' },
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Événement non trouvé' })
+  skipEvent(
+    @Body() dto: SkipEventDto,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(`POST /aggregation/skip-event - space=${dto.spaceId} event=${dto.eventId}`);
+    return this.aggregationService.skipEvent(user.tenantId, dto.spaceId, dto.eventId);
   }
 
   @Get('progress/:jobId')

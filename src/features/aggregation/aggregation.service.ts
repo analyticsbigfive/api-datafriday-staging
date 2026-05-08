@@ -22,10 +22,14 @@ export class AggregationService {
       throw new NotFoundException(`Space ${spaceId} not found`);
     }
 
-    // Get events linked to this space
+    // Get past events only — future events have no sales data yet
     const events = await this.prisma.event.findMany({
-      where: { tenantId, spaceId },
+      where: { tenantId, spaceId, eventDate: { lte: new Date() } },
       orderBy: { eventDate: 'desc' },
+    });
+
+    const futureEventsCount = await this.prisma.event.count({
+      where: { tenantId, spaceId, eventDate: { gt: new Date() } },
     });
 
     // Get aggregation job logs for each event
@@ -35,9 +39,14 @@ export class AggregationService {
           where: {
             tenantId,
             spaceId,
-            metadata: { path: ['eventId'], equals: event.id },
+            // metadata.eventIds is an array — use array_contains
+            metadata: { path: ['eventIds'], array_contains: event.id },
           },
           orderBy: { startedAt: 'desc' },
+        });
+
+        const dataPoints = await this.prisma.spaceRevenueDailyAgg.count({
+          where: { tenantId, spaceId, weezeventEventId: event.id },
         });
 
         return {
@@ -45,6 +54,7 @@ export class AggregationService {
           aggregationStatus: job?.status || 'pending',
           lastProcessedAt: job?.completedAt || null,
           transactionsProcessed: job?.transactionsProcessed || 0,
+          dataPoints,
         };
       }),
     );
@@ -86,9 +96,11 @@ export class AggregationService {
     return {
       events: eventsWithStatus,
       unregisteredDates,
+      futureEventsCount,
       summary: {
         total: events.length,
         processed: eventsWithStatus.filter((e) => e.aggregationStatus === 'completed').length,
+        skipped: eventsWithStatus.filter((e) => e.aggregationStatus === 'skipped').length,
         pending: eventsWithStatus.filter((e) => e.aggregationStatus === 'pending').length,
         failed: eventsWithStatus.filter((e) => e.aggregationStatus === 'failed').length,
       },
@@ -243,6 +255,45 @@ export class AggregationService {
             });
           }
 
+          // Aggregate product revenue into SpaceProductRevenueDailyAgg
+          // Revenue per item = unitPrice * quantity - reduction
+          const productRevenue = new Map<string, { revenue: number; quantity: number }>();
+          for (const tx of transactions) {
+            for (const item of tx.items || []) {
+              if (!item.productId) continue;
+              const current = productRevenue.get(item.productId) || { revenue: 0, quantity: 0 };
+              const itemRevenue = Number(item.unitPrice) * item.quantity - Number(item.reduction || 0);
+              current.revenue += itemRevenue;
+              current.quantity += item.quantity;
+              productRevenue.set(item.productId, current);
+            }
+          }
+
+          for (const [productId, data] of productRevenue) {
+            await this.prisma.spaceProductRevenueDailyAgg.upsert({
+              where: {
+                tenantId_spaceId_day_weezeventProductId: {
+                  tenantId,
+                  spaceId,
+                  day: eventDate,
+                  weezeventProductId: productId,
+                },
+              },
+              create: {
+                tenantId,
+                spaceId,
+                day: eventDate,
+                weezeventProductId: productId,
+                revenueHt: data.revenue,
+                quantity: data.quantity,
+              },
+              update: {
+                revenueHt: data.revenue,
+                quantity: data.quantity,
+              },
+            });
+          }
+
           processedCount++;
           results.push({
             eventId: event.id,
@@ -325,7 +376,7 @@ export class AggregationService {
   }
 
   /**
-   * Get aggregation job progress
+   * Get aggregation job progress — rich response for real-time progress indicator
    */
   async getJobProgress(tenantId: string, jobId: string) {
     const job = await this.prisma.aggregationJobLog.findFirst({
@@ -336,6 +387,81 @@ export class AggregationService {
       throw new NotFoundException(`Job ${jobId} not found`);
     }
 
-    return job;
+    const eventIds: string[] = (job.metadata as any)?.eventIds || [];
+    const total = eventIds.length || 1;
+    const current = job.transactionsProcessed || 0;
+
+    const percentage =
+      job.status === 'completed' ? 100
+      : job.status === 'failed' || job.status === 'skipped' ? 0
+      : Math.min(Math.round((current / total) * 100), 99);
+
+    const elapsedMs = Date.now() - new Date(job.startedAt).getTime();
+    const rowsPerSecond = elapsedMs > 0 && current > 0 ? Math.round((current / elapsedMs) * 1000) : 0;
+    const estimatedTimeRemaining =
+      rowsPerSecond > 0 && current < total
+        ? Math.ceil((total - current) / rowsPerSecond)
+        : null;
+
+    const phase =
+      job.status === 'completed' ? 'Done'
+      : job.status === 'failed' ? 'Failed'
+      : job.status === 'skipped' ? 'Skipped'
+      : current === 0 ? 'Initializing...'
+      : current >= total ? 'Finalizing...'
+      : 'Processing transactions...';
+
+    // Count aggregated data points written so far
+    const aggregatedPoints = job.spaceId
+      ? await this.prisma.spaceRevenueDailyAgg.count({
+          where: {
+            tenantId,
+            spaceId: job.spaceId,
+            weezeventEventId: { in: eventIds.length ? eventIds : undefined },
+          },
+        })
+      : 0;
+
+    return {
+      jobId: job.id,
+      status: job.status,
+      phase,
+      percentage,
+      current,
+      total,
+      rowsPerSecond,
+      aggregatedPoints,
+      estimatedTimeRemaining,
+      error: job.error || null,
+      completedAt: job.completedAt,
+    };
+  }
+
+  /**
+   * Mark an event as skipped \u2014 no sales data available or deliberately excluded
+   */
+  async skipEvent(tenantId: string, spaceId: string, eventId: string) {
+    const event = await this.prisma.event.findFirst({
+      where: { id: eventId, tenantId, spaceId },
+    });
+
+    if (!event) {
+      throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
+    }
+
+    await this.prisma.aggregationJobLog.create({
+      data: {
+        tenantId,
+        spaceId,
+        jobType: 'skip',
+        status: 'skipped',
+        fromDate: event.eventDate,
+        toDate: event.eventDate,
+        metadata: { eventIds: [eventId] },
+      },
+    });
+
+    this.logger.log(`Event ${eventId} marked as skipped for space ${spaceId}`);
+    return { eventId, status: 'skipped' };
   }
 }

@@ -19,13 +19,20 @@ docs/
 │
 ├── architecture/                          ← ARCHITECTURE
 │   ├── ARCHITECTURE.md                    ← Vue d'ensemble + Prisma
+│   ├── AUDIT_BACKEND_SCALABILITY_2026.md  ← Audit technique mai 2026
+│   ├── AUDIT_IMPLEMENTATION_2026.md       ← Fixes appliqués + actions pending
 │   ├── HEOS_ARCHITECTURE_GUIDE.md         ← Système HEOS (référence)
+│   ├── SECURITY_BEST_PRACTICES.md         ← Sécurité frontend/Supabase
 │   └── SUPABASE.md                        ← CLI Supabase, linking
 │
 ├── api/                                   ← RÉFÉRENCE API
 │   ├── API_REFERENCE.md                   ← Tous les endpoints
 │   ├── API_VERSIONING.md                  ← Stratégie versioning
+│   ├── ERROR_HANDLING_IMPROVEMENTS.md     ← Conventions erreurs 400/404/500
 │   ├── FRONTEND_API_GUIDE.md              ← Intégration frontend (Axios, JWT)
+│   ├── FRONTEND_MENU_COMPOSITION_API.md   ← API composition menus
+│   ├── HTTP_ERROR_CODES.md                ← Référence codes HTTP + Prisma
+│   ├── INGREDIENT_MARKETPRICE_CLARIFICATION.md ← Modèle domaine
 │   └── SPACES_API_GUIDE.md                ← API Spaces
 │
 ├── auth/                                  ← AUTHENTIFICATION
@@ -36,6 +43,7 @@ docs/
 │   └── FRONTEND_HANDOFF_CURL_EVENTS.md    ← Curl/payloads events
 │
 ├── spaces/
+│   ├── SHOPS_SYSTEM.md                    ← Architecture système shops
 │   └── SPACE_DASHBOARD_UNIFIED_API.md     ← Spec GET /spaces/:id/dashboard
 │
 ├── testing/
@@ -45,24 +53,16 @@ docs/
 │   ├── FRONTEND_HANDOFF_CURL_WEEZEVENT.md ← Curl/payloads complets
 │   ├── WEEZEVENT_ANALYTICS.md             ← Requêtes analytics Prisma
 │   ├── WEEZEVENT_API_CLIENT_USAGE.md      ← Usage WeezeventClientService
+│   ├── WEEZEVENT_BACKEND_AUDIT.md         ← État implem P0/P1 Weezevent
 │   ├── WEEZEVENT_DATA_MAPPING.md          ← Transaction JSON → Prisma
 │   ├── WEEZEVENT_FNB_MAPPING.md           ← Mapping → fnb_sales_raw
 │   ├── WEEZEVENT_PERFORMANCE_GUIDE.md     ← Index, cache patterns
+│   ├── WEEZEVENT_SYNC_OPERATIONS.md       ← Opérations sync (référence actuelle)
 │   ├── WEEZEVENT_TESTING_GUIDE.md         ← Tests unitaires Docker
 │   ├── WEEZEVENT_WEBHOOK_QUICKSTART.md    ← Setup webhook (5 min)
 │   └── WEEZEVENT_WEBHOOK_SETUP.md         ← Setup webhook complet (HMAC)
 │
-├── AUDIT_BACKEND_SCALABILITY_2026.md      ← Audit technique mai 2026
-├── AUDIT_IMPLEMENTATION_2026.md           ← Fixes appliqués + actions pending
-├── ERROR_HANDLING_IMPROVEMENTS.md         ← Conventions erreurs 400/404/500
-├── FRONTEND_MENU_COMPOSITION_API.md       ← API composition menus
-├── HTTP_ERROR_CODES.md                    ← Référence codes HTTP + Prisma
-├── INGREDIENT_MARKETPRICE_CLARIFICATION.md ← Modèle domaine
-├── SECURITY_BEST_PRACTICES.md             ← Sécurité frontend/Supabase
-├── SHOPS_SYSTEM.md                        ← Architecture système shops
-├── SPACE_MENUS_EXAMPLE.json               ← Exemple payload API
-├── WEEZEVENT_BACKEND_AUDIT.md             ← État implem P0/P1 Weezevent
-└── WEEZEVENT_SYNC_OPERATIONS.md           ← Opérations sync (référence actuelle)
+└── SPACE_MENUS_EXAMPLE.json               ← Exemple payload API
 ```
 
 ---
@@ -123,10 +123,10 @@ Référence : [architecture/HEOS_ARCHITECTURE_GUIDE.md](architecture/HEOS_ARCHIT
 | Rôle | Par où commencer |
 |------|-----------------|
 | **Nouveau dev** | [ENVIRONMENTS](getting-started/ENVIRONMENTS.md) → [DEVELOPMENT](getting-started/DEVELOPMENT.md) |
-| **Frontend** | [FRONTEND_API_GUIDE](api/FRONTEND_API_GUIDE.md) → [auth/API_REFERENCE](auth/API_REFERENCE.md) |
+| **Frontend** | [FRONTEND_API_GUIDE](api/FRONTEND_API_GUIDE.md) → [API_REFERENCE](api/API_REFERENCE.md) |
 | **DevOps** | [ENVIRONMENTS](getting-started/ENVIRONMENTS.md) → [DEPLOYMENT](getting-started/DEPLOYMENT.md) |
 | **Architecte** | [ARCHITECTURE](architecture/ARCHITECTURE.md) → [HEOS](architecture/HEOS_ARCHITECTURE_GUIDE.md) |
-| **Weezevent** | [WEEZEVENT_BACKEND_AUDIT](WEEZEVENT_BACKEND_AUDIT.md) → [WEEZEVENT_SYNC_OPERATIONS](WEEZEVENT_SYNC_OPERATIONS.md) |
+| **Weezevent** | [WEEZEVENT_BACKEND_AUDIT](weezevent/WEEZEVENT_BACKEND_AUDIT.md) → [WEEZEVENT_SYNC_OPERATIONS](weezevent/WEEZEVENT_SYNC_OPERATIONS.md) |
 
 ---
 
@@ -135,11 +135,11 @@ Référence : [architecture/HEOS_ARCHITECTURE_GUIDE.md](architecture/HEOS_ARCHIT
 | Fonctionnalité | Document |
 |----------------|----------|
 | Auth multi-tenant | [auth/MULTI_TENANT.md](auth/MULTI_TENANT.md) |
-| Weezevent sync | [WEEZEVENT_SYNC_OPERATIONS.md](WEEZEVENT_SYNC_OPERATIONS.md) |
+| Weezevent sync | [weezevent/WEEZEVENT_SYNC_OPERATIONS.md](weezevent/WEEZEVENT_SYNC_OPERATIONS.md) |
 | Weezevent analytics | [weezevent/WEEZEVENT_ANALYTICS.md](weezevent/WEEZEVENT_ANALYTICS.md) |
 | API Spaces | [api/SPACES_API_GUIDE.md](api/SPACES_API_GUIDE.md) |
 | Webhooks | [weezevent/WEEZEVENT_WEBHOOK_SETUP.md](weezevent/WEEZEVENT_WEBHOOK_SETUP.md) |
-| Gestion erreurs | [HTTP_ERROR_CODES.md](HTTP_ERROR_CODES.md) |
+| Gestion erreurs | [api/HTTP_ERROR_CODES.md](api/HTTP_ERROR_CODES.md) |
 
 ---
 

@@ -6,7 +6,7 @@ Le module Weezevent est déjà installé et configuré dans votre application.
 
 ## Configuration
 
-Les credentials Weezevent sont configurés par tenant via les endpoints d'onboarding (voir [WEEZEVENT_CREDENTIALS_USAGE.md](./WEEZEVENT_CREDENTIALS_USAGE.md)).
+Les credentials Weezevent sont configurés par tenant via les endpoints d'onboarding.
 
 ## Utilisation dans vos Services
 
@@ -280,12 +280,3 @@ const user = await this.weezeventClient.getUser(..., wallet.user_id);
 const transaction = await this.weezeventClient.getTransaction(...);
 // transaction.rows[0].payments[0].wallet_id contient déjà l'info
 ```
-
-## Prochaines Étapes
-
-1. **Synchronisation** : Créer un service pour synchroniser les transactions en base de données
-2. **Webhooks** : Implémenter les webhooks pour les mises à jour en temps réel
-3. **Background Jobs** : Créer des jobs de synchronisation périodique
-4. **Analytics** : Utiliser les données pour générer des analytics
-
-Consultez [WEEZEVENT_INTEGRATION.md](./WEEZEVENT_INTEGRATION.md) pour le plan complet d'implémentation.

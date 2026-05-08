@@ -398,9 +398,7 @@ Une fois les webhooks validés, désactivez le polling pour économiser les ress
 ## 📞 Support
 
 **Documentation:**
-- [Index Weezevent](../WEEZEVENT_INDEX.md)
-- [API Client](../WEEZEVENT_API_CLIENT_USAGE.md)
-- [Synchronisation](../WEEZEVENT_SYNC_USER_GUIDE.md)
+- [API Client](./WEEZEVENT_API_CLIENT_USAGE.md)
 
 **Logs:**
 ```bash

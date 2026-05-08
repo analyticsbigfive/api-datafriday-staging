@@ -132,7 +132,7 @@ PATCH /onboarding/tenants/:tenantId/weezevent
 Body:
 {
   "weezeventClientId": "app_eat-is-family-datafriday_...",
-  "weezeventClientSecret": "vBevODCIZxR7XEO5sIZ5KnWpnZda2yiF",
+  "weezeventClientSecret": "<your_client_secret>",
   "weezeventEnabled": true
 }
 ```

@@ -197,7 +197,6 @@ make dev-studio
 
 Pour plus de détails, consultez:
 - [Guide Complet](./WEEZEVENT_WEBHOOK_SETUP.md)
-- [Index Weezevent](./WEEZEVENT_INDEX.md)
 
 ---
 

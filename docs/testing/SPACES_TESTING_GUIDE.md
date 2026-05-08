@@ -3,8 +3,8 @@
 ## URLs de test
 
 - **Frontend** : http://localhost:5173
-- **API** : http://localhost:3001/api/v1
-- **Swagger** : http://localhost:3001/docs
+- **API** : http://localhost:3000/api/v1
+- **Swagger** : http://localhost:3000/docs
 
 ---
 
@@ -131,7 +131,7 @@ Sur la page Espaces, les cartes en haut affichent :
 
 ## 🧪 Tests API (via Swagger)
 
-1. Allez sur http://localhost:3001/docs
+1. Allez sur http://localhost:3000/docs
 2. Cherchez la section **"Spaces"**
 3. Cliquez sur **"Authorize"** et collez votre token JWT
 4. Testez les endpoints directement depuis Swagger
@@ -232,14 +232,4 @@ Ou utilisez ces images d'exemple :
 - Modals animées
 - États de chargement avec spinners
 
----
 
-## 🚀 Prochaines étapes
-
-1. ✅ Module Spaces fonctionnel
-2. 🔄 Ajouter la gestion des Configs
-3. 🔄 Upload d'images (via service)
-4. 🔄 Module Users complet
-5. 🔄 Tests E2E automatisés
-
-Bon test ! 🎉

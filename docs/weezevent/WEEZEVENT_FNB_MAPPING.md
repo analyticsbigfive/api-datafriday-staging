@@ -401,7 +401,6 @@ export class FnbSyncService {
    */
   private async saveWeezeventTransaction(data: any, tenantId: string) {
     // Implémentation de la sauvegarde
-    // (voir WEEZEVENT_INTEGRATION.md pour le code complet)
     return data;
   }
 }

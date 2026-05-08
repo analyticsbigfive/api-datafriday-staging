@@ -38,6 +38,7 @@ import { AuditModule } from './core/audit/audit.module';
 import { WebhooksModule } from './core/webhooks/webhooks.module';
 import { TenantThrottlerGuard } from './core/throttle/tenant-throttler.guard';
 import { JwtDatabaseGuard } from './core/auth/guards/jwt-db.guard';
+import { RolesGuard } from './core/auth/guards/roles.guard';
 
 @Module({
   imports: [
@@ -125,6 +126,8 @@ import { JwtDatabaseGuard } from './core/auth/guards/jwt-db.guard';
     { provide: APP_GUARD, useClass: TenantThrottlerGuard },
     // Global authentication guard (second — skips routes marked @Public())
     { provide: APP_GUARD, useClass: JwtDatabaseGuard },
+    // Global RBAC guard (third — enforces @Roles() on every controller)
+    { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })
 export class AppModule { }

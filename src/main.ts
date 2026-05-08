@@ -192,16 +192,19 @@ Tous les autres endpoints nécessitent un utilisateur lié à un tenant.
     .addTag('Orchestrator', 'Stratégies de traitement et invalidation du cache')
     .build();
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('docs', app, document, {
-    swaggerOptions: {
-      persistAuthorization: true,
-      docExpansion: 'none',
-      filter: true,
-      showRequestDuration: true,
-    },
-    customSiteTitle: 'DataFriday API Documentation',
-  });
+  // Swagger uniquement hors production (évite l'exposition de la surface d'attaque en prod)
+  if (!isProd) {
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('docs', app, document, {
+      swaggerOptions: {
+        persistAuthorization: true,
+        docExpansion: 'none',
+        filter: true,
+        showRequestDuration: true,
+      },
+      customSiteTitle: 'DataFriday API Documentation',
+    });
+  }
 
   const port = process.env.PORT || 3000;
   await app.listen(port, '0.0.0.0');
@@ -222,7 +225,11 @@ Tous les autres endpoints nécessitent un utilisateur lié à un tenant.
   }
 
   console.log(`\n🚀 Application is running on: http://localhost:${port}/api/v1`);
-  console.log(`📚 API Documentation available at: http://localhost:${port}/docs`);
+  if (!isProd) {
+    console.log(`📚 API Documentation available at: http://localhost:${port}/docs`);
+  } else {
+    console.log(`📚 API Documentation: disabled in production`);
+  }
   console.log(`\n✅ P0 Security Optimizations:`);
   console.log(`   🔒 Helmet security headers enabled`);
   console.log(`   🌐 CORS strict mode (production)`);

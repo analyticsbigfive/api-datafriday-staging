@@ -1,135 +1,110 @@
-# 📚 Documentation DataFriday API
+# Documentation DataFriday API
 
-> **Version:** 2.0 | **Architecture:** HEOS | **Dernière mise à jour:** 20 janvier 2026
+> **Architecture:** HEOS | **Dernière mise à jour:** mai 2026
 
 ---
 
-## 🗂️ Structure de la Documentation
+## Structure
 
 ```
 docs/
-├── 📖 INDEX.md                    ← Vous êtes ici
-├── 📖 README.md                   ← Introduction
-├── 📊 ANALYSE_PROJET.md           ← Analyse complète
-├── 📋 RESUME_EXECUTIF.md          ← Résumé pour décideurs
+├── INDEX.md                               ← Vous êtes ici
 │
-├── 🚀 getting-started/            ← DÉMARRAGE
-│   ├── SETUP.md                   ← Installation
-│   ├── DEPLOYMENT.md              ← Déploiement (staging/prod)
-│   ├── DEVELOPMENT.md             ← Guide développeur
-│   └── ENVIRONMENTS.md            ← Environnements
+├── getting-started/                       ← DÉMARRAGE
+│   ├── SETUP.md                           ← Installation locale
+│   ├── DEPLOYMENT.md                      ← Déploiement staging/prod
+│   ├── DEVELOPMENT.md                     ← Guide développeur
+│   └── ENVIRONMENTS.md                    ← Config par environnement
 │
-├── 🏗️ architecture/               ← ARCHITECTURE HEOS
-│   ├── ARCHITECTURE.md            ← Vue d'ensemble
-│   ├── HEOS_ARCHITECTURE_GUIDE.md ← ⭐ Guide HEOS complet
-│   ├── HYBRID_ARCHITECTURE.md     ← NestJS + Edge Functions
-│   ├── SCALABLE_ARCHITECTURE.md   ← Haute performance
-│   ├── PERFORMANCE_BENCHMARKS.md  ← Benchmarks
-│   ├── COST_OPTIMIZATION.md       ← Optimisation coûts
-│   ├── VPS_VS_CLOUD_COMPARISON.md ← VPS vs Cloud
-│   ├── DATABASE.md                ← Schéma BDD
-│   ├── API_ARCHITECTURE.md        ← Design API
-│   ├── DATA_SOURCES.md            ← Sources données
-│   └── SUPABASE.md                ← Config Supabase
+├── architecture/                          ← ARCHITECTURE
+│   ├── ARCHITECTURE.md                    ← Vue d'ensemble multi-tenant
+│   ├── HEOS_ARCHITECTURE_GUIDE.md         ← Système HEOS (référence)
+│   ├── DATABASE.md                        ← Prisma, migrations, RLS
+│   └── SUPABASE.md                        ← CLI Supabase, linking
 │
-├── 📡 api/                        ← RÉFÉRENCE API
-│   ├── API_REFERENCE.md           ← Référence complète
-│   ├── API_VERSIONING.md          ← Versioning
-│   ├── API_MIGRATION_V1.md        ← Migration
-│   ├── FRONTEND_API_GUIDE.md      ← Guide Frontend
-│   └── SPACES_API_GUIDE.md        ← API Spaces
+├── api/                                   ← RÉFÉRENCE API
+│   ├── API_REFERENCE.md                   ← Tous les endpoints
+│   ├── API_VERSIONING.md                  ← Stratégie versioning
+│   ├── FRONTEND_API_GUIDE.md              ← Intégration frontend (Axios, JWT)
+│   └── SPACES_API_GUIDE.md                ← API Spaces
 │
-├── 🔐 auth/                       ← AUTHENTIFICATION
-│   ├── AUTH_QUICKSTART.md         ← Démarrage rapide
-│   ├── AUTH_TESTING_GUIDE.md      ← Tests
-│   ├── MULTI_TENANT.md            ← Multi-tenant
-│   ├── FRONTEND_GUIDE.md          ← Intégration Frontend
-│   └── API_REFERENCE.md           ← Endpoints Auth
+├── auth/                                  ← AUTHENTIFICATION
+│   ├── API_REFERENCE.md                   ← Endpoints auth
+│   ├── AUTH_TESTING_GUIDE.md              ← Tests auth step-by-step
+│   └── MULTI_TENANT.md                    ← Guards, décorateurs multi-tenant
 │
-├── 🎫 weezevent/                  ← INTÉGRATION WEEZEVENT
-│   ├── WEEZEVENT_INDEX.md         ← Index
-│   ├── WEEZEVENT_ARCHITECTURE.md  ← Architecture
-│   ├── WEEZEVENT_INTEGRATION.md   ← Intégration
-│   ├── WEEZEVENT_SYNC_USER_GUIDE.md ← Synchronisation
-│   ├── WEEZEVENT_WEBHOOK_*.md     ← Webhooks
-│   ├── WEEZEVENT_ANALYTICS*.md    ← Analytics
-│   └── ...                        ← Autres guides
+├── events/
+│   └── FRONTEND_HANDOFF_CURL_EVENTS.md    ← Curl/payloads events
 │
-├── 🧪 testing/                    ← TESTS
-│   └── SPACES_TESTING_GUIDE.md    ← Tests Spaces
+├── spaces/
+│   └── SPACE_DASHBOARD_UNIFIED_API.md     ← Spec GET /spaces/:id/dashboard
 │
-└── 📊 reports/                    ← RAPPORTS
-    └── ...                        ← Rapports de tests
+├── testing/
+│   └── SPACES_TESTING_GUIDE.md            ← QA manuel Spaces
+│
+├── weezevent/                             ← INTÉGRATION WEEZEVENT
+│   ├── FRONTEND_HANDOFF_CURL_WEEZEVENT.md ← Curl/payloads complets
+│   ├── WEEZEVENT_ANALYTICS.md             ← Requêtes analytics Prisma
+│   ├── WEEZEVENT_API_CLIENT_USAGE.md      ← Usage WeezeventClientService
+│   ├── WEEZEVENT_DATA_MAPPING.md          ← Transaction JSON → Prisma
+│   ├── WEEZEVENT_FNB_MAPPING.md           ← Mapping → fnb_sales_raw
+│   ├── WEEZEVENT_PERFORMANCE_GUIDE.md     ← Index, cache patterns
+│   ├── WEEZEVENT_TESTING_GUIDE.md         ← Tests unitaires Docker
+│   ├── WEEZEVENT_WEBHOOK_QUICKSTART.md    ← Setup webhook (5 min)
+│   └── WEEZEVENT_WEBHOOK_SETUP.md         ← Setup webhook complet (HMAC)
+│
+├── AUDIT_BACKEND_SCALABILITY_2026.md      ← Audit technique mai 2026
+├── AUDIT_IMPLEMENTATION_2026.md           ← Fixes appliqués + actions pending
+├── ERROR_HANDLING_IMPROVEMENTS.md         ← Conventions erreurs 400/404/500
+├── FRONTEND_MENU_COMPOSITION_API.md       ← API composition menus
+├── HTTP_ERROR_CODES.md                    ← Référence codes HTTP + Prisma
+├── INGREDIENT_MARKETPRICE_CLARIFICATION.md ← Modèle domaine
+├── SECURITY_BEST_PRACTICES.md             ← Sécurité frontend/Supabase
+├── SHOPS_SYSTEM.md                        ← Architecture système shops
+├── SPACE_MENUS_EXAMPLE.json               ← Exemple payload API
+├── WEEZEVENT_BACKEND_AUDIT.md             ← État implem P0/P1 Weezevent
+└── WEEZEVENT_SYNC_OPERATIONS.md           ← Opérations sync (référence actuelle)
 ```
 
 ---
 
-## 🚀 Démarrage Rapide
+## Démarrage rapide
 
-### Installation (5 min)
 ```bash
-# 1. Cloner le projet
-git clone <repo-url> && cd api-datafriday
-
-# 2. Copier l'environnement
 cp .env.example envFiles/.env.development
-
-# 3. Démarrer
 make dev-up
-
-# 4. Vérifier
 curl http://localhost:3000/api/v1/health
 ```
 
-### Commandes Essentielles
 ```bash
-make dev-up          # Démarrer en dev
-make dev-logs        # Voir les logs
-make dev-studio      # Prisma Studio (DB)
-make dev-down        # Arrêter
-make test            # Lancer les tests
-make organize-docs   # Organiser la doc
+make dev-up       # Démarrer en dev
+make dev-logs     # Voir les logs
+make dev-studio   # Prisma Studio
+make dev-down     # Arrêter
+make test         # Lancer les tests
 ```
 
 ---
 
-## 🏗️ Architecture HEOS
+## Architecture HEOS
 
 > **HEOS** = Hybrid Event-driven Orchestrated System
 
-### Principe
 ```
 Client → NestJS (Orchestrateur) → Dispatch intelligent
                 │
-                ├─→ Simple        → Prisma direct (< 50ms)
-                ├─→ Cache         → Redis (< 10ms)
-                ├─→ Analytics     → Materialized Views (< 50ms)
-                ├─→ Calculs       → Edge Functions (< 500ms)
-                └─→ Jobs longs    → BullMQ (async)
+                ├─→ Simple     → Prisma direct (< 50ms)
+                ├─→ Cache      → Redis (< 10ms)
+                ├─→ Analytics  → Materialized Views (< 50ms)
+                ├─→ Calculs    → Edge Functions (< 500ms)
+                └─→ Jobs longs → BullMQ (async)
 ```
 
-### Documents Clés
-| Document | Description |
-|----------|-------------|
-| [HEOS_ARCHITECTURE_GUIDE.md](architecture/HEOS_ARCHITECTURE_GUIDE.md) | Guide complet HEOS |
-| [HYBRID_ARCHITECTURE.md](architecture/HYBRID_ARCHITECTURE.md) | NestJS + Supabase Edge |
-| [PERFORMANCE_BENCHMARKS.md](architecture/PERFORMANCE_BENCHMARKS.md) | Benchmarks détaillés |
-| [COST_OPTIMIZATION.md](architecture/COST_OPTIMIZATION.md) | Réduire les coûts |
-| [VPS_VS_CLOUD_COMPARISON.md](architecture/VPS_VS_CLOUD_COMPARISON.md) | Choix infrastructure |
+Référence : [architecture/HEOS_ARCHITECTURE_GUIDE.md](architecture/HEOS_ARCHITECTURE_GUIDE.md)
 
 ---
 
-## 💰 Coûts Estimés
-
-| Configuration | Coût/mois | Performance |
-|---------------|-----------|-------------|
-| **Starter** (Cloud) | $10-25 | ⭐⭐⭐ |
-| **Growth** (Hybride VPS) | $40-50 | ⭐⭐⭐⭐⭐ |
-| **Scale** (Multi-VPS) | $100-200 | ⭐⭐⭐⭐⭐ |
-
----
-
-## 📊 Stack Technique
+## Stack technique
 
 | Composant | Technologie |
 |-----------|-------------|
@@ -144,35 +119,29 @@ Client → NestJS (Orchestrateur) → Dispatch intelligent
 
 ---
 
-## 🔗 Liens Rapides
+## Par rôle
 
-### Par Rôle
-
-| Rôle | Documents |
-|------|-----------|
+| Rôle | Par où commencer |
+|------|-----------------|
 | **Nouveau dev** | [SETUP](getting-started/SETUP.md) → [DEVELOPMENT](getting-started/DEVELOPMENT.md) |
-| **Frontend** | [FRONTEND_API_GUIDE](api/FRONTEND_API_GUIDE.md) → [AUTH](auth/FRONTEND_GUIDE.md) |
-| **DevOps** | [ENVIRONMENTS](getting-started/ENVIRONMENTS.md) → [VPS_VS_CLOUD](architecture/VPS_VS_CLOUD_COMPARISON.md) |
-| **Architecte** | [HEOS](architecture/HEOS_ARCHITECTURE_GUIDE.md) → [HYBRID](architecture/HYBRID_ARCHITECTURE.md) |
+| **Frontend** | [FRONTEND_API_GUIDE](api/FRONTEND_API_GUIDE.md) → [auth/API_REFERENCE](auth/API_REFERENCE.md) |
+| **DevOps** | [ENVIRONMENTS](getting-started/ENVIRONMENTS.md) → [DEPLOYMENT](getting-started/DEPLOYMENT.md) |
+| **Architecte** | [ARCHITECTURE](architecture/ARCHITECTURE.md) → [HEOS](architecture/HEOS_ARCHITECTURE_GUIDE.md) |
+| **Weezevent** | [WEEZEVENT_BACKEND_AUDIT](WEEZEVENT_BACKEND_AUDIT.md) → [WEEZEVENT_SYNC_OPERATIONS](WEEZEVENT_SYNC_OPERATIONS.md) |
 
-### Par Fonctionnalité
+---
+
+## Par fonctionnalité
 
 | Fonctionnalité | Document |
 |----------------|----------|
-| Authentification | [auth/AUTH_QUICKSTART.md](auth/AUTH_QUICKSTART.md) |
-| Weezevent Sync | [weezevent/WEEZEVENT_SYNC_USER_GUIDE.md](weezevent/WEEZEVENT_SYNC_USER_GUIDE.md) |
-| Analytics | [weezevent/WEEZEVENT_ANALYTICS_GUIDE.md](weezevent/WEEZEVENT_ANALYTICS_GUIDE.md) |
+| Auth multi-tenant | [auth/MULTI_TENANT.md](auth/MULTI_TENANT.md) |
+| Weezevent sync | [WEEZEVENT_SYNC_OPERATIONS.md](WEEZEVENT_SYNC_OPERATIONS.md) |
+| Weezevent analytics | [weezevent/WEEZEVENT_ANALYTICS.md](weezevent/WEEZEVENT_ANALYTICS.md) |
 | API Spaces | [api/SPACES_API_GUIDE.md](api/SPACES_API_GUIDE.md) |
+| Webhooks | [weezevent/WEEZEVENT_WEBHOOK_SETUP.md](weezevent/WEEZEVENT_WEBHOOK_SETUP.md) |
+| Gestion erreurs | [HTTP_ERROR_CODES.md](HTTP_ERROR_CODES.md) |
 
 ---
 
-## 📝 Contribution
-
-1. Suivre la structure existante
-2. Placer les fichiers dans le bon dossier
-3. Mettre à jour cet INDEX si nécessaire
-4. Utiliser `make organize-docs` pour réorganiser
-
----
-
-*Documentation DataFriday API v2.0 - Architecture HEOS*
+*Documentation DataFriday API — Architecture HEOS — mai 2026*

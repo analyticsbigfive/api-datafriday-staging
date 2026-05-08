@@ -16,4 +16,7 @@ export class CreateEventDto {
   @ApiPropertyOptional() @IsOptional() @IsBoolean() hasOpeningAct?: boolean;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() hasIntermission?: boolean;
   @ApiPropertyOptional() @IsOptional() @IsString() status?: string;
+  @ApiPropertyOptional() @IsOptional() @IsDateString() eventStartDate?: string;
+  @ApiPropertyOptional() @IsOptional() @IsDateString() eventEndDate?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() eventEndTime?: string;
 }

@@ -70,6 +70,9 @@ export class EventsService {
         hasOpeningAct: dto.hasOpeningAct,
         hasIntermission: dto.hasIntermission,
         status: dto.status || 'draft',
+        ...(dto.eventStartDate !== undefined && { eventStartDate: new Date(dto.eventStartDate) }),
+        ...(dto.eventEndDate !== undefined && { eventEndDate: new Date(dto.eventEndDate) }),
+        ...(dto.eventEndTime !== undefined && { eventEndTime: dto.eventEndTime }),
       },
       include: this.includeRelations,
     });
@@ -121,6 +124,9 @@ export class EventsService {
         ...(dto.hasOpeningAct !== undefined && { hasOpeningAct: dto.hasOpeningAct }),
         ...(dto.hasIntermission !== undefined && { hasIntermission: dto.hasIntermission }),
         ...(dto.status !== undefined && { status: dto.status }),
+        ...(dto.eventStartDate !== undefined && { eventStartDate: new Date(dto.eventStartDate) }),
+        ...(dto.eventEndDate !== undefined && { eventEndDate: new Date(dto.eventEndDate) }),
+        ...(dto.eventEndTime !== undefined && { eventEndTime: dto.eventEndTime }),
       },
       include: this.includeRelations,
     });

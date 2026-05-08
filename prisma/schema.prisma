@@ -1627,6 +1627,11 @@ model Event {
   eventSubcategoryId String?
   tenantId           String?
 
+  // Event date/time details
+  eventStartDate   DateTime?
+  eventEndDate     DateTime?
+  eventEndTime     String?
+
   // Event details
   location         String?
   spaceName        String?

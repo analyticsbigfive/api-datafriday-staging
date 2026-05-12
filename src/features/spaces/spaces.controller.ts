@@ -497,6 +497,24 @@ export class SpacesController {
   }
 
   /**
+   * Sync attendees for a WeezeventEvent from the WeezPay API (G6)
+   */
+  @Post(':id/weezevent-events/:eventId/sync-attendees')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Synchronise les participants d\'un événement depuis l\'API WeezPay' })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiParam({ name: 'eventId', description: 'ID du WeezeventEvent' })
+  @ApiResponse({ status: 200, description: 'Participants synchronisés', schema: { type: 'object', properties: { synced: { type: 'number' } } } })
+  @ApiResponse({ status: 404, description: 'Espace ou événement non trouvé' })
+  async syncEventAttendees(
+    @Param('id') id: string,
+    @Param('eventId') eventId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.spacesService.syncEventAttendees(id, eventId, user.tenantId);
+  }
+
+  /**
    * Delete a space
    */
   @Delete(':id')

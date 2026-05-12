@@ -7,9 +7,10 @@ import { SpaceDashboardService } from './services/space-dashboard.service';
 import { SpaceAggregationService } from './services/space-aggregation.service';
 import { PrismaModule } from '../../core/database/prisma.module';
 import { RedisModule } from '../../core/redis/redis.module';
+import { WeezeventModule } from '../weezevent/weezevent.module';
 
 @Module({
-  imports: [PrismaModule, RedisModule],
+  imports: [PrismaModule, RedisModule, WeezeventModule],
   controllers: [
     SpacesController,
     ConfigurationsController,

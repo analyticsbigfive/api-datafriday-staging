@@ -3,10 +3,14 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { CreateSpaceDto } from './dto/create-space.dto';
 import { UpdateSpaceDto } from './dto/update-space.dto';
 import { QuerySpaceDto } from './dto/query-space.dto';
+import { WeezeventClientService } from '../weezevent/services/weezevent-client.service';
 
 @Injectable()
 export class SpacesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly weezeventClient: WeezeventClientService,
+  ) {}
 
   /**
    * Create a new space for a tenant
@@ -796,6 +800,9 @@ export class SpacesService {
             mi.name                                                        AS "menuItemName",
             pt.name                                                        AS "menuItemType",
             pc.name                                                        AS "menuItemCategory",
+            p.category                                                     AS "weezpayCategory",
+            p."rawData"->>'nature'                                         AS "weezpayNature",
+            p."rawData"->>'subnature'                                      AS "weezpaySubnature",
             mi."totalCost"                                                 AS "itemCost",
             SUM(
               ti."unitPrice" * ti.quantity
@@ -832,7 +839,7 @@ export class SpacesService {
             t."eventId", we.name, we."startDate",
             mem."spaceElementId", se.name, se.type, se.attributes,
             ti."productId", wpm."menuItemId", mi.name, pt.name, pc.name, mi."totalCost",
-            p."vatRate"
+            p."vatRate", p.category, p."rawData"
         `
       : [];
 
@@ -856,6 +863,10 @@ export class SpacesService {
         menuItemName:     r.menuItemName ?? null,
         menuItemType:     r.menuItemType ?? null,
         menuItemCategory: r.menuItemCategory ?? null,
+        // WeezPay product classification (G4)
+        weezpayCategory:  r.weezpayCategory  ?? null,
+        weezpayNature:    r.weezpayNature    ?? null,
+        weezpaySubnature: r.weezpaySubnature ?? null,
         // Metrics
         revenue:          Number(r.revenueHt  || 0),
         quantity:         Number(r.quantity   || 0),
@@ -1054,15 +1065,26 @@ export class SpacesService {
     // Verify space belongs to tenant
     await this.findOne(spaceId, tenantId);
 
-    // Find the integration linked to this space
-    const integration = await this.prisma.weezeventIntegration.findFirst({
-      where: { tenantId, locationId: spaceId },
-      select: { id: true },
+    // Find the integration linked to this space via location mapping
+    const locationMapping = await this.prisma.weezeventLocationSpaceMapping.findFirst({
+      where: { tenantId, spaceId },
+      select: { weezeventLocationId: true },
     });
 
-    if (!integration) {
+    if (!locationMapping) {
       return [];
     }
+
+    const location = await this.prisma.weezeventLocation.findFirst({
+      where: { id: locationMapping.weezeventLocationId, tenantId },
+      select: { integrationId: true },
+    });
+
+    if (!location) {
+      return [];
+    }
+
+    const integration = { id: location.integrationId };
 
     const events = await this.prisma.weezeventEvent.findMany({
       where: { tenantId, integrationId: integration.id },
@@ -1153,6 +1175,91 @@ export class SpacesService {
       visitingTeam:   (updated.metadata as any)?.visitingTeam   ?? null,
       hasIntermission: (updated.metadata as any)?.hasIntermission ?? false,
     };
+  }
+
+  /**
+   * Sync attendees for a single WeezeventEvent from the WeezPay API.
+   * Paginates through GET /organizations/{org}/events/{eventId}/attendees,
+   * upserts each record into WeezeventAttendee, and returns the total count.
+   * ticketsScanned in getShopDetails() is computed from WeezeventAttendee rows
+   * so it will reflect the updated count automatically.
+   */
+  async syncEventAttendees(
+    spaceId: string,
+    eventId: string,
+    tenantId: string,
+  ): Promise<{ synced: number }> {
+    await this.findOne(spaceId, tenantId);
+
+    const event = await this.prisma.weezeventEvent.findFirst({
+      where: { id: eventId, tenantId },
+      select: { id: true, weezeventId: true, integrationId: true },
+    });
+    if (!event) {
+      throw new NotFoundException(`WeezeventEvent ${eventId} not found`);
+    }
+
+    const integration = await this.prisma.weezeventIntegration.findFirst({
+      where: { id: event.integrationId, tenantId },
+      select: { id: true, organizationId: true },
+    });
+    if (!integration?.organizationId) {
+      throw new NotFoundException('WeezeventIntegration organization ID not configured');
+    }
+
+    let page = 1;
+    let hasMore = true;
+    let synced = 0;
+
+    while (hasMore) {
+      const response = await this.weezeventClient.getAttendees(
+        tenantId,
+        integration.organizationId,
+        event.weezeventId,
+        { page, perPage: 100 },
+      );
+
+      for (const a of response.data) {
+        const weezeventId = String(a.id ?? a.attendee_id ?? `${page}_${synced}`);
+        await this.prisma.weezeventAttendee.upsert({
+          where: {
+            tenantId_integrationId_weezeventId: {
+              tenantId,
+              integrationId: event.integrationId,
+              weezeventId,
+            },
+          },
+          create: {
+            weezeventId,
+            tenantId,
+            integrationId: event.integrationId,
+            eventId: event.id,
+            eventName: a.event_name ?? null,
+            email:     a.email      ?? null,
+            firstName: a.first_name ?? null,
+            lastName:  a.last_name  ?? null,
+            ticketType: typeof a.ticket_type === 'string' ? a.ticket_type : (a.ticket_type?.name ?? null),
+            status:    a.status ?? 'registered',
+            rawData:   a,
+          },
+          update: {
+            status:    a.status ?? 'registered',
+            email:     a.email      ?? null,
+            firstName: a.first_name ?? null,
+            lastName:  a.last_name  ?? null,
+            ticketType: typeof a.ticket_type === 'string' ? a.ticket_type : (a.ticket_type?.name ?? null),
+            rawData:   a,
+            syncedAt:  new Date(),
+          },
+        });
+        synced++;
+      }
+
+      hasMore = page < response.meta.total_pages;
+      page++;
+    }
+
+    return { synced };
   }
 
   /**

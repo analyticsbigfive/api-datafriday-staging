@@ -934,6 +934,99 @@ export class SpacesService {
   }
 
   /**
+   * Get minute-level timeline for one event: minute × shop × menuItem
+   * Returns one record per (minute, spaceElementId, weezeventProductId) combination.
+   */
+  async getEventTimeline(spaceId: string, eventId: string, tenantId: string) {
+    // Verify space belongs to tenant
+    await this.findOne(spaceId, tenantId);
+
+    // Get mapped shop IDs for this space to scope the join
+    const configs = await this.prisma.config.findMany({
+      where: { space: { id: spaceId, tenantId } },
+      select: { id: true },
+    });
+    const configIds = configs.map(c => c.id);
+
+    const shopsFromFloors = await this.prisma.spaceElement.findMany({
+      where: { floor: { configId: { in: configIds } }, type: { in: ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack', 'fnb_icecream', 'merchshop'] } },
+      select: { id: true },
+    });
+    const shopsFromForecourt = await this.prisma.spaceElement.findMany({
+      where: { forecourt: { configId: { in: configIds } }, type: { in: ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack', 'fnb_icecream', 'merchshop'] } },
+      select: { id: true },
+    });
+    const shopIds = [...shopsFromFloors, ...shopsFromForecourt].map(s => s.id);
+
+    if (shopIds.length === 0) return [];
+
+    const rows: any[] = await this.prisma.$queryRaw`
+      SELECT
+        TO_CHAR(DATE_TRUNC('minute', t."transactionDate"), 'HH24:MI')    AS minute,
+        mem."spaceElementId"                                              AS "shopId",
+        se.name                                                           AS "shopName",
+        COALESCE(se.attributes::jsonb->>'originalType', se.type::text)   AS "shopType",
+        se.attributes::jsonb->>'area'                                     AS "shopArea",
+        ti."productId"                                                    AS "weezeventProductId",
+        wpm."menuItemId",
+        mi.name                                                           AS "menuItemName",
+        pt.name                                                           AS "menuItemType",
+        pc.name                                                           AS "menuItemCategory",
+        SUM(ti.quantity)::integer                                         AS quantity,
+        COUNT(DISTINCT t.id)::integer                                     AS "transactionCount",
+        SUM(
+          ti."unitPrice" * ti.quantity
+          / (1 + COALESCE(p."vatRate", 20) / 100)
+        )::numeric(12,2)                                                  AS "revenueHt"
+      FROM "WeezeventTransaction" t
+      INNER JOIN "WeezeventTransactionItem" ti
+        ON ti."transactionId" = t.id
+      INNER JOIN "WeezeventMerchantElementMapping" mem
+        ON mem."weezeventMerchantId" = t."locationId"
+       AND mem."tenantId"         = ${tenantId}
+       AND mem."spaceElementId"   = ANY(${shopIds})
+      INNER JOIN "SpaceElement" se
+        ON se.id = mem."spaceElementId"
+      LEFT JOIN "WeezeventProduct" p
+        ON p.id = ti."productId"
+      LEFT JOIN "WeezeventProductMapping" wpm
+        ON wpm."weezeventProductId" = ti."productId"
+       AND wpm."tenantId" = ${tenantId}
+      LEFT JOIN "MenuItem" mi
+        ON mi.id = wpm."menuItemId"
+      LEFT JOIN "ProductType" pt
+        ON pt.id = mi."typeId"
+      LEFT JOIN "ProductCategory" pc
+        ON pc.id = mi."categoryId"
+      WHERE t."tenantId" = ${tenantId}
+        AND t."eventId"  = ${eventId}
+        AND t.status     = 'completed'
+      GROUP BY
+        DATE_TRUNC('minute', t."transactionDate"),
+        mem."spaceElementId", se.name, se.type, se.attributes,
+        ti."productId", wpm."menuItemId", mi.name, pt.name, pc.name,
+        p."vatRate"
+      ORDER BY minute ASC
+    `;
+
+    return rows.map((r: any) => ({
+      minute:           r.minute,
+      shopId:           r.shopId,
+      shopName:         r.shopName,
+      shopType:         r.shopType ?? null,
+      shopArea:         r.shopArea ?? null,
+      weezeventProductId: r.weezeventProductId ?? null,
+      menuItemId:       r.menuItemId ?? null,
+      menuItemName:     r.menuItemName ?? null,
+      menuItemType:     r.menuItemType ?? null,
+      menuItemCategory: r.menuItemCategory ?? null,
+      quantity:         Number(r.quantity         || 0),
+      transactionCount: Number(r.transactionCount || 0),
+      revenueHt:        Number(r.revenueHt        || 0),
+    }));
+  }
+
+  /**
    * Create or update a configuration with normalized tables
    */
   async saveConfiguration(dto: any, tenantId: string) {

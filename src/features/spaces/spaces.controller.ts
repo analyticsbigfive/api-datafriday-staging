@@ -398,6 +398,53 @@ export class SpacesController {
   }
 
   /**
+   * Get minute-level timeline for one event: minute × shop × menuItem
+   */
+  @Get(':id/event-timeline/:eventId')
+  @ApiOperation({
+    summary: 'Timeline minute par minute d\'un événement',
+    description:
+      'Retourne les transactions agrégées par minute × shop (SpaceElement) × article (MenuItem mappé) pour un événement donné. ' +
+      'Source de données : WeezeventTransaction + WeezeventTransactionItem, jointure avec les mappings shop (Step 2) et menu (Step 3) du wizard. ' +
+      'Produits non mappés au Step 3 sont inclus avec menuItemId = null.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiParam({ name: 'eventId', description: 'ID de l\'événement Weezevent (WeezeventEvent.id)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Enregistrements timeline (un par minute × shop × article)',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          minute:           { type: 'string', example: '19:42', description: 'Minute HH:MM (heure locale UTC)' },
+          shopId:           { type: 'string', description: 'ID du SpaceElement (shop)' },
+          shopName:         { type: 'string', description: 'Nom du shop' },
+          shopType:         { type: 'string', nullable: true, description: 'Type du shop (fnb-food, fnb-bar…)' },
+          shopArea:         { type: 'string', nullable: true, description: 'Zone du shop' },
+          weezeventProductId: { type: 'string', nullable: true, description: 'ID produit Weezevent brut' },
+          menuItemId:       { type: 'string', nullable: true, description: 'ID MenuItem mappé (null si produit non mappé au Step 3)' },
+          menuItemName:     { type: 'string', nullable: true, description: 'Nom de l\'article' },
+          menuItemType:     { type: 'string', nullable: true, description: 'Type produit (ProductType)' },
+          menuItemCategory: { type: 'string', nullable: true, description: 'Catégorie produit (ProductCategory)' },
+          quantity:         { type: 'integer', description: 'Quantité vendue sur cette minute' },
+          transactionCount: { type: 'integer', description: 'Transactions distinctes sur cette minute' },
+          revenueHt:        { type: 'number', description: 'Revenu HT (€) sur cette minute' },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Espace non trouvé' })
+  async getEventTimeline(
+    @Param('id') id: string,
+    @Param('eventId') eventId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.spacesService.getEventTimeline(id, eventId, user.tenantId);
+  }
+
+  /**
    * Delete a space
    */
   @Delete(':id')

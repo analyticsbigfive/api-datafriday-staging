@@ -445,6 +445,58 @@ export class SpacesController {
   }
 
   /**
+   * List WeezeventEvents for a space, including enrichment metadata
+   */
+  @Get(':id/weezevent-events')
+  @ApiOperation({ summary: 'Liste des WeezeventEvents d\'un espace avec métadonnées d\'enrichissement' })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiResponse({ status: 200, description: 'Liste des événements Weezevent avec métadonnées' })
+  @ApiResponse({ status: 404, description: 'Espace non trouvé' })
+  async getWeezeventEventsForSpace(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.spacesService.getWeezeventEventsForSpace(id, user.tenantId);
+  }
+
+  /**
+   * Update enrichment metadata for a WeezeventEvent (doorsOpening, showTime, category, team…)
+   */
+  @Patch(':id/weezevent-events/:eventId')
+  @ApiOperation({ summary: 'Mettre à jour les métadonnées d\'enrichissement d\'un WeezeventEvent' })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiParam({ name: 'eventId', description: 'ID du WeezeventEvent' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        doorsOpening:   { type: 'string', nullable: true, example: '18:30' },
+        showTime:       { type: 'string', nullable: true, example: '20:00' },
+        category:       { type: 'string', nullable: true, example: 'sport' },
+        eventType:      { type: 'string', nullable: true, example: 'home' },
+        team:           { type: 'string', nullable: true, example: 'PSG' },
+        visitingTeam:   { type: 'string', nullable: true, example: 'Lyon' },
+        hasIntermission:{ type: 'boolean', nullable: true },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Métadonnées mises à jour' })
+  @ApiResponse({ status: 404, description: 'Espace ou événement non trouvé' })
+  async updateWeezeventEventMetadata(
+    @Param('id') id: string,
+    @Param('eventId') eventId: string,
+    @Body() body: {
+      doorsOpening?: string | null;
+      showTime?: string | null;
+      category?: string | null;
+      eventType?: string | null;
+      team?: string | null;
+      visitingTeam?: string | null;
+      hasIntermission?: boolean;
+    },
+    @CurrentUser() user: any,
+  ) {
+    return this.spacesService.updateWeezeventEventMetadata(id, eventId, body, user.tenantId);
+  }
+
+  /**
    * Delete a space
    */
   @Delete(':id')

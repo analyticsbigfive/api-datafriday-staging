@@ -887,6 +887,15 @@ export class SpacesService {
       : [];
     const attendeeCountMap = new Map(attendeeCounts.map(a => [a.eventId!, a._count.id]));
 
+    // Fetch enrichment metadata from WeezeventEvent records
+    const weezeventEventMeta = eventIds.length > 0
+      ? await this.prisma.weezeventEvent.findMany({
+          where: { id: { in: eventIds }, tenantId },
+          select: { id: true, metadata: true },
+        })
+      : [];
+    const eventMetaMap = new Map(weezeventEventMeta.map(e => [e.id, e.metadata as Record<string, any> | null]));
+
     const seenEventIds = new Set<string>();
     const events = granularRows
       .filter((r: any) => {
@@ -895,15 +904,25 @@ export class SpacesService {
         seenEventIds.add(r.weezeventEventId);
         return true;
       })
-      .map((r: any) => ({
-        id:             r.weezeventEventId,
-        name:           r.eventName ?? r.weezeventEventId,
-        eventName:      r.eventName ?? r.weezeventEventId,
-        date:           r.eventDate ?? null,
-        ticketsScanned: attendeeCountMap.get(r.weezeventEventId) ?? 0,
-        attendees:      attendeeCountMap.get(r.weezeventEventId) ?? 0,
-        isFuture:       r.eventDate ? new Date(r.eventDate) > new Date() : false,
-      }));
+      .map((r: any) => {
+        const meta = eventMetaMap.get(r.weezeventEventId) ?? {};
+        return {
+          id:             r.weezeventEventId,
+          name:           r.eventName ?? r.weezeventEventId,
+          eventName:      r.eventName ?? r.weezeventEventId,
+          date:           r.eventDate ?? null,
+          ticketsScanned: attendeeCountMap.get(r.weezeventEventId) ?? 0,
+          attendees:      attendeeCountMap.get(r.weezeventEventId) ?? 0,
+          isFuture:       r.eventDate ? new Date(r.eventDate) > new Date() : false,
+          doorsOpening:   meta?.doorsOpening   ?? null,
+          showTime:       meta?.showTime       ?? null,
+          category:       meta?.category       ?? null,
+          eventType:      meta?.eventType      ?? null,
+          team:           meta?.team           ?? null,
+          visitingTeam:   meta?.visitingTeam   ?? null,
+          hasIntermission: meta?.hasIntermission ?? false,
+        };
+      });
 
     // --- Build shops list (per-shop summary for the builder/overview panels) ---
     const shops = allShops.map(shop => {
@@ -1023,7 +1042,117 @@ export class SpacesService {
       quantity:         Number(r.quantity         || 0),
       transactionCount: Number(r.transactionCount || 0),
       revenueHt:        Number(r.revenueHt        || 0),
+      revenue:          Number(r.revenueHt        || 0),
     }));
+  }
+
+  /**
+   * List all WeezeventEvents linked to a space (via integration scoped to tenant).
+   * Returns event data with enrichment metadata (doorsOpening, showTime, category, etc.).
+   */
+  async getWeezeventEventsForSpace(spaceId: string, tenantId: string) {
+    // Verify space belongs to tenant
+    await this.findOne(spaceId, tenantId);
+
+    // Find the integration linked to this space
+    const integration = await this.prisma.weezeventIntegration.findFirst({
+      where: { tenantId, locationId: spaceId },
+      select: { id: true },
+    });
+
+    if (!integration) {
+      return [];
+    }
+
+    const events = await this.prisma.weezeventEvent.findMany({
+      where: { tenantId, integrationId: integration.id },
+      select: {
+        id: true,
+        weezeventId: true,
+        name: true,
+        startDate: true,
+        endDate: true,
+        status: true,
+        metadata: true,
+      },
+      orderBy: { startDate: 'asc' },
+    });
+
+    return events.map((e) => ({
+      id: e.id,
+      weezeventId: e.weezeventId,
+      name: e.name,
+      startDate: e.startDate,
+      endDate: e.endDate,
+      status: e.status,
+      doorsOpening:  (e.metadata as any)?.doorsOpening  ?? null,
+      showTime:      (e.metadata as any)?.showTime      ?? null,
+      category:      (e.metadata as any)?.category      ?? null,
+      eventType:     (e.metadata as any)?.eventType     ?? null,
+      team:          (e.metadata as any)?.team          ?? null,
+      visitingTeam:  (e.metadata as any)?.visitingTeam  ?? null,
+      hasIntermission: (e.metadata as any)?.hasIntermission ?? false,
+    }));
+  }
+
+  /**
+   * Update enrichment metadata for a single WeezeventEvent.
+   * Only fields explicitly provided in the payload are updated (shallow merge).
+   */
+  async updateWeezeventEventMetadata(
+    spaceId: string,
+    eventId: string,
+    payload: {
+      doorsOpening?: string | null;
+      showTime?: string | null;
+      category?: string | null;
+      eventType?: string | null;
+      team?: string | null;
+      visitingTeam?: string | null;
+      hasIntermission?: boolean;
+    },
+    tenantId: string,
+  ) {
+    // Verify space belongs to tenant
+    await this.findOne(spaceId, tenantId);
+
+    const event = await this.prisma.weezeventEvent.findFirst({
+      where: { id: eventId, tenantId },
+      select: { id: true, metadata: true },
+    });
+
+    if (!event) {
+      throw new NotFoundException(`WeezeventEvent ${eventId} not found`);
+    }
+
+    const existingMeta = (event.metadata as Record<string, unknown>) ?? {};
+    const updatedMeta = { ...existingMeta, ...payload };
+
+    const updated = await this.prisma.weezeventEvent.update({
+      where: { id: eventId },
+      data: { metadata: updatedMeta },
+      select: {
+        id: true,
+        weezeventId: true,
+        name: true,
+        startDate: true,
+        metadata: true,
+      },
+    });
+
+    return {
+      id: updated.id,
+      weezeventId: updated.weezeventId,
+      name: updated.name,
+      startDate: updated.startDate,
+      doorsOpening:   (updated.metadata as any)?.doorsOpening   ?? null,
+      showTime:       (updated.metadata as any)?.showTime       ?? null,
+      category:       (updated.metadata as any)?.category       ?? null,
+      eventType:      (updated.metadata as any)?.eventType      ?? null,
+      team:           (updated.metadata as any)?.team           ?? null,
+      visitingTeam:   (updated.metadata as any)?.visitingTeam   ?? null,
+      hasIntermission: (updated.metadata as any)?.hasIntermission ?? false,
+    };
   }
 
   /**

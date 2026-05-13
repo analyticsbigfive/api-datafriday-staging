@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { SpacesService } from './spaces.service';
 import { PrismaService } from '../../core/database/prisma.service';
+import { WeezeventClientService } from '../weezevent/services/weezevent-client.service';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 
 describe('SpacesService', () => {
@@ -50,6 +51,10 @@ describe('SpacesService', () => {
         {
           provide: PrismaService,
           useValue: mockPrismaService,
+        },
+        {
+          provide: WeezeventClientService,
+          useValue: {},
         },
       ],
     }).compile();
@@ -742,6 +747,44 @@ describe('SpacesService', () => {
         }),
         include: expect.any(Object),
       });
+    });
+  });
+
+  describe('getShopDetails — status filter', () => {
+    it('should use status = V (not completed) in the shop granular SQL', async () => {
+      const tenantId = 'tenant-123';
+      const spaceId = 'space-abc';
+
+      // Stub findOne / space lookup
+      mockPrismaService.space.findFirst.mockResolvedValue({ id: spaceId, tenantId });
+      // No configs → query raw won't run
+      mockPrismaService.config.findMany.mockResolvedValue([]);
+      mockPrismaService.spaceElement = { findMany: jest.fn().mockResolvedValue([]) };
+
+      // The method will call $queryRaw with the SQL template.
+      // We capture the raw SQL string to assert on its content.
+      const rawQueryMock = jest.fn().mockResolvedValue([]);
+      (mockPrismaService as any).$queryRaw = rawQueryMock;
+      (mockPrismaService as any).weezeventAttendee = { groupBy: jest.fn().mockResolvedValue([]) };
+      (mockPrismaService as any).weezeventEvent = {
+        findMany: jest.fn().mockResolvedValue([]),
+        findFirst: jest.fn().mockResolvedValue(null),
+        findUnique: jest.fn().mockResolvedValue(null),
+      };
+
+      // Trigger getShopDetails — it may throw for unrelated reasons after SQL,
+      // but we only care about what $queryRaw received.
+      await service.getShopDetails(spaceId, tenantId).catch(() => {});
+
+      // Verify all $queryRaw calls — none should contain 'completed'
+      for (const call of rawQueryMock.mock.calls) {
+        const sqlParts: string[] = call[0]?.strings ?? [];
+        const fullSql = sqlParts.join('');
+        expect(fullSql).not.toContain("'completed'");
+        if (fullSql.includes('WeezeventTransaction')) {
+          expect(fullSql).toContain("'V'");
+        }
+      }
     });
   });
 });

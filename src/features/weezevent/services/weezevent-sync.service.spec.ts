@@ -55,6 +55,16 @@ describe('WeezeventSyncService', () => {
             createMany: jest.fn(),
             updateMany: jest.fn(),
         },
+        weezeventIntegration: {
+            findUnique: jest.fn(),
+        },
+        weezeventLocation: {
+            upsert: jest.fn(),
+        },
+        weezeventSyncState: {
+            upsert: jest.fn(),
+        },
+        $queryRaw: jest.fn(),
         $transaction: jest.fn(),
     };
 
@@ -96,6 +106,26 @@ describe('WeezeventSyncService', () => {
         mockPrismaService.weezeventTransactionItem.findMany.mockResolvedValue([
             { id: 'item-1', weezeventItemId: '1' },
         ]);
+
+        // Default mock for integration lookup
+        mockPrismaService.weezeventIntegration.findUnique.mockResolvedValue({
+            id: 'integration-123',
+            organizationId: 'org-456',
+            enabled: true,
+            tenantId: 'tenant-123',
+        });
+
+        // Default mock for product lookup (empty — no products by default)
+        mockPrismaService.weezeventProduct.findMany.mockResolvedValue([]);
+
+        // Default mock for location upsert
+        mockPrismaService.weezeventLocation.upsert.mockResolvedValue({ id: 'loc-1' });
+
+        // Default mock for sync state upsert (used by syncEvents, syncProducts)
+        mockPrismaService.weezeventSyncState.upsert.mockResolvedValue({});
+
+        // Default mock for $queryRaw (used by backfillLocationsFromTransactions)
+        mockPrismaService.$queryRaw.mockResolvedValue([]);
     });
 
     afterEach(() => {
@@ -162,7 +192,7 @@ describe('WeezeventSyncService', () => {
                 id: 'payment-1',
             });
 
-            const result = await service.syncTransactions(tenantId);
+            const result = await service.syncTransactions(tenantId, 'integration-123');
 
             expect(result.success).toBe(true);
             expect(result.itemsSynced).toBe(1);
@@ -214,7 +244,7 @@ describe('WeezeventSyncService', () => {
                 id: 'payment-1',
             });
 
-            const result = await service.syncTransactions(tenantId);
+            const result = await service.syncTransactions(tenantId, 'integration-123');
 
             expect(result.itemsSynced).toBe(2);
             expect(mockWeezeventClient.getTransactions).toHaveBeenCalledTimes(2);
@@ -249,7 +279,7 @@ describe('WeezeventSyncService', () => {
                 id: 'payment-1',
             });
 
-            const result = await service.syncTransactions(tenantId);
+            const result = await service.syncTransactions(tenantId, 'integration-123');
 
             expect(result.itemsCreated).toBe(0);
             expect(result.itemsUpdated).toBe(1);
@@ -281,7 +311,7 @@ describe('WeezeventSyncService', () => {
                 id: 'payment-1',
             });
 
-            const result = await service.syncTransactions(tenantId);
+            const result = await service.syncTransactions(tenantId, 'integration-123');
 
             expect(result.itemsSynced).toBe(1);
             expect(result.errors).toBe(1);
@@ -302,7 +332,7 @@ describe('WeezeventSyncService', () => {
                 },
             });
 
-            await service.syncTransactions(tenantId, {
+            await service.syncTransactions(tenantId, 'integration-123', {
                 fromDate,
                 toDate,
             });
@@ -342,7 +372,7 @@ describe('WeezeventSyncService', () => {
                 weezeventId: '789',
             });
 
-            const result = await service.syncWallet(tenantId, organizationId, walletId);
+            const result = await service.syncWallet(tenantId, 'integration-123', organizationId, walletId);
 
             expect(result.weezeventId).toBe('789');
             expect(mockWeezeventClient.getWallet).toHaveBeenCalledWith(
@@ -380,7 +410,7 @@ describe('WeezeventSyncService', () => {
                 weezeventId: '100',
             });
 
-            const result = await service.syncUser(tenantId, organizationId, userId);
+            const result = await service.syncUser(tenantId, 'integration-123', organizationId, userId);
 
             expect(result.weezeventId).toBe('100');
             expect(mockWeezeventClient.getUser).toHaveBeenCalledWith(
@@ -427,7 +457,7 @@ describe('WeezeventSyncService', () => {
                 weezeventId: '1',
             });
 
-            const result = await service.syncEvents(tenantId);
+            const result = await service.syncEvents(tenantId, 'integration-123');
 
             expect(result.success).toBe(true);
             expect(result.itemsSynced).toBe(1);
@@ -473,11 +503,134 @@ describe('WeezeventSyncService', () => {
                 weezeventId: '5',
             });
 
-            const result = await service.syncProducts(tenantId);
+            const result = await service.syncProducts(tenantId, 'integration-123');
 
             expect(result.success).toBe(true);
             expect(result.itemsSynced).toBe(1);
             expect(result.itemsCreated).toBe(1);
+        });
+    });
+
+    describe('productId resolution in syncTransactionItems', () => {
+        const tenantId = 'tenant-123';
+        const integrationId = 'integration-123';
+
+        const baseTransaction = {
+            id: 100,
+            status: 'V',
+            created: '2024-06-01T18:00:00Z',
+            event_name: 'Match Test',
+            fundation_name: 'Buvette Nord',
+            location_name: 'Zone Nord',
+            location_id: 42,
+            seller_id: 1,
+            seller_wallet_id: 2,
+            rows: [
+                {
+                    id: 99,
+                    item_id: 10,
+                    item_name: 'Burger',
+                    compound_id: null,
+                    unit_price: 1200,
+                    vat: 10,
+                    reduction: 0,
+                    payments: [{ id: 1, wallet_id: 1, amount: 1200, amount_vat: 120, currency_id: 1, quantity: 2, payment_method_id: 1 }],
+                },
+            ],
+        };
+
+        function mockSingleTransactionSync(transactionOverride = {}) {
+            mockWeezeventClient.getTransactions.mockResolvedValue({
+                data: [{ ...baseTransaction, ...transactionOverride }],
+                meta: { current_page: 1, per_page: 100, total: 1, total_pages: 1 },
+            });
+            mockPrismaService.weezeventTransaction.findUnique.mockResolvedValue(null);
+            mockPrismaService.weezeventTransaction.upsert.mockResolvedValue({ id: 'trans-1' });
+            mockPrismaService.weezeventTransactionItem.deleteMany.mockResolvedValue({ count: 0 });
+            mockPrismaService.weezeventTransactionItem.createMany.mockResolvedValue({ count: 1 });
+            mockPrismaService.weezeventTransactionItem.findMany.mockResolvedValue([
+                { id: 'item-1', weezeventItemId: '99' },
+            ]);
+            mockPrismaService.weezeventPayment.createMany.mockResolvedValue({ count: 1 });
+        }
+
+        it('should set productId = null when no products exist in DB', async () => {
+            mockSingleTransactionSync();
+            // No products in DB
+            mockPrismaService.weezeventProduct.findMany.mockResolvedValue([]);
+
+            await service.syncTransactions(tenantId, integrationId);
+
+            expect(mockPrismaService.weezeventTransactionItem.createMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.arrayContaining([
+                        expect.objectContaining({ productId: null }),
+                    ]),
+                }),
+            );
+        });
+
+        it('should resolve productId from weezeventId when product exists in DB', async () => {
+            mockSingleTransactionSync();
+            // item_id = 10 → should map to this CUID
+            mockPrismaService.weezeventProduct.findMany.mockResolvedValue([
+                { id: 'prod-cuid-abc', weezeventId: '10' },
+            ]);
+
+            await service.syncTransactions(tenantId, integrationId);
+
+            expect(mockPrismaService.weezeventTransactionItem.createMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.arrayContaining([
+                        expect.objectContaining({ productId: 'prod-cuid-abc' }),
+                    ]),
+                }),
+            );
+        });
+
+        it('should set productId = null for unknown item_id (no crash)', async () => {
+            mockSingleTransactionSync();
+            // Only product with id '999' exists — item_id 10 is unknown
+            mockPrismaService.weezeventProduct.findMany.mockResolvedValue([
+                { id: 'prod-other', weezeventId: '999' },
+            ]);
+
+            await expect(service.syncTransactions(tenantId, integrationId)).resolves.not.toThrow();
+
+            expect(mockPrismaService.weezeventTransactionItem.createMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.arrayContaining([
+                        expect.objectContaining({ productId: null }),
+                    ]),
+                }),
+            );
+        });
+
+        it('should build productIdMap once per sync — not per transaction', async () => {
+            // Two transactions, both with item_id 10
+            mockWeezeventClient.getTransactions.mockResolvedValue({
+                data: [
+                    { ...baseTransaction, id: 100 },
+                    { ...baseTransaction, id: 101 },
+                ],
+                meta: { current_page: 1, per_page: 100, total: 2, total_pages: 1 },
+            });
+            mockPrismaService.weezeventTransaction.findUnique.mockResolvedValue(null);
+            mockPrismaService.weezeventTransaction.upsert.mockResolvedValue({ id: 'trans-x' });
+            mockPrismaService.weezeventTransactionItem.deleteMany.mockResolvedValue({ count: 0 });
+            mockPrismaService.weezeventTransactionItem.createMany.mockResolvedValue({ count: 1 });
+            mockPrismaService.weezeventTransactionItem.findMany.mockResolvedValue([
+                { id: 'item-1', weezeventItemId: '99' },
+            ]);
+            mockPrismaService.weezeventPayment.createMany.mockResolvedValue({ count: 1 });
+            mockPrismaService.weezeventProduct.findMany.mockResolvedValue([
+                { id: 'prod-cuid-abc', weezeventId: '10' },
+            ]);
+
+            await service.syncTransactions(tenantId, integrationId);
+
+            // findMany for products should be called exactly once (not once per transaction)
+            expect(mockPrismaService.weezeventProduct.findMany).toHaveBeenCalledTimes(1);
         });
     });
 });

@@ -174,7 +174,7 @@ export class SpaceAggregationService {
         AND t."locationId" = ANY(${locationIds})
         AND t."transactionDate" >= ${fromDate}
         AND t."transactionDate" <= ${toDate}
-        AND t.status = 'completed'
+        AND t.status = 'V'
       GROUP BY 
         day,
         t."eventId",
@@ -270,7 +270,7 @@ export class SpaceAggregationService {
         AND t."locationId" = ANY(${locationIds})
         AND t."transactionDate" >= ${fromDate}
         AND t."transactionDate" <= ${toDate}
-        AND t.status = 'completed'
+        AND t.status = 'V'
         AND ti."productId" IS NOT NULL
       GROUP BY day, ti."productId"
     `;

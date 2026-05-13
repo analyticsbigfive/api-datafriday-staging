@@ -78,6 +78,15 @@ export class WeezeventSyncService {
                 `Starting transaction sync for tenant ${tenantId}, organization ${organizationId}`,
             );
 
+            // Build weezeventId → CUID map once for the whole sync to resolve
+            // TransactionItem.productId from row.item_id (Weezevent numeric ID).
+            const allProducts = await this.prisma.weezeventProduct.findMany({
+                where: { tenantId, integrationId },
+                select: { id: true, weezeventId: true },
+            });
+            const productIdMap = new Map(allProducts.map(p => [p.weezeventId, p.id]));
+            this.logger.log(`Built productIdMap with ${productIdMap.size} entries`);
+
             let page = 1;
             let hasMore = true;
 
@@ -106,6 +115,7 @@ export class WeezeventSyncService {
                             tenantId,
                             integrationId,
                             apiTransaction,
+                            productIdMap,
                         );
 
                         result.itemsSynced++;
@@ -230,6 +240,7 @@ export class WeezeventSyncService {
         tenantId: string,
         integrationId: string,
         apiTransaction: ApiTransaction,
+        productIdMap: Map<string, string> = new Map(),
     ): Promise<{ created: boolean; updated: boolean }> {
         const weezeventId = apiTransaction.id.toString();
 
@@ -321,7 +332,7 @@ export class WeezeventSyncService {
         });
 
         // Sync transaction items
-        await this.syncTransactionItems(transaction.id, apiTransaction.rows);
+        await this.syncTransactionItems(transaction.id, apiTransaction.rows, productIdMap);
 
         return {
             created: !existing,
@@ -335,6 +346,7 @@ export class WeezeventSyncService {
     private async syncTransactionItems(
         transactionId: string,
         rows: ApiTransaction['rows'],
+        productIdMap: Map<string, string> = new Map(),
     ): Promise<void> {
         // Delete existing items (cascade will delete payments)
         await this.prisma.weezeventTransactionItem.deleteMany({
@@ -349,6 +361,7 @@ export class WeezeventSyncService {
                 transactionId,
                 weezeventItemId: row.id.toString(),
                 productName: (row as any).item_name || `Item ${row.item_id}`,
+                productId: productIdMap.get(String(row.item_id)) ?? null,
                 compoundId: row.compound_id?.toString() || null,
                 quantity: totalQty || 1,
                 unitPrice: (row.unit_price || 0) / 100,

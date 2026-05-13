@@ -798,6 +798,7 @@ export class SpacesService {
             ti."productId"                                                 AS "weezeventProductId",
             wpm."menuItemId",
             mi.name                                                        AS "menuItemName",
+            mi.picture                                                     AS "menuItemPicture",
             pt.name                                                        AS "menuItemType",
             pc.name                                                        AS "menuItemCategory",
             p.category                                                     AS "weezpayCategory",
@@ -833,12 +834,12 @@ export class SpacesService {
           LEFT JOIN "ProductCategory" pc
             ON pc.id = mi."categoryId"
           WHERE t."tenantId" = ${tenantId}
-            AND t.status    = 'completed'
+            AND t.status    = 'V'
             AND t."eventId" IS NOT NULL
           GROUP BY
             t."eventId", we.name, we."startDate",
             mem."spaceElementId", se.name, se.type, se.attributes,
-            ti."productId", wpm."menuItemId", mi.name, pt.name, pc.name, mi."totalCost",
+            ti."productId", wpm."menuItemId", mi.name, mi.picture, pt.name, pc.name, mi."totalCost",
             p."vatRate", p.category, p."rawData"
         `
       : [];
@@ -861,6 +862,7 @@ export class SpacesService {
         // Product dimensions (null when product unmapped to MenuItem)
         menuItemId:       r.menuItemId ?? r.weezeventProductId,
         menuItemName:     r.menuItemName ?? null,
+        menuItemPicture:  r.menuItemPicture ?? null,
         menuItemType:     r.menuItemType ?? null,
         menuItemCategory: r.menuItemCategory ?? null,
         // WeezPay product classification (G4)
@@ -1030,7 +1032,7 @@ export class SpacesService {
         ON pc.id = mi."categoryId"
       WHERE t."tenantId" = ${tenantId}
         AND t."eventId"  = ${eventId}
-        AND t.status     = 'completed'
+        AND t.status     = 'V'
       GROUP BY
         DATE_TRUNC('minute', t."transactionDate"),
         mem."spaceElementId", se.name, se.type, se.attributes,

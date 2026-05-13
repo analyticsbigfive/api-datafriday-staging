@@ -287,6 +287,16 @@ export class WeezeventController {
         const where: any = { tenantId };
         if (integrationId) where.integrationId = integrationId;
 
+        // WeezeventProductMapping has no integrationId column — filter via relation
+        const mappingWhere: any = integrationId
+            ? { tenantId, weezeventProduct: { integrationId } }
+            : { tenantId };
+
+        // WeezeventTransactionItem has no integrationId column — filter via transaction relation
+        const itemWhere: any = integrationId
+            ? { transaction: { tenantId, integrationId } }
+            : { transaction: { tenantId } };
+
         // Delete in dependency order (children first)
         const [
             attendees, prices, orders,
@@ -301,9 +311,9 @@ export class WeezeventController {
             this.prisma.weezeventOrder.deleteMany({ where }),
             this.prisma.weezeventProductComponent.deleteMany({ where }),
             this.prisma.weezeventProductVariant.deleteMany({ where }),
-            this.prisma.weezeventTransactionItem.deleteMany({ where: { transaction: { tenantId } } }),
+            this.prisma.weezeventTransactionItem.deleteMany({ where: itemWhere }),
             this.prisma.weezeventTransaction.deleteMany({ where }),
-            this.prisma.weezeventProductMapping.deleteMany({ where }),
+            this.prisma.weezeventProductMapping.deleteMany({ where: mappingWhere }),
             this.prisma.weezeventProduct.deleteMany({ where }),
             this.prisma.weezeventMerchant.deleteMany({ where }),
             this.prisma.weezeventLocation.deleteMany({ where }),

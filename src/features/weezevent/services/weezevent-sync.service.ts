@@ -238,14 +238,14 @@ export class WeezeventSyncService {
             where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
         });
 
-        // Calculate total amount from rows
-        const totalAmount = apiTransaction.rows.reduce((sum, row) => {
-            const rowTotal = row.payments.reduce(
-                (rowSum, payment) => rowSum + payment.amount,
+        // Calculate total amount from rows[].payments[].amount (in centimes) → convert to euros
+        const txRows = apiTransaction.rows ?? [];
+        const totalAmount = txRows.reduce((sum, row) => {
+            return sum + (row.payments ?? []).reduce(
+                (rowSum, payment) => rowSum + (payment.amount ?? 0),
                 0,
             );
-            return sum + rowTotal;
-        }, 0);
+        }, 0) / 100;
 
         // Extract status as string (API may return object with name/title)
         const transactionStatus = apiTransaction.status as any;
@@ -342,17 +342,21 @@ export class WeezeventSyncService {
         });
 
         // Batch create items and collect payments data
-        const itemsData = rows.map(row => ({
-            transactionId,
-            weezeventItemId: row.id.toString(),
-            productName: `Item ${row.item_id}`,
-            compoundId: row.compound_id?.toString() || null,
-            quantity: 1,
-            unitPrice: row.unit_price || 0,
-            vat: row.vat || 0,
-            reduction: row.reduction || 0,
-            rawData: row as any,
-        }));
+        const itemsData = (rows ?? []).map(row => {
+            // Total quantity = sum of all payment quantities for this row
+            const totalQty = (row.payments ?? []).reduce((s: number, p: any) => s + (p.quantity ?? 0), 0);
+            return {
+                transactionId,
+                weezeventItemId: row.id.toString(),
+                productName: (row as any).item_name || `Item ${row.item_id}`,
+                compoundId: row.compound_id?.toString() || null,
+                quantity: totalQty || 1,
+                unitPrice: (row.unit_price || 0) / 100,
+                vat: row.vat || 0,
+                reduction: row.reduction || 0,
+                rawData: row as any,
+            };
+        });
 
         // Create all items in batch
         await this.prisma.weezeventTransactionItem.createMany({
@@ -379,8 +383,8 @@ export class WeezeventSyncService {
                     itemId,
                     weezeventPaymentId: payment.id?.toString() || null,
                     walletId: payment.wallet_id?.toString() || null,
-                    amount: payment.amount || 0,
-                    amountVat: payment.amount_vat || 0,
+                    amount: (payment.amount || 0) / 100,
+                    amountVat: (payment.amount_vat || 0) / 100,
                     currencyId: payment.currency_id?.toString() || null,
                     quantity: payment.quantity || 1,
                     paymentMethodId: payment.payment_method_id?.toString() || null,

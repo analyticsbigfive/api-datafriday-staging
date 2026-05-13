@@ -722,11 +722,21 @@ export class WeezeventIncrementalSyncService {
                     );
                 }
 
+                // Calculate total amount from rows[].payments[].amount (in centimes) → convert to euros
+                const txRows: any[] = (apiTransaction as any).rows ?? [];
+                const totalAmountCents = txRows.reduce((sum: number, row: any) => {
+                    return sum + (row.payments ?? []).reduce(
+                        (rowSum: number, payment: any) => rowSum + (payment.amount ?? 0),
+                        0,
+                    );
+                }, 0);
+                const computedAmount = totalAmountCents / 100;
+
                 const transactionData = {
                     weezeventId,
                     tenantId,
                     integrationId,
-                    amount: apiTransaction.amount || 0,
+                    amount: computedAmount,
                     status: statusValue,
                     transactionDate,
                     eventId: resolvedEventId,

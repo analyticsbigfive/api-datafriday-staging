@@ -158,8 +158,8 @@ export class WeezeventController {
                     this.prisma.weezeventLocation.count({ where: { tenantId, integrationId: dto.integrationId } }),
                 ]);
                 const duration = Date.now() - t0;
-                this.logger.log(`Manual sync: transactions done in ${duration}ms — ${result.itemsSynced} synced, total=${count} (events=${eventCount}, products=${productCount}, locations=${locationCount})`);
-                return { status: 'completed', syncType: 'transactions', count, eventCount, productCount, locationCount, itemsSynced: result.itemsSynced, itemsCreated: result.itemsCreated, duration };
+                this.logger.log(`Manual sync: transactions done in ${duration}ms — ${result.itemsSynced} synced, total=${count} (events=${eventCount}, products=${productCount}, locations=${locationCount}, hasMore=${result.hasMore})`);
+                return { status: 'completed', syncType: 'transactions', count, eventCount, productCount, locationCount, itemsSynced: result.itemsSynced, itemsCreated: result.itemsCreated, hasMore: result.hasMore, duration };
             }
 
             case 'events': {

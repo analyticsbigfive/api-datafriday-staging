@@ -12,10 +12,10 @@ export class CreateLocationSpaceMappingDto {
   spaceId: string;
 }
 
-export class CreateMerchantElementMappingDto {
-  @ApiProperty({ description: 'ID du merchant Weezevent' })
+export class CreateLocationShopMappingDto {
+  @ApiProperty({ description: 'ID de la location Weezevent (point de vente)' })
   @IsString()
-  weezeventMerchantId: string;
+  weezeventLocationId: string;
 
   @ApiProperty({ description: 'ID de l\'élément F&B du Space' })
   @IsString()
@@ -43,12 +43,12 @@ export class CreateProductMappingDto {
   confidence?: number;
 }
 
-export class BulkMerchantElementMappingDto {
-  @ApiProperty({ description: 'Liste des mappings merchant → element', type: [CreateMerchantElementMappingDto] })
+export class BulkLocationShopMappingDto {
+  @ApiProperty({ description: 'Liste des mappings location → shop element', type: [CreateLocationShopMappingDto] })
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => CreateMerchantElementMappingDto)
-  mappings: CreateMerchantElementMappingDto[];
+  @Type(() => CreateLocationShopMappingDto)
+  mappings: CreateLocationShopMappingDto[];
 }
 
 export class BulkProductMappingDto {

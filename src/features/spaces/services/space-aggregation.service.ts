@@ -166,8 +166,8 @@ export class SpaceAggregationService {
       FROM "WeezeventTransaction" t
       INNER JOIN "WeezeventTransactionItem" ti ON ti."transactionId" = t.id
       LEFT JOIN "WeezeventProduct" p ON p.id = ti."productId"
-      LEFT JOIN "WeezeventMerchantElementMapping" mem 
-        ON mem."weezeventMerchantId" = t."merchantId" 
+      LEFT JOIN "WeezeventLocationShopMapping" mem 
+        ON mem."weezeventLocationId" = t."locationId" 
         AND mem."tenantId" = ${tenantId}
       WHERE 
         t."tenantId" = ${tenantId}
@@ -328,8 +328,8 @@ export class SpaceAggregationService {
         AND t."transactionDate" <= ${toDate}
         AND t."merchantId" IS NOT NULL
         AND NOT EXISTS (
-          SELECT 1 FROM "WeezeventMerchantElementMapping" mem
-          WHERE mem."weezeventMerchantId" = t."merchantId"
+          SELECT 1 FROM "WeezeventLocationShopMapping" mem
+          WHERE mem."weezeventLocationId" = t."locationId"
           AND mem."tenantId" = ${tenantId}
         )
       GROUP BY t."merchantId", t."merchantName"

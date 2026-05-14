@@ -15,8 +15,8 @@ import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { MappingsService } from './mappings.service';
 import {
   CreateLocationSpaceMappingDto,
-  CreateMerchantElementMappingDto,
-  BulkMerchantElementMappingDto,
+  CreateLocationShopMappingDto,
+  BulkLocationShopMappingDto,
   BulkProductMappingDto,
 } from './dto/mapping.dto';
 
@@ -120,19 +120,19 @@ export class MappingsController {
     return this.mappingsService.deleteLocationSpaceMapping(user.tenantId, locationId);
   }
 
-  // ─── Merchant → Element ─────────────────────────────────
+  // ─── Location → ShopElement ──────────────────────────────
 
-  @Get('merchant-element')
+  @Get('location-shop')
   @ApiOperation({
-    summary: 'Lister les mappings merchant → element',
-    description: 'Retourne la liste paginée des mappings entre merchants Weezevent et SpaceElements (shops) DataFriday.',
+    summary: 'Lister les mappings location → shop element',
+    description: 'Retourne la liste paginée des mappings entre locations Weezevent (points de vente) et SpaceElements (shops) DataFriday.',
   })
   @ApiQuery({ name: 'locationId', required: false, description: 'Filtrer par location Weezevent' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page (défaut: 1)', example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Résultats par page (max 1000, défaut: 200)', example: 200 })
   @ApiResponse({
     status: 200,
-    description: 'Liste paginée des mappings merchant → element',
+    description: 'Liste paginée des mappings location → shop element',
     schema: {
       type: 'object',
       properties: {
@@ -142,9 +142,8 @@ export class MappingsController {
             type: 'object',
             properties: {
               id: { type: 'string' },
-              weezeventMerchantId: { type: 'string' },
-              spaceElementId: { type: 'string' },
               weezeventLocationId: { type: 'string' },
+              spaceElementId: { type: 'string' },
             },
           },
         },
@@ -160,29 +159,29 @@ export class MappingsController {
       },
     },
   })
-  getMerchantElementMappings(
+  getLocationShopMappings(
     @CurrentUser() user: any,
     @Query('locationId') locationId?: string,
     @Query('page') page = 1,
     @Query('limit') limit = 200,
   ) {
-    return this.mappingsService.getMerchantElementMappings(user.tenantId, locationId, +page, +limit);
+    return this.mappingsService.getLocationShopMappings(user.tenantId, locationId, +page, +limit);
   }
 
-  @Post('merchant-element')
-  @ApiOperation({ summary: 'Créer/mettre à jour un mapping merchant → element' })
+  @Post('location-shop')
+  @ApiOperation({ summary: 'Créer/mettre à jour un mapping location → shop element' })
   @ApiResponse({ status: 201, description: 'Mapping créé ou mis à jour' })
   @ApiResponse({ status: 400, description: 'Données invalides' })
-  createMerchantElementMapping(
-    @Body() dto: CreateMerchantElementMappingDto,
+  createLocationShopMapping(
+    @Body() dto: CreateLocationShopMappingDto,
     @CurrentUser() user: any,
   ) {
-    return this.mappingsService.createMerchantElementMapping(dto, user.tenantId);
+    return this.mappingsService.createLocationShopMapping(dto, user.tenantId);
   }
 
-  @Post('merchant-element/bulk')
+  @Post('location-shop/bulk')
   @ApiOperation({
-    summary: 'Créer/mettre à jour des mappings merchant → element en masse',
+    summary: 'Créer/mettre à jour des mappings location → shop element en masse',
     description: 'Traite par chunks de 500. En cas d\'échec d\'un chunk, bascule sur un fallback par item. Retourne le détail des erreurs éventuelles.',
   })
   @ApiResponse({
@@ -199,7 +198,7 @@ export class MappingsController {
           items: {
             type: 'object',
             properties: {
-              weezeventMerchantId: { type: 'string' },
+              weezeventLocationId: { type: 'string' },
               error: { type: 'string' },
             },
           },
@@ -208,22 +207,22 @@ export class MappingsController {
       },
     },
   })
-  bulkMerchantElementMappings(
-    @Body() dto: BulkMerchantElementMappingDto,
+  bulkLocationShopMappings(
+    @Body() dto: BulkLocationShopMappingDto,
     @CurrentUser() user: any,
   ) {
-    return this.mappingsService.bulkMerchantElementMappings(dto, user.tenantId);
+    return this.mappingsService.bulkLocationShopMappings(dto, user.tenantId);
   }
 
-  @Delete('merchant-element/:merchantId')
-  @ApiOperation({ summary: 'Supprimer un mapping merchant → element' })
+  @Delete('location-shop/:locationId')
+  @ApiOperation({ summary: 'Supprimer un mapping location → shop element' })
   @ApiResponse({ status: 200, description: 'Mapping supprimé' })
   @ApiResponse({ status: 404, description: 'Mapping non trouvé' })
-  deleteMerchantElementMapping(
-    @Param('merchantId') merchantId: string,
+  deleteLocationShopMapping(
+    @Param('locationId') locationId: string,
     @CurrentUser() user: any,
   ) {
-    return this.mappingsService.deleteMerchantElementMapping(user.tenantId, merchantId);
+    return this.mappingsService.deleteLocationShopMapping(user.tenantId, locationId);
   }
 
   // ─── Product → MenuItem ──────────────────────────────────
@@ -383,15 +382,15 @@ export class MappingsController {
   @Get('summary/:locationId')
   @ApiOperation({
     summary: 'Résumé post-synchronisation d\'une location',
-    description: 'Utilisé par l\'écran WizardSuccess. Retourne les compteurs de merchants, produits et événements traités pour une location.',
+    description: 'Utilisé par l\'écran WizardSuccess. Retourne les compteurs de shops, produits et événements traités pour une location.',
   })
   @ApiResponse({
     status: 200,
-    description: 'Résumé merchants / produits / événements',
+    description: 'Résumé shops / produits / événements',
     schema: {
       type: 'object',
       properties: {
-        merchants: {
+        shops: {
           type: 'object',
           properties: {
             total: { type: 'number', example: 5 },

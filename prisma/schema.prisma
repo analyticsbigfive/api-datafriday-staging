@@ -1725,18 +1725,18 @@ model WeezeventLocationSpaceMapping {
   @@index([weezeventLocationId])
 }
 
-// Maps Weezevent Merchant to SpaceElement (shop) for revenue grouping
-model WeezeventMerchantElementMapping {
+// Maps Weezevent Location (point de vente) to SpaceElement (shop) for revenue grouping
+model WeezeventLocationShopMapping {
   id                  String   @id @default(cuid())
   tenantId            String
-  weezeventMerchantId String
+  weezeventLocationId String
   spaceElementId      String
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  @@unique([tenantId, weezeventMerchantId])
+  @@unique([tenantId, weezeventLocationId])
   @@index([tenantId, spaceElementId])
-  @@index([weezeventMerchantId])
+  @@index([weezeventLocationId])
 }
 
 // Tenant-specific VAT configuration

@@ -151,15 +151,16 @@ export class WeezeventController {
                     forceFullSync: forceFull,
                     updatedSince: fromDate,
                 });
-                const [count, eventCount, productCount, locationCount] = await Promise.all([
+                const [count, eventCount, productCount, locationCount, merchantCount] = await Promise.all([
                     this.prisma.weezeventTransaction.count({ where: { tenantId, integrationId: dto.integrationId } }),
                     this.prisma.weezeventEvent.count({ where: { tenantId, integrationId: dto.integrationId } }),
                     this.prisma.weezeventProduct.count({ where: { tenantId, integrationId: dto.integrationId } }),
                     this.prisma.weezeventLocation.count({ where: { tenantId, integrationId: dto.integrationId } }),
+                    this.prisma.weezeventMerchant.count({ where: { tenantId, integrationId: dto.integrationId } }),
                 ]);
                 const duration = Date.now() - t0;
-                this.logger.log(`Manual sync: transactions done in ${duration}ms — ${result.itemsSynced} synced, total=${count} (events=${eventCount}, products=${productCount}, locations=${locationCount}, hasMore=${result.hasMore})`);
-                return { status: 'completed', syncType: 'transactions', count, eventCount, productCount, locationCount, itemsSynced: result.itemsSynced, itemsCreated: result.itemsCreated, hasMore: result.hasMore, duration };
+                this.logger.log(`Manual sync: transactions done in ${duration}ms — ${result.itemsSynced} synced, total=${count} (events=${eventCount}, products=${productCount}, locations=${locationCount}, merchants=${merchantCount}, hasMore=${result.hasMore})`);
+                return { status: 'completed', syncType: 'transactions', count, eventCount, productCount, locationCount, merchantCount, itemsSynced: result.itemsSynced, itemsCreated: result.itemsCreated, hasMore: result.hasMore, duration };
             }
 
             case 'events': {

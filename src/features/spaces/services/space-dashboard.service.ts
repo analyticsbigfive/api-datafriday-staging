@@ -263,15 +263,15 @@ export class SpaceDashboardService {
       distinct: ['weezeventId'],
     });
 
-    // Get merchant-element mappings
+    // Get location-shop mappings
     const merchantMappings =
-      await this.prisma.weezeventMerchantElementMapping.findMany({
+      await this.prisma.weezeventLocationShopMapping.findMany({
         where: {
           tenantId,
-          weezeventMerchantId: { in: merchants.map((m) => m.weezeventId) },
+          weezeventLocationId: { in: merchants.map((m) => m.weezeventId) },
         },
         select: {
-          weezeventMerchantId: true,
+          weezeventLocationId: true,
           spaceElementId: true,
         },
       });
@@ -332,7 +332,7 @@ export class SpaceDashboardService {
           name: l.name,
         })),
         merchants: merchants.map((m) => ({
-          weezeventMerchantId: m.weezeventId,
+          weezeventLocationId: m.weezeventId,
           name: m.name,
         })),
       },

@@ -11,7 +11,7 @@ describe('SpaceAggregationService', () => {
       update: jest.fn(),
     },
     spaceElement: { findMany: jest.fn() },
-    weezeventMerchantElementMapping: { findMany: jest.fn() },
+    weezeventLocationShopMapping: { findMany: jest.fn() },
     spaceRevenueDailyAgg: { upsert: jest.fn() },
     spaceProductRevenueDailyAgg: { upsert: jest.fn() },
     spaceRevenueDailyAggUnmapped: { upsert: jest.fn() },
@@ -35,7 +35,7 @@ describe('SpaceAggregationService', () => {
     mockPrismaService.aggregationJobLog.update.mockResolvedValue({});
     // Default: findMany for spaces / mappings
     mockPrismaService.spaceElement.findMany.mockResolvedValue([]);
-    mockPrismaService.weezeventMerchantElementMapping.findMany.mockResolvedValue([]);
+    mockPrismaService.weezeventLocationShopMapping.findMany.mockResolvedValue([]);
     // Default: raw query returns empty
     mockPrismaService.$queryRaw.mockResolvedValue([]);
   });

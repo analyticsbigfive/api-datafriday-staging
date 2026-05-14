@@ -159,7 +159,7 @@ export class AggregationService {
       }
 
       // Get the real WeezeventLocation DB ids for this integration.
-      // Step 2 of the wizard saves these as weezeventMerchantId in WeezeventMerchantElementMapping.
+      // Step 2 of the wizard saves these as weezeventLocationId in WeezeventLocationShopMapping.
       const integrationLocations = integrationId
         ? await this.prisma.weezeventLocation.findMany({
             where: { tenantId, integrationId },
@@ -180,7 +180,7 @@ export class AggregationService {
 
           // Get transactions scoped to this integration's locations.
           // Group by locationId (point de vente), NOT by merchantId:
-          //   - Step 2 maps WeezeventLocation → SpaceElement (weezeventMerchantId = location.id)
+          //   - Step 2 maps WeezeventLocation → SpaceElement (weezeventLocationId = location.id)
           //   - We therefore need to group revenue by the location, not by the merchant/standiste.
           const transactions = await this.prisma.weezeventTransaction.findMany({
             where: {
@@ -210,10 +210,10 @@ export class AggregationService {
 
           // Upsert daily aggregation records, one row per mapped location
           for (const [locationId, data] of locationRevenue) {
-            // Step 2 wizard saves: WeezeventMerchantElementMapping.weezeventMerchantId = WeezeventLocation.id
+            // Step 2 wizard saves: WeezeventLocationShopMapping.weezeventLocationId = WeezeventLocation.id
             // So we look up the SpaceElement by the location id.
-            const elementMapping = await this.prisma.weezeventMerchantElementMapping.findFirst({
-              where: { tenantId, weezeventMerchantId: locationId },
+            const elementMapping = await this.prisma.weezeventLocationShopMapping.findFirst({
+              where: { tenantId, weezeventLocationId: locationId },
             });
 
             if (!elementMapping) {

@@ -68,15 +68,22 @@ export class WeezeventClientService {
             params,
         );
 
-        // Weezevent API may return an array directly, normalize to paginated format
+        // Weezevent API may return an array directly, normalize to paginated format.
+        // When we receive a full page (length === perPage), there may be more pages —
+        // signal that by setting total_pages = current_page + 1 so the caller keeps going.
+        // If the page is partial (length < perPage) this is the last page: total_pages = current_page.
+        // The caller must handle the case where the next page returns 0 items (real end).
         if (Array.isArray(response)) {
+            const perPage = options?.perPage || 50;
+            const currentPage = options?.page || 1;
+            const hasFullPage = response.length >= perPage;
             return {
                 data: response,
                 meta: {
-                    current_page: options?.page || 1,
-                    per_page: options?.perPage || 50,
+                    current_page: currentPage,
+                    per_page: perPage,
                     total: response.length,
-                    total_pages: 1,
+                    total_pages: hasFullPage ? currentPage + 1 : currentPage,
                 },
             };
         }

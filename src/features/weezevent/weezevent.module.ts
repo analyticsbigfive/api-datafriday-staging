@@ -11,7 +11,6 @@ import { WebhookSignatureService } from './services/webhook-signature.service';
 import { WebhookEventHandler } from './services/webhook-event.handler';
 import { WeezeventController } from './weezevent.controller';
 import { WebhookController } from './webhook.controller';
-import { WeezeventAnalyticsController } from './weezevent-analytics.controller';
 import { OnboardingModule } from '../onboarding/onboarding.module';
 import { SyncTrackerService } from './services/sync-tracker.service';
 import { WeezeventCronService } from './services/weezevent-cron.service';
@@ -25,7 +24,7 @@ import { WeezeventIncrementalSyncService } from './services/weezevent-incrementa
         }),
         OnboardingModule,
     ],
-    controllers: [WeezeventController, WebhookController, WeezeventAnalyticsController],
+    controllers: [WeezeventController, WebhookController],
     providers: [
         WeezeventAuthService,
         WeezeventApiService,

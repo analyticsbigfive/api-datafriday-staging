@@ -766,23 +766,23 @@ export class SpacesService {
     );
 
     // Get Weezevent merchant mappings for these shops
-    const merchantMappings = await this.prisma.weezeventMerchantElementMapping.findMany({
+    const merchantMappings = await this.prisma.weezeventLocationShopMapping.findMany({
       where: {
         tenantId,
         spaceElementId: { in: shopIds },
       },
       select: {
         spaceElementId: true,
-        weezeventMerchantId: true,
+        weezeventLocationId: true,
       },
     });
 
     const mappingByShop = new Map(
-      merchantMappings.map(m => [m.spaceElementId, m.weezeventMerchantId]),
+      merchantMappings.map(m => [m.spaceElementId, m.weezeventLocationId]),
     );
 
      // --- Per-event × shop × product granular data (3-dimension raw SQL) ---
-    // Joins: WeezeventTransaction → TransactionItems → MerchantElementMapping
+    // Joins: WeezeventTransaction → TransactionItems → LocationShopMapping
     //        → SpaceElement / WeezeventEvent / WeezeventProduct
     //        → WeezeventProductMapping → MenuItem → ProductType / ProductCategory
     const granularRows: any[] = shopIds.length > 0
@@ -814,8 +814,8 @@ export class SpacesService {
           FROM "WeezeventTransaction" t
           INNER JOIN "WeezeventTransactionItem" ti
             ON ti."transactionId" = t.id
-          INNER JOIN "WeezeventMerchantElementMapping" mem
-            ON mem."weezeventMerchantId" = t."locationId"
+          INNER JOIN "WeezeventLocationShopMapping" mem
+            ON mem."weezeventLocationId" = t."locationId"
            AND mem."tenantId"         = ${tenantId}
            AND mem."spaceElementId"   = ANY(${shopIds})
           INNER JOIN "SpaceElement" se
@@ -940,7 +940,7 @@ export class SpacesService {
     // --- Build shops list (per-shop summary for the builder/overview panels) ---
     const shops = allShops.map(shop => {
       const revenue = revenueByShop.get(shop.id);
-      const weezeventMerchantId = mappingByShop.get(shop.id);
+      const weezeventLocationId = mappingByShop.get(shop.id);
       const location = 'floor' in shop ? shop.floor : shop.forecourt;
       const attrs = shop.attributes as any;
 
@@ -957,8 +957,8 @@ export class SpacesService {
         revenue: revenue?.revenue || 0,
         transactionCount: revenue?.transactionCount || 0,
         itemsCount: revenue?.itemsCount || 0,
-        isMappedToWeezevent: !!weezeventMerchantId,
-        weezeventMerchantId: weezeventMerchantId || null,
+        isMappedToWeezevent: !!weezeventLocationId,
+        weezeventLocationId: weezeventLocationId || null,
       };
     });
 
@@ -1013,8 +1013,8 @@ export class SpacesService {
       FROM "WeezeventTransaction" t
       INNER JOIN "WeezeventTransactionItem" ti
         ON ti."transactionId" = t.id
-      INNER JOIN "WeezeventMerchantElementMapping" mem
-        ON mem."weezeventMerchantId" = t."locationId"
+      INNER JOIN "WeezeventLocationShopMapping" mem
+        ON mem."weezeventLocationId" = t."locationId"
        AND mem."tenantId"         = ${tenantId}
        AND mem."spaceElementId"   = ANY(${shopIds})
       INNER JOIN "SpaceElement" se

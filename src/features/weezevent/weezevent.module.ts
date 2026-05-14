@@ -4,6 +4,9 @@ import { WeezeventAuthService } from './services/weezevent-auth.service';
 import { WeezeventApiService } from './services/weezevent-api.service';
 import { WeezeventClientService } from './services/weezevent-client.service';
 import { WeezeventSyncService } from './services/weezevent-sync.service';
+import { WeezeventTransactionSyncService } from './services/sync/transaction-sync.service';
+import { WeezeventCatalogSyncService } from './services/sync/catalog-sync.service';
+import { WeezeventQueuedEntitySyncService } from './services/sync/queued-entity-sync.service';
 import { WebhookSignatureService } from './services/webhook-signature.service';
 import { WebhookEventHandler } from './services/webhook-event.handler';
 import { WeezeventController } from './weezevent.controller';
@@ -27,6 +30,11 @@ import { WeezeventIncrementalSyncService } from './services/weezevent-incrementa
         WeezeventAuthService,
         WeezeventApiService,
         WeezeventClientService,
+        // Focused sub-services (SOLID / SRP)
+        WeezeventTransactionSyncService,
+        WeezeventCatalogSyncService,
+        WeezeventQueuedEntitySyncService,
+        // Thin facade — keeps backward-compat for all existing callers
         WeezeventSyncService,
         WeezeventIncrementalSyncService,
         WebhookSignatureService,
@@ -34,6 +42,14 @@ import { WeezeventIncrementalSyncService } from './services/weezevent-incrementa
         SyncTrackerService,
         WeezeventCronService,
     ],
-    exports: [WeezeventClientService, WeezeventSyncService, WeezeventIncrementalSyncService, WeezeventAuthService],
+    exports: [
+        WeezeventClientService,
+        WeezeventSyncService,
+        WeezeventTransactionSyncService,
+        WeezeventCatalogSyncService,
+        WeezeventQueuedEntitySyncService,
+        WeezeventIncrementalSyncService,
+        WeezeventAuthService,
+    ],
 })
 export class WeezeventModule { }

@@ -10,11 +10,11 @@ export class SyncWeezeventDto {
 
     @ApiProperty({
         description: 'Type de données à synchroniser',
-        enum: ['transactions', 'wallets', 'users', 'events', 'products', 'orders', 'prices', 'attendees'],
+        enum: ['transactions', 'events', 'products', 'orders', 'prices', 'attendees'],
         example: 'transactions',
     })
-    @IsEnum(['transactions', 'wallets', 'users', 'events', 'products', 'orders', 'prices', 'attendees'])
-    type: 'transactions' | 'wallets' | 'users' | 'events' | 'products' | 'orders' | 'prices' | 'attendees';
+    @IsEnum(['transactions', 'events', 'products', 'orders', 'prices', 'attendees'])
+    type: 'transactions' | 'events' | 'products' | 'orders' | 'prices' | 'attendees';
 
     @ApiPropertyOptional({ description: 'Forcer une synchronisation complète (ignore l\'état incrémental)', example: false })
     @IsOptional()
@@ -36,9 +36,4 @@ export class SyncWeezeventDto {
     @IsOptional()
     @IsString()
     eventId?: string;
-
-    @ApiPropertyOptional({ description: '[Interne] Ignoré — tenantId extrait du JWT', deprecated: true })
-    @IsOptional()
-    @IsString()
-    tenantId?: string;
 }

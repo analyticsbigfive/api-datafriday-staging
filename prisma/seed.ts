@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
@@ -34,7 +35,8 @@ async function main() {
     update: {},
     create: {
       email: 'admin@demo-company.com',
-      name: 'Admin Demo',
+      firstName: 'Admin',
+      lastName: 'Demo',
       role: 'ADMIN',
       tenantId: tenant1.id,
     },
@@ -98,7 +100,8 @@ async function main() {
     update: {},
     create: {
       email: 'admin@test-corp.com',
-      name: 'Admin Test',
+      firstName: 'Admin',
+      lastName: 'Test',
       role: 'ADMIN',
       tenantId: tenant2.id,
     },
@@ -118,6 +121,54 @@ async function main() {
   });
   console.log('✅ Space created for tenant 2');
 
+  // ===== GLOBAL PRODUCT TYPES & CATEGORIES (tenantId: null = visible by all tenants) =====
+  console.log('');
+  console.log('🌐 Seeding global product types and categories...');
+
+  const typeBoissons = await prisma.productType.upsert({
+    where: { id: 'global-type-boissons' },
+    update: {},
+    create: { id: 'global-type-boissons', name: 'Boissons', tenantId: null },
+  });
+  const typeNourriture = await prisma.productType.upsert({
+    where: { id: 'global-type-nourriture' },
+    update: {},
+    create: { id: 'global-type-nourriture', name: 'Nourriture', tenantId: null },
+  });
+  const typeAlcools = await prisma.productType.upsert({
+    where: { id: 'global-type-alcools' },
+    update: {},
+    create: { id: 'global-type-alcools', name: 'Alcools', tenantId: null },
+  });
+  console.log('✅ Global product types created (Boissons, Nourriture, Alcools)');
+
+  const globalCategories = [
+    // Boissons
+    { id: 'global-cat-softs',      name: 'Softs',              typeId: typeBoissons.id },
+    { id: 'global-cat-jus',        name: 'Jus & Nectars',      typeId: typeBoissons.id },
+    { id: 'global-cat-cafes',      name: 'Cafés & Thés',       typeId: typeBoissons.id },
+    { id: 'global-cat-eaux',       name: 'Eaux',               typeId: typeBoissons.id },
+    // Nourriture
+    { id: 'global-cat-sandwichs',  name: 'Sandwichs & Wraps',  typeId: typeNourriture.id },
+    { id: 'global-cat-snacks',     name: 'Snacks & Chips',     typeId: typeNourriture.id },
+    { id: 'global-cat-plats',      name: 'Plats Chauds',       typeId: typeNourriture.id },
+    { id: 'global-cat-sucreries',  name: 'Sucreries',          typeId: typeNourriture.id },
+    // Alcools
+    { id: 'global-cat-bieres',     name: 'Bières & Cidres',    typeId: typeAlcools.id },
+    { id: 'global-cat-vins',       name: 'Vins & Champagnes',  typeId: typeAlcools.id },
+    { id: 'global-cat-spiritueux', name: 'Spiritueux',         typeId: typeAlcools.id },
+    { id: 'global-cat-cocktails',  name: 'Cocktails & Shooters', typeId: typeAlcools.id },
+  ];
+
+  for (const cat of globalCategories) {
+    await prisma.productCategory.upsert({
+      where: { id: cat.id },
+      update: {},
+      create: { ...cat, tenantId: null },
+    });
+  }
+  console.log(`✅ ${globalCategories.length} global product categories created`);
+
   console.log('');
   console.log('🎉 Multi-tenant database seeded successfully!');
   console.log('📊 Summary:');
@@ -125,6 +176,7 @@ async function main() {
   console.log(`  - 2 admin users (1 per tenant)`);
   console.log(`  - 2 spaces (1 per tenant)`);
   console.log(`  - 1 supplier (tenant 1)`);
+  console.log(`  - 3 global product types + ${globalCategories.length} global categories`);
 }
 
 main()

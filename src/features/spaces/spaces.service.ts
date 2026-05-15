@@ -1116,6 +1116,7 @@ export class SpacesService {
       team:          (e.metadata as any)?.team          ?? null,
       visitingTeam:  (e.metadata as any)?.visitingTeam  ?? null,
       hasIntermission: (e.metadata as any)?.hasIntermission ?? false,
+      dfEventId:     (e.metadata as any)?.dfEventId     ?? null,
     }));
   }
 
@@ -1134,6 +1135,7 @@ export class SpacesService {
       team?: string | null;
       visitingTeam?: string | null;
       hasIntermission?: boolean;
+      dfEventId?: string | null;
     },
     tenantId: string,
   ) {
@@ -1176,6 +1178,7 @@ export class SpacesService {
       team:           (updated.metadata as any)?.team           ?? null,
       visitingTeam:   (updated.metadata as any)?.visitingTeam   ?? null,
       hasIntermission: (updated.metadata as any)?.hasIntermission ?? false,
+      dfEventId:      (updated.metadata as any)?.dfEventId      ?? null,
     };
   }
 

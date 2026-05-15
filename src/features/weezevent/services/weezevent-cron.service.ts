@@ -9,6 +9,8 @@ import { SyncTrackerService } from './sync-tracker.service';
 export class WeezeventCronService implements OnModuleInit {
     private readonly logger = new Logger(WeezeventCronService.name);
     private isEnabled = true;
+    /** Global mutex: prevents two cron jobs from running simultaneously */
+    private isSyncRunning = false;
 
     constructor(
         private readonly prisma: PrismaService,
@@ -30,8 +32,13 @@ export class WeezeventCronService implements OnModuleInit {
     @Cron(CronExpression.EVERY_10_MINUTES)
     async syncRecentTransactions(): Promise<void> {
         if (!this.isEnabled) return;
-
+        if (this.isSyncRunning) {
+            this.logger.warn('⏭️ CRON: Skipping transactions sync — previous sync still running');
+            return;
+        }
+        this.isSyncRunning = true;
         this.logger.log('🔄 CRON: Starting INCREMENTAL transactions sync...');
+        try {
 
         const tenants = await this.getWeezeventEnabledTenants();
 
@@ -72,7 +79,10 @@ export class WeezeventCronService implements OnModuleInit {
             }
         }
 
-        this.logger.log('🔄 CRON: INCREMENTAL transactions sync completed');
+            this.logger.log('🔄 CRON: INCREMENTAL transactions sync completed');
+        } finally {
+            this.isSyncRunning = false;
+        }
     }
 
     /**
@@ -82,8 +92,13 @@ export class WeezeventCronService implements OnModuleInit {
     @Cron(CronExpression.EVERY_DAY_AT_3AM)
     async syncReferenceData(): Promise<void> {
         if (!this.isEnabled) return;
-
+        if (this.isSyncRunning) {
+            this.logger.warn('⏭️ CRON: Skipping reference data sync — previous sync still running');
+            return;
+        }
+        this.isSyncRunning = true;
         this.logger.log('🔄 CRON: Starting INCREMENTAL reference data sync...');
+        try {
 
         const tenants = await this.getWeezeventEnabledTenants();
 
@@ -117,7 +132,10 @@ export class WeezeventCronService implements OnModuleInit {
             }
         }
 
-        this.logger.log('🔄 CRON: INCREMENTAL reference data sync completed');
+            this.logger.log('🔄 CRON: INCREMENTAL reference data sync completed');
+        } finally {
+            this.isSyncRunning = false;
+        }
     }
 
     /**
@@ -127,8 +145,13 @@ export class WeezeventCronService implements OnModuleInit {
     @Cron('0 2 * * 0') // Sunday at 2 AM
     async fullHistoricalSync(): Promise<void> {
         if (!this.isEnabled) return;
-
+        if (this.isSyncRunning) {
+            this.logger.warn('⏭️ CRON: Skipping full historical sync — previous sync still running');
+            return;
+        }
+        this.isSyncRunning = true;
         this.logger.log('🔄 CRON: Starting weekly FULL historical sync...');
+        try {
 
         const tenants = await this.getWeezeventEnabledTenants();
 
@@ -170,7 +193,10 @@ export class WeezeventCronService implements OnModuleInit {
             }
         }
 
-        this.logger.log('🔄 CRON: Weekly FULL historical sync completed');
+            this.logger.log('🔄 CRON: Weekly FULL historical sync completed');
+        } finally {
+            this.isSyncRunning = false;
+        }
     }
 
     /**

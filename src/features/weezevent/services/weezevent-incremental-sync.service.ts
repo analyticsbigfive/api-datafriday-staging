@@ -624,20 +624,22 @@ export class WeezeventIncrementalSyncService {
             ).values(),
         ];
 
+        // Batch upsert events: createMany (skip duplicates) then fetch all IDs in one query
         const eventIdMap = new Map<string, string>();
-        await this.runConcurrent(uniqueEventEntries, async ({ wid, name }) => {
-            try {
-                const upserted = await this.prisma.weezeventEvent.upsert({
-                    where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId: wid } },
-                    create: { weezeventId: wid, tenantId, integrationId, name, organizationId, rawData: {}, syncedAt: new Date() },
-                    update: { syncedAt: new Date() },
-                    select: { id: true, weezeventId: true },
-                });
-                eventIdMap.set(wid, upserted.id);
-            } catch (err) {
-                this.logger.warn(`Could not upsert event ${wid}: ${(err as Error).message}`);
-            }
-        });
+        if (uniqueEventEntries.length > 0) {
+            const now = new Date();
+            await this.prisma.weezeventEvent.createMany({
+                data: uniqueEventEntries.map(({ wid, name }) => ({
+                    weezeventId: wid, tenantId, integrationId, name, organizationId, rawData: {}, syncedAt: now,
+                })),
+                skipDuplicates: true,
+            });
+            const existingEvents = await this.prisma.weezeventEvent.findMany({
+                where: { tenantId, integrationId, weezeventId: { in: uniqueEventEntries.map(e => e.wid) } },
+                select: { id: true, weezeventId: true },
+            });
+            existingEvents.forEach(e => eventIdMap.set(e.weezeventId, e.id));
+        }
 
         // ── 2. Inline-upsert products from transaction rows ──────────────────
         const allRows: any[] = transactions.flatMap(t => t.rows ?? []);
@@ -649,20 +651,23 @@ export class WeezeventIncrementalSyncService {
             ).values(),
         ];
 
+        // Batch upsert products: createMany (skip duplicates) then fetch all IDs in one query
         const productIdMap = new Map<string, string>();
-        await this.runConcurrent(uniqueProductEntries, async ({ wid, name, price, vat, raw }) => {
-            try {
-                const upserted = await this.prisma.weezeventProduct.upsert({
-                    where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId: wid } },
-                    create: { weezeventId: wid, tenantId, integrationId, name, basePrice: price / 100, vatRate: vat, rawData: raw, syncedAt: new Date() },
-                    update: { syncedAt: new Date() },
-                    select: { id: true, weezeventId: true },
-                });
-                productIdMap.set(wid, upserted.id);
-            } catch (err) {
-                this.logger.warn(`Could not upsert product ${wid}: ${(err as Error).message}`);
-            }
-        });
+        if (uniqueProductEntries.length > 0) {
+            const now = new Date();
+            await this.prisma.weezeventProduct.createMany({
+                data: uniqueProductEntries.map(({ wid, name, price, vat, raw }) => ({
+                    weezeventId: wid, tenantId, integrationId, name,
+                    basePrice: price / 100, vatRate: vat, rawData: raw, syncedAt: now,
+                })),
+                skipDuplicates: true,
+            });
+            const existingProducts = await this.prisma.weezeventProduct.findMany({
+                where: { tenantId, integrationId, weezeventId: { in: uniqueProductEntries.map(p => p.wid) } },
+                select: { id: true, weezeventId: true },
+            });
+            existingProducts.forEach(p => productIdMap.set(p.weezeventId, p.id));
+        }
 
         // ── 3. Inline-upsert locations extracted from transaction data ────────
         const uniqueLocationEntries = [
@@ -673,20 +678,22 @@ export class WeezeventIncrementalSyncService {
             ).values(),
         ];
 
+        // Batch upsert locations: createMany (skip duplicates) then fetch all IDs in one query
         const locationIdMap = new Map<string, string>();
-        await this.runConcurrent(uniqueLocationEntries, async ({ wid, name }) => {
-            try {
-                const upserted = await this.prisma.weezeventLocation.upsert({
-                    where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId: wid } },
-                    create: { weezeventId: wid, tenantId, integrationId, name, rawData: {}, syncedAt: new Date() },
-                    update: { name, syncedAt: new Date() },
-                    select: { id: true, weezeventId: true },
-                });
-                locationIdMap.set(wid, upserted.id);
-            } catch (err) {
-                this.logger.warn(`Could not upsert location ${wid}: ${(err as Error).message}`);
-            }
-        });
+        if (uniqueLocationEntries.length > 0) {
+            const now = new Date();
+            await this.prisma.weezeventLocation.createMany({
+                data: uniqueLocationEntries.map(({ wid, name }) => ({
+                    weezeventId: wid, tenantId, integrationId, name, rawData: {}, syncedAt: now,
+                })),
+                skipDuplicates: true,
+            });
+            const existingLocations = await this.prisma.weezeventLocation.findMany({
+                where: { tenantId, integrationId, weezeventId: { in: uniqueLocationEntries.map(l => l.wid) } },
+                select: { id: true, weezeventId: true },
+            });
+            existingLocations.forEach(l => locationIdMap.set(l.weezeventId, l.id));
+        }
 
         // ── 4. Inline-upsert merchants (fundations) from transaction data ────
         // Weezevent API field: fundation_id / fundation_name (not merchant_id)
@@ -698,20 +705,22 @@ export class WeezeventIncrementalSyncService {
             ).values(),
         ];
 
+        // Batch upsert merchants: createMany (skip duplicates) then fetch all IDs in one query
         const merchantIdMap = new Map<string, string>();
-        await this.runConcurrent(uniqueMerchantEntries, async ({ wid, name }) => {
-            try {
-                const upserted = await this.prisma.weezeventMerchant.upsert({
-                    where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId: wid } },
-                    create: { weezeventId: wid, tenantId, integrationId, name, organizationId, rawData: {}, syncedAt: new Date() },
-                    update: { name, syncedAt: new Date() },
-                    select: { id: true, weezeventId: true },
-                });
-                merchantIdMap.set(wid, upserted.id);
-            } catch (err) {
-                this.logger.warn(`Could not upsert merchant ${wid}: ${(err as Error).message}`);
-            }
-        });
+        if (uniqueMerchantEntries.length > 0) {
+            const now = new Date();
+            await this.prisma.weezeventMerchant.createMany({
+                data: uniqueMerchantEntries.map(({ wid, name }) => ({
+                    weezeventId: wid, tenantId, integrationId, name, organizationId, rawData: {}, syncedAt: now,
+                })),
+                skipDuplicates: true,
+            });
+            const existingMerchants = await this.prisma.weezeventMerchant.findMany({
+                where: { tenantId, integrationId, weezeventId: { in: uniqueMerchantEntries.map(m => m.wid) } },
+                select: { id: true, weezeventId: true },
+            });
+            existingMerchants.forEach(m => merchantIdMap.set(m.weezeventId, m.id));
+        }
 
         // ── 5. Build transaction records ─────────────────────────────────────
         const toCreate: any[] = [];
@@ -862,16 +871,52 @@ export class WeezeventIncrementalSyncService {
 
     /**
      * Run async tasks over an array with a maximum concurrency to avoid saturating
-     * the Prisma connection pool. Items are processed in sequential chunks of
-     * `concurrency` items at a time.
+     * the Prisma connection pool.
+     *
+     * Default concurrency = 1 (sequential) so that background sync jobs never
+     * hold more than one connection at a time and leave room for user-facing
+     * queries. Callers that own their own idle context (e.g. unit tests) may
+     * pass a higher value explicitly.
+     *
+     * Each item is retried up to 3 times on transient pool / connection errors
+     * with exponential back-off (200 ms, 400 ms, 800 ms).
      */
     private async runConcurrent<T>(
         items: T[],
         fn: (item: T) => Promise<void>,
-        concurrency = 3,
+        concurrency = 1,
     ): Promise<void> {
+        const TRANSIENT_PATTERNS = [
+            'timed out fetching a new connection',
+            'server has closed the connection',
+            'connection pool timeout',
+            'connection reset',
+        ];
+        const isTransient = (err: unknown): boolean => {
+            const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
+            return TRANSIENT_PATTERNS.some((p) => msg.includes(p));
+        };
+        const withRetry = async (item: T): Promise<void> => {
+            const MAX_ATTEMPTS = 3;
+            let delay = 200;
+            for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+                try {
+                    return await fn(item);
+                } catch (err) {
+                    if (attempt < MAX_ATTEMPTS && isTransient(err)) {
+                        this.logger.warn(
+                            `runConcurrent: transient error on attempt ${attempt}/${MAX_ATTEMPTS}, retrying in ${delay}ms — ${err instanceof Error ? err.message : err}`,
+                        );
+                        await new Promise((r) => setTimeout(r, delay));
+                        delay *= 2;
+                    } else {
+                        throw err;
+                    }
+                }
+            }
+        };
         for (let i = 0; i < items.length; i += concurrency) {
-            await Promise.all(items.slice(i, i + concurrency).map(fn));
+            await Promise.all(items.slice(i, i + concurrency).map(withRetry));
         }
     }
 

@@ -19,10 +19,15 @@ export class PrismaService
     try {
       const url = new URL(rawUrl);
       if (!url.searchParams.has('connection_limit')) {
-        url.searchParams.set('connection_limit', '20');
+        // Default to a conservative limit that works with Supabase free/small plans (max 5–10 server connections).
+        // Override with DATABASE_CONNECTION_LIMIT env var in environments that have more headroom.
+        const limit = process.env.DATABASE_CONNECTION_LIMIT || '5';
+        url.searchParams.set('connection_limit', limit);
       }
       if (!url.searchParams.has('pool_timeout')) {
-        url.searchParams.set('pool_timeout', '30');
+        // 60 s gives background sync jobs room to wait without immediately throwing.
+        const timeout = process.env.DATABASE_POOL_TIMEOUT || '60';
+        url.searchParams.set('pool_timeout', timeout);
       }
       datasourceUrl = url.toString();
     } catch {

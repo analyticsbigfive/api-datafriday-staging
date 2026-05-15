@@ -474,6 +474,7 @@ export class SpacesController {
         team:           { type: 'string', nullable: true, example: 'PSG' },
         visitingTeam:   { type: 'string', nullable: true, example: 'Lyon' },
         hasIntermission:{ type: 'boolean', nullable: true },
+        dfEventId:      { type: 'string', nullable: true, description: 'ID de l\'événement DataFriday associé' },
       },
     },
   })
@@ -490,6 +491,7 @@ export class SpacesController {
       team?: string | null;
       visitingTeam?: string | null;
       hasIntermission?: boolean;
+      dfEventId?: string | null;
     },
     @CurrentUser() user: any,
   ) {

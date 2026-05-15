@@ -104,67 +104,64 @@ export class WeezeventTransactionSyncService {
                     `Fetched ${response.data.length} transactions (page ${page}/${response.meta.total_pages})`,
                 );
 
+                // ── Batch-upsert entities extracted from this page ──────────────────
+                // Collect unique events and products seen in this page that are not yet mapped
+                const newEventEntries = new Map<string, string>(); // wid -> name
+                const newProductEntries = new Map<string, any>(); // wid -> row data
                 for (const apiTransaction of response.data) {
                     const rawTx = apiTransaction as any;
-
-                    // ── Inline event upsert ─────────────────────────────────────────────
                     const eventWid = rawTx.event_id?.toString() ?? null;
                     const eventName = rawTx.event_name ?? null;
                     if (eventWid && eventName && !seenEventWids.has(eventWid)) {
                         seenEventWids.add(eventWid);
-                        try {
-                            const upsertedEvent = await this.prisma.weezeventEvent.upsert({
-                                where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId: eventWid } },
-                                create: {
-                                    weezeventId: eventWid,
-                                    tenantId,
-                                    integrationId,
-                                    name: eventName,
-                                    organizationId,
-                                    rawData: {},
-                                    syncedAt: new Date(),
-                                },
-                                update: { syncedAt: new Date() },
-                                select: { id: true, weezeventId: true },
-                            });
-                            eventIdMap.set(eventWid, upsertedEvent.id);
-                        } catch (err) {
-                            this.logger.warn(
-                                `Could not upsert event ${eventWid} from transaction ${apiTransaction.id}: ${(err as Error).message}`,
-                            );
-                        }
+                        newEventEntries.set(eventWid, eventName);
                     }
-
-                    // ── Inline product upsert ───────────────────────────────────────────
                     for (const row of (apiTransaction.rows ?? [])) {
-                        const rawRow = row as any;
-                        const wid = String(row.item_id ?? '');
+                        const wid = String((row as any).item_id ?? '');
                         if (!wid || seenProductWids.has(wid)) continue;
                         seenProductWids.add(wid);
-                        try {
-                            const upserted = await this.prisma.weezeventProduct.upsert({
-                                where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId: wid } },
-                                create: {
-                                    weezeventId: wid,
-                                    tenantId,
-                                    integrationId,
-                                    name: rawRow.item_name || `Item ${wid}`,
-                                    basePrice: (row.unit_price ?? 0) / 100,
-                                    vatRate: row.vat ?? null,
-                                    rawData: rawRow,
-                                    syncedAt: new Date(),
-                                },
-                                update: { syncedAt: new Date() },
-                                select: { id: true, weezeventId: true },
-                            });
-                            productIdMap.set(wid, upserted.id);
-                        } catch (err) {
-                            this.logger.warn(
-                                `Could not upsert product ${wid} from transaction ${apiTransaction.id}: ${(err as Error).message}`,
-                            );
-                        }
+                        newProductEntries.set(wid, row);
                     }
+                }
 
+                // Batch-create new events, then fetch to get DB IDs
+                if (newEventEntries.size > 0) {
+                    const now = new Date();
+                    await this.prisma.weezeventEvent.createMany({
+                        data: [...newEventEntries.entries()].map(([wid, name]) => ({
+                            weezeventId: wid, tenantId, integrationId, name, organizationId, rawData: {}, syncedAt: now,
+                        })),
+                        skipDuplicates: true,
+                    });
+                    const fetched = await this.prisma.weezeventEvent.findMany({
+                        where: { tenantId, integrationId, weezeventId: { in: [...newEventEntries.keys()] } },
+                        select: { id: true, weezeventId: true },
+                    });
+                    fetched.forEach(e => eventIdMap.set(e.weezeventId, e.id));
+                }
+
+                // Batch-create new products, then fetch to get DB IDs
+                if (newProductEntries.size > 0) {
+                    const now = new Date();
+                    await this.prisma.weezeventProduct.createMany({
+                        data: [...newProductEntries.entries()].map(([wid, row]) => ({
+                            weezeventId: wid, tenantId, integrationId,
+                            name: (row as any).item_name || `Item ${wid}`,
+                            basePrice: ((row as any).unit_price ?? 0) / 100,
+                            vatRate: (row as any).vat ?? null,
+                            rawData: row as any,
+                            syncedAt: now,
+                        })),
+                        skipDuplicates: true,
+                    });
+                    const fetched = await this.prisma.weezeventProduct.findMany({
+                        where: { tenantId, integrationId, weezeventId: { in: [...newProductEntries.keys()] } },
+                        select: { id: true, weezeventId: true },
+                    });
+                    fetched.forEach(p => productIdMap.set(p.weezeventId, p.id));
+                }
+
+                for (const apiTransaction of response.data) {
                     try {
                         const { created, updated } = await this.upsertTransaction(
                             tenantId,

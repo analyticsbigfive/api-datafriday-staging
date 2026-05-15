@@ -332,7 +332,7 @@ export class SpaceDashboardService {
           name: l.name,
         })),
         merchants: merchants.map((m) => ({
-          weezeventLocationId: m.weezeventId,
+          weezeventMerchantId: m.weezeventId,
           name: m.name,
         })),
       },

@@ -899,9 +899,9 @@ model WeezeventTransaction {
   @@index([sellerWalletId]) // Added walletId index
   // Composite indexes for analytics
   @@index([tenantId, status, transactionDate])
-  @@unique([tenantId, integrationId, weezeventId])
   @@index([tenantId, eventId, status])
   @@index([eventId, transactionDate])
+  @@unique([tenantId, weezeventId])
 }
 
 // ==================== WEEZEVENT SYNC STATE ====================

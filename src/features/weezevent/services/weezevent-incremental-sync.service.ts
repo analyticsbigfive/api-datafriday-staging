@@ -262,10 +262,12 @@ export class WeezeventIncrementalSyncService {
             let page = 1;
             let hasMore = true;
             let totalProcessed = 0;
-            const maxItems = options.maxItems || this.MAX_ITEMS_PER_RUN;
             const batchSize = options.batchSize || this.DEFAULT_BATCH_SIZE;
+            // No maxItems cap: fetch ALL pages until Weezevent says there are no more.
+            // The frontend should call this once and wait — no outer retry loop needed.
+            const MAX_PAGES_SAFETY = 10000; // absolute safeguard (~5M transactions)
 
-            while (hasMore && totalProcessed < maxItems) {
+            while (hasMore && page <= MAX_PAGES_SAFETY) {
                 const response = await this.weezeventClient.getTransactions(
                     tenantId,
                     organizationId,
@@ -320,11 +322,11 @@ export class WeezeventIncrementalSyncService {
                 totalProcessed += transactions.length;
                 hasMore = response.meta.current_page < response.meta.total_pages;
 
-                // Report progress: transactions have no total, so estimate via items processed vs maxItems
-                // This gives a real signal that advances with the data, capped at 95% until done.
+                // Report progress: estimate via items processed vs a typical large dataset
                 if (options.onProgress) {
-                    const estimatedPct = Math.min(95, Math.round((totalProcessed / maxItems) * 100));
-                    await options.onProgress(estimatedPct).catch(() => {});
+                    const totalPages = response.meta.total_pages || 1;
+                    const donePct = Math.min(95, Math.round((page / totalPages) * 100));
+                    await options.onProgress(donePct).catch(() => {});
                 }
 
                 page++;
@@ -580,18 +582,20 @@ export class WeezeventIncrementalSyncService {
             result.created = createResult.count;
         }
 
-        // Batch update using transaction
-        if (toUpdate.length > 0) {
+        // Batch update in chunked transactions to avoid saturating the connection pool
+        const UPDATE_CHUNK_SIZE = 10;
+        for (let i = 0; i < toUpdate.length; i += UPDATE_CHUNK_SIZE) {
+            const chunk = toUpdate.slice(i, i + UPDATE_CHUNK_SIZE);
             await this.prisma.$transaction(
-                toUpdate.map(({ weezeventId, data }) =>
+                chunk.map(({ weezeventId, data }) =>
                     this.prisma.weezeventEvent.update({
                         where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
                         data,
                     })
                 )
             );
-            result.updated = toUpdate.length;
         }
+        result.updated = toUpdate.length;
 
         return result;
     }
@@ -621,21 +625,19 @@ export class WeezeventIncrementalSyncService {
         ];
 
         const eventIdMap = new Map<string, string>();
-        await Promise.all(
-            uniqueEventEntries.map(async ({ wid, name }) => {
-                try {
-                    const upserted = await this.prisma.weezeventEvent.upsert({
-                        where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId: wid } },
-                        create: { weezeventId: wid, tenantId, integrationId, name, organizationId, rawData: {}, syncedAt: new Date() },
-                        update: { syncedAt: new Date() },
-                        select: { id: true, weezeventId: true },
-                    });
-                    eventIdMap.set(wid, upserted.id);
-                } catch (err) {
-                    this.logger.warn(`Could not upsert event ${wid}: ${(err as Error).message}`);
-                }
-            }),
-        );
+        await this.runConcurrent(uniqueEventEntries, async ({ wid, name }) => {
+            try {
+                const upserted = await this.prisma.weezeventEvent.upsert({
+                    where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId: wid } },
+                    create: { weezeventId: wid, tenantId, integrationId, name, organizationId, rawData: {}, syncedAt: new Date() },
+                    update: { syncedAt: new Date() },
+                    select: { id: true, weezeventId: true },
+                });
+                eventIdMap.set(wid, upserted.id);
+            } catch (err) {
+                this.logger.warn(`Could not upsert event ${wid}: ${(err as Error).message}`);
+            }
+        });
 
         // ── 2. Inline-upsert products from transaction rows ──────────────────
         const allRows: any[] = transactions.flatMap(t => t.rows ?? []);
@@ -648,21 +650,19 @@ export class WeezeventIncrementalSyncService {
         ];
 
         const productIdMap = new Map<string, string>();
-        await Promise.all(
-            uniqueProductEntries.map(async ({ wid, name, price, vat, raw }) => {
-                try {
-                    const upserted = await this.prisma.weezeventProduct.upsert({
-                        where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId: wid } },
-                        create: { weezeventId: wid, tenantId, integrationId, name, basePrice: price / 100, vatRate: vat, rawData: raw, syncedAt: new Date() },
-                        update: { syncedAt: new Date() },
-                        select: { id: true, weezeventId: true },
-                    });
-                    productIdMap.set(wid, upserted.id);
-                } catch (err) {
-                    this.logger.warn(`Could not upsert product ${wid}: ${(err as Error).message}`);
-                }
-            }),
-        );
+        await this.runConcurrent(uniqueProductEntries, async ({ wid, name, price, vat, raw }) => {
+            try {
+                const upserted = await this.prisma.weezeventProduct.upsert({
+                    where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId: wid } },
+                    create: { weezeventId: wid, tenantId, integrationId, name, basePrice: price / 100, vatRate: vat, rawData: raw, syncedAt: new Date() },
+                    update: { syncedAt: new Date() },
+                    select: { id: true, weezeventId: true },
+                });
+                productIdMap.set(wid, upserted.id);
+            } catch (err) {
+                this.logger.warn(`Could not upsert product ${wid}: ${(err as Error).message}`);
+            }
+        });
 
         // ── 3. Inline-upsert locations extracted from transaction data ────────
         const uniqueLocationEntries = [
@@ -674,21 +674,19 @@ export class WeezeventIncrementalSyncService {
         ];
 
         const locationIdMap = new Map<string, string>();
-        await Promise.all(
-            uniqueLocationEntries.map(async ({ wid, name }) => {
-                try {
-                    const upserted = await this.prisma.weezeventLocation.upsert({
-                        where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId: wid } },
-                        create: { weezeventId: wid, tenantId, integrationId, name, rawData: {}, syncedAt: new Date() },
-                        update: { name, syncedAt: new Date() },
-                        select: { id: true, weezeventId: true },
-                    });
-                    locationIdMap.set(wid, upserted.id);
-                } catch (err) {
-                    this.logger.warn(`Could not upsert location ${wid}: ${(err as Error).message}`);
-                }
-            }),
-        );
+        await this.runConcurrent(uniqueLocationEntries, async ({ wid, name }) => {
+            try {
+                const upserted = await this.prisma.weezeventLocation.upsert({
+                    where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId: wid } },
+                    create: { weezeventId: wid, tenantId, integrationId, name, rawData: {}, syncedAt: new Date() },
+                    update: { name, syncedAt: new Date() },
+                    select: { id: true, weezeventId: true },
+                });
+                locationIdMap.set(wid, upserted.id);
+            } catch (err) {
+                this.logger.warn(`Could not upsert location ${wid}: ${(err as Error).message}`);
+            }
+        });
 
         // ── 4. Inline-upsert merchants (fundations) from transaction data ────
         // Weezevent API field: fundation_id / fundation_name (not merchant_id)
@@ -701,21 +699,19 @@ export class WeezeventIncrementalSyncService {
         ];
 
         const merchantIdMap = new Map<string, string>();
-        await Promise.all(
-            uniqueMerchantEntries.map(async ({ wid, name }) => {
-                try {
-                    const upserted = await this.prisma.weezeventMerchant.upsert({
-                        where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId: wid } },
-                        create: { weezeventId: wid, tenantId, integrationId, name, organizationId, rawData: {}, syncedAt: new Date() },
-                        update: { name, syncedAt: new Date() },
-                        select: { id: true, weezeventId: true },
-                    });
-                    merchantIdMap.set(wid, upserted.id);
-                } catch (err) {
-                    this.logger.warn(`Could not upsert merchant ${wid}: ${(err as Error).message}`);
-                }
-            }),
-        );
+        await this.runConcurrent(uniqueMerchantEntries, async ({ wid, name }) => {
+            try {
+                const upserted = await this.prisma.weezeventMerchant.upsert({
+                    where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId: wid } },
+                    create: { weezeventId: wid, tenantId, integrationId, name, organizationId, rawData: {}, syncedAt: new Date() },
+                    update: { name, syncedAt: new Date() },
+                    select: { id: true, weezeventId: true },
+                });
+                merchantIdMap.set(wid, upserted.id);
+            } catch (err) {
+                this.logger.warn(`Could not upsert merchant ${wid}: ${(err as Error).message}`);
+            }
+        });
 
         // ── 5. Build transaction records ─────────────────────────────────────
         const toCreate: any[] = [];
@@ -793,13 +789,11 @@ export class WeezeventIncrementalSyncService {
                 select: { id: true, weezeventId: true },
             });
 
-            await Promise.all(
-                createdTxs.map(tx => {
-                    const raw = newTxRawMap.get(tx.weezeventId);
-                    if (!raw) return Promise.resolve();
-                    return this.createTransactionItemsAndPayments(tx.id, raw.rows ?? [], productIdMap);
-                }),
-            );
+            for (const tx of createdTxs) {
+                const raw = newTxRawMap.get(tx.weezeventId);
+                if (!raw) continue;
+                await this.createTransactionItemsAndPayments(tx.id, raw.rows ?? [], productIdMap);
+            }
         }
 
         return result;
@@ -865,6 +859,21 @@ export class WeezeventIncrementalSyncService {
     }
 
     // ==================== UTILITY METHODS ====================
+
+    /**
+     * Run async tasks over an array with a maximum concurrency to avoid saturating
+     * the Prisma connection pool. Items are processed in sequential chunks of
+     * `concurrency` items at a time.
+     */
+    private async runConcurrent<T>(
+        items: T[],
+        fn: (item: T) => Promise<void>,
+        concurrency = 3,
+    ): Promise<void> {
+        for (let i = 0; i < items.length; i += concurrency) {
+            await Promise.all(items.slice(i, i + concurrency).map(fn));
+        }
+    }
 
     /**
      * Get sync status for a tenant

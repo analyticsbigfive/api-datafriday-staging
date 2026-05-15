@@ -73,10 +73,26 @@ import { RolesGuard } from './core/auth/guards/roles.guard';
     LoggerModule.forRoot({
       pinoHttp: {
         level: process.env.LOG_LEVEL || 'info',
-        transport:
-          process.env.NODE_ENV !== 'production'
-            ? { target: 'pino-pretty', options: { singleLine: true, colorize: true } }
-            : undefined,
+        transport: {
+          targets: [
+            // Console : pino-pretty en dev, JSON stdout en prod
+            ...(process.env.NODE_ENV !== 'production'
+              ? [{ target: 'pino-pretty', level: process.env.LOG_LEVEL || 'info', options: { singleLine: true, colorize: true } }]
+              : [{ target: 'pino/file', level: process.env.LOG_LEVEL || 'info', options: { destination: 1 } }]),
+            // Fichier error-only (tous environnements sauf test)
+            ...(process.env.NODE_ENV !== 'test'
+              ? [{
+                  target: 'pino/file',
+                  level: 'error',
+                  options: {
+                    destination: process.env.LOG_ERROR_FILE ?? './logs/error.log',
+                    mkdir: true,
+                    append: true,
+                  },
+                }]
+              : []),
+          ],
+        },
         redact: [
           'req.headers.authorization',
           'req.headers.cookie',

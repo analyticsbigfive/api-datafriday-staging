@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Body, Query, Param, UseGuards, Logger, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Query, Param, UseGuards, Logger, BadRequestException, ConflictException } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { WeezeventSyncService, SyncResult } from './services/weezevent-sync.service';
 import { WeezeventIncrementalSyncService, IncrementalSyncResult } from './services/weezevent-incremental-sync.service';
@@ -17,6 +17,8 @@ import { QueueService } from '../../core/queue/queue.service';
 @UseGuards(JwtDatabaseGuard)
 export class WeezeventController {
     private readonly logger = new Logger(WeezeventController.name);
+    /** Tracks in-flight sync operations per "tenantId:type" to prevent concurrent pool saturation */
+    private readonly runningSyncs = new Set<string>();
 
     constructor(
         private readonly syncService: WeezeventSyncService,
@@ -123,6 +125,15 @@ export class WeezeventController {
             `Manual sync started: type=${dto.type}, tenant=${tenantId}, forceFullSync=${dto.full || false}`,
         );
 
+        const syncKey = `${tenantId}:${dto.type}`;
+        if (this.runningSyncs.has(syncKey)) {
+            throw new ConflictException(`Une synchronisation '${dto.type}' est déjà en cours pour ce tenant`);
+        }
+        this.runningSyncs.add(syncKey);
+
+        this.runningSyncs.add(syncKey);
+
+        try {
         const fromDate = dto.fromDate ? new Date(dto.fromDate) : undefined;
 
         // Auto-recovery: if DB is empty for this type, force a full sync regardless of dto.full.
@@ -210,6 +221,9 @@ export class WeezeventController {
 
             default:
                 throw new Error(`Sync type '${dto.type}' not implemented`);
+        }
+        } finally {
+            this.runningSyncs.delete(syncKey);
         }
     }
 

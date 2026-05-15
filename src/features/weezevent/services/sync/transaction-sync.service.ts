@@ -323,7 +323,7 @@ export class WeezeventTransactionSyncService {
         const weezeventId = apiTransaction.id.toString();
 
         const existing = await this.prisma.weezeventTransaction.findUnique({
-            where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
+            where: { tenantId_weezeventId: { tenantId, weezeventId } },
         });
 
         // Calculate total amount from rows[].payments[].amount (centimes → euros)
@@ -375,7 +375,7 @@ export class WeezeventTransactionSyncService {
         }
 
         const transaction = await this.prisma.weezeventTransaction.upsert({
-            where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
+            where: { tenantId_weezeventId: { tenantId, weezeventId } },
             create: {
                 weezeventId,
                 tenantId,

@@ -14,7 +14,23 @@ export class PrismaService
   private readonly logger = new Logger(PrismaService.name);
 
   constructor() {
+    const rawUrl = process.env.DATABASE_URL || '';
+    let datasourceUrl = rawUrl;
+    try {
+      const url = new URL(rawUrl);
+      if (!url.searchParams.has('connection_limit')) {
+        url.searchParams.set('connection_limit', '20');
+      }
+      if (!url.searchParams.has('pool_timeout')) {
+        url.searchParams.set('pool_timeout', '30');
+      }
+      datasourceUrl = url.toString();
+    } catch {
+      // If the URL is invalid, fall back to the raw value — PrismaClient will report the error
+    }
+
     super({
+      datasources: { db: { url: datasourceUrl } },
       log: [
         { emit: 'event', level: 'query' },
         { emit: 'event', level: 'error' },

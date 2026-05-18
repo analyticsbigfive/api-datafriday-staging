@@ -84,6 +84,8 @@ export class WeezeventTransactionSyncService {
             // Track wids already seen this run to avoid redundant upserts.
             const seenProductWids = new Set<string>(productIdMap.keys());
             const seenEventWids = new Set<string>(eventIdMap.keys());
+            const seenLocationWids = new Set<string>();
+            const locationIdMap = new Map<string, string>(); // weezeventId -> DB id
 
             let page = 1;
             let hasMore = true;
@@ -105,19 +107,27 @@ export class WeezeventTransactionSyncService {
                     `Fetched ${response.data.length} transactions (page ${page}/${response.meta.total_pages})`,
                 );
 
-                // ── Batch-upsert entities extracted from this page ──────────────────
-                // Collect unique events and products seen in this page that are not yet mapped
-                const newEventEntries = new Map<string, string>(); // wid -> name
-                const newProductEntries = new Map<string, any>(); // wid -> row data
-                for (const apiTransaction of response.data) {
-                    const rawTx = apiTransaction as any;
+                const now = new Date();
+
+                // ── 1. Batch-collect new events, products, locations from this page ──
+                const newEventEntries = new Map<string, string>();
+                const newProductEntries = new Map<string, any>();
+                const newLocationEntries = new Map<string, string>();
+                for (const apiTx of response.data) {
+                    const rawTx = apiTx as any;
                     const eventWid = rawTx.event_id?.toString() ?? null;
                     const eventName = rawTx.event_name ?? null;
                     if (eventWid && eventName && !seenEventWids.has(eventWid)) {
                         seenEventWids.add(eventWid);
                         newEventEntries.set(eventWid, eventName);
                     }
-                    for (const row of (apiTransaction.rows ?? [])) {
+                    const locWid = rawTx.location_id?.toString() ?? null;
+                    const locName = (apiTx.location_name ?? rawTx.location_name) ?? null;
+                    if (locWid && locName && !seenLocationWids.has(locWid)) {
+                        seenLocationWids.add(locWid);
+                        newLocationEntries.set(locWid, locName);
+                    }
+                    for (const row of (apiTx.rows ?? [])) {
                         const wid = String((row as any).item_id ?? '');
                         if (!wid || seenProductWids.has(wid)) continue;
                         seenProductWids.add(wid);
@@ -125,9 +135,8 @@ export class WeezeventTransactionSyncService {
                     }
                 }
 
-                // Batch-create new events, then fetch to get DB IDs
+                // ── 2. Batch-create new events / locations / products ─────────────
                 if (newEventEntries.size > 0) {
-                    const now = new Date();
                     await this.prisma.weezeventEvent.createMany({
                         data: [...newEventEntries.entries()].map(([wid, name]) => ({
                             weezeventId: wid, tenantId, integrationId, name, organizationId, rawData: {}, syncedAt: now,
@@ -141,9 +150,21 @@ export class WeezeventTransactionSyncService {
                     fetched.forEach(e => eventIdMap.set(e.weezeventId, e.id));
                 }
 
-                // Batch-create new products, then fetch to get DB IDs
+                if (newLocationEntries.size > 0) {
+                    await this.prisma.weezeventLocation.createMany({
+                        data: [...newLocationEntries.entries()].map(([wid, name]) => ({
+                            weezeventId: wid, tenantId, integrationId, name, rawData: {}, syncedAt: now,
+                        })),
+                        skipDuplicates: true,
+                    });
+                    const fetched = await this.prisma.weezeventLocation.findMany({
+                        where: { tenantId, integrationId, weezeventId: { in: [...newLocationEntries.keys()] } },
+                        select: { id: true, weezeventId: true },
+                    });
+                    fetched.forEach(l => locationIdMap.set(l.weezeventId, l.id));
+                }
+
                 if (newProductEntries.size > 0) {
-                    const now = new Date();
                     await this.prisma.weezeventProduct.createMany({
                         data: [...newProductEntries.entries()].map(([wid, row]) => ({
                             weezeventId: wid, tenantId, integrationId,
@@ -162,26 +183,103 @@ export class WeezeventTransactionSyncService {
                     fetched.forEach(p => productIdMap.set(p.weezeventId, p.id));
                 }
 
-                for (const apiTransaction of response.data) {
-                    try {
-                        const { created, updated } = await this.upsertTransaction(
-                            tenantId,
-                            integrationId,
-                            apiTransaction,
-                            productIdMap,
-                            eventIdMap,
-                        );
-                        result.itemsSynced++;
-                        if (created) result.itemsCreated++;
-                        if (updated) result.itemsUpdated++;
-                    } catch (error) {
-                        this.logger.error(
-                            `Failed to sync transaction ${apiTransaction.id}`,
-                            (error as Error).stack,
-                        );
-                        result.errors++;
+                // ── 3. Batch-insert transactions for this page ───────────────────
+                // Pre-generate IDs client-side so we can identify which rows are new
+                // after createMany(skipDuplicates) — new rows keep the client ID.
+                const pageTxData = response.data.map(apiTx => {
+                    const rawTx = apiTx as any;
+                    const rows = apiTx.rows ?? [];
+                    const totalAmount = rows.reduce((sum: number, row: any) =>
+                        sum + (row.payments ?? []).reduce((s: number, p: any) => s + (p.amount ?? 0), 0), 0) / 100;
+                    const status = apiTx.status as any;
+                    const statusValue = typeof status === 'object' && status?.name
+                        ? status.name : typeof status === 'string' ? status : 'unknown';
+                    const dateStr = rawTx.created || rawTx.updated || rawTx.validated || rawTx.date || rawTx.created_at;
+                    const eventWid = rawTx.event_id?.toString() ?? null;
+                    const locWid = rawTx.location_id?.toString() ?? null;
+                    return {
+                        id: nanoid(),
+                        weezeventId: apiTx.id.toString(),
+                        tenantId,
+                        integrationId,
+                        amount: totalAmount,
+                        status: statusValue,
+                        transactionDate: dateStr ? new Date(dateStr) : now,
+                        eventId: eventWid ? (eventIdMap.get(eventWid) ?? null) : null,
+                        eventName: apiTx.event_name ?? null,
+                        merchantName: rawTx.fundation_name ?? null,
+                        locationName: apiTx.location_name ?? null,
+                        locationId: locWid ? (locationIdMap.get(locWid) ?? null) : null,
+                        sellerWalletId: rawTx.seller_wallet_id?.toString() ?? null,
+                        rawData: apiTx as any,
+                        syncedAt: now,
+                    };
+                });
+
+                const clientIdByWid = new Map(pageTxData.map(t => [t.weezeventId, t.id]));
+
+                await this.prisma.weezeventTransaction.createMany({ data: pageTxData, skipDuplicates: true });
+
+                // Fetch actual DB IDs (existing rows keep old IDs, new rows have client-generated IDs)
+                const dbTxs = await this.prisma.weezeventTransaction.findMany({
+                    where: { tenantId, weezeventId: { in: pageTxData.map(t => t.weezeventId) } },
+                    select: { id: true, weezeventId: true },
+                });
+                const txIdMap = new Map(dbTxs.map(t => [t.weezeventId, t.id]));
+
+                // A row is "new" when the DB returned the same ID we generated (it was actually inserted)
+                const newWids = new Set(dbTxs.filter(t => t.id === clientIdByWid.get(t.weezeventId)).map(t => t.weezeventId));
+                result.itemsSynced += response.data.length;
+                result.itemsCreated += newWids.size;
+                result.itemsUpdated += response.data.length - newWids.size;
+
+                // ── 4. Batch-insert items + payments for NEW transactions only ────
+                // Existing transactions already have their items from a previous sync.
+                const allItems: any[] = [];
+                const allPayments: any[] = [];
+                for (const apiTx of response.data) {
+                    if (!newWids.has(apiTx.id.toString())) continue;
+                    const txDbId = txIdMap.get(apiTx.id.toString());
+                    if (!txDbId) continue;
+                    for (const row of (apiTx.rows ?? [])) {
+                        const itemId = nanoid();
+                        const totalQty = (row.payments ?? []).reduce((s: number, p: any) => s + (p.quantity ?? 0), 0);
+                        allItems.push({
+                            id: itemId,
+                            transactionId: txDbId,
+                            weezeventItemId: row.id.toString(),
+                            productName: (row as any).item_name || `Item ${row.item_id}`,
+                            productId: productIdMap.get(String(row.item_id)) ?? null,
+                            compoundId: row.compound_id?.toString() || null,
+                            quantity: totalQty || 1,
+                            unitPrice: (row.unit_price || 0) / 100,
+                            vat: row.vat || 0,
+                            reduction: row.reduction || 0,
+                            rawData: row as any,
+                        });
+                        for (const payment of (row.payments ?? [])) {
+                            allPayments.push({
+                                id: nanoid(),
+                                itemId,
+                                weezeventPaymentId: payment.id?.toString() || null,
+                                walletId: payment.wallet_id?.toString() || null,
+                                amount: (payment.amount || 0) / 100,
+                                amountVat: (payment.amount_vat || 0) / 100,
+                                currencyId: payment.currency_id?.toString() || null,
+                                quantity: payment.quantity || 1,
+                                paymentMethodId: payment.payment_method_id?.toString() || null,
+                                rawData: payment as any,
+                            });
+                        }
                     }
                 }
+
+                await Promise.all([
+                    allItems.length > 0 ? this.prisma.weezeventTransactionItem.createMany({ data: allItems }) : Promise.resolve(),
+                    allPayments.length > 0 ? this.prisma.weezeventPayment.createMany({ data: allPayments }) : Promise.resolve(),
+                ]);
+
+                this.logger.debug(`Page ${page}: ${newWids.size} new / ${response.data.length - newWids.size} existing — ${allItems.length} items, ${allPayments.length} payments`);
 
                 hasMore = page < response.meta.total_pages;
                 page++;

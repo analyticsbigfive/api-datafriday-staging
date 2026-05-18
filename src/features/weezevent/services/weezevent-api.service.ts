@@ -61,6 +61,60 @@ export class WeezeventApiService {
     }
 
     /**
+     * Execute GET and return full response including HTTP headers.
+     * Use this when you need response headers (e.g. Link header for cursor pagination).
+     * @param url Endpoint path (baseUrl prepended) or full URL when isFullUrl=true
+     */
+    async getFullResponse<T>(
+        tenantId: string,
+        url: string,
+        params?: Record<string, any>,
+        isFullUrl = false,
+    ): Promise<{ data: T; headers: Record<string, string> }> {
+        const token = await this.authService.getAccessToken(tenantId);
+        const HARD_TIMEOUT_MS = Number(process.env.WEEZEVENT_HTTP_TIMEOUT_MS || 15000);
+        const config: AxiosRequestConfig = {
+            method: 'GET',
+            url: isFullUrl ? url : `${this.baseUrl}${url}`,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            params,
+            timeout: HARD_TIMEOUT_MS,
+        };
+        return this.executeWithRetryRaw<T>(config, tenantId);
+    }
+
+    private async executeWithRetryRaw<T>(
+        config: AxiosRequestConfig,
+        tenantId: string,
+        attempt = 1,
+    ): Promise<{ data: T; headers: Record<string, string> }> {
+        try {
+            const response = await this.breaker.fire(config);
+            return {
+                data: response.data as T,
+                headers: response.headers as Record<string, string>,
+            };
+        } catch (error) {
+            if (error?.code === 'EOPENBREAKER' || /breaker/i.test(error?.message || '')) {
+                throw new WeezeventApiException(
+                    'Weezevent API temporairement indisponible (circuit breaker ouvert)',
+                    error,
+                );
+            }
+            if (this.shouldRetry(error, attempt)) {
+                const delay = this.calculateRetryDelay(attempt);
+                await this.sleep(delay);
+                return this.executeWithRetryRaw<T>(config, tenantId, attempt + 1);
+            }
+            throw this.mapError(error, tenantId);
+        }
+    }
+
+    /**
      * Execute POST request
      */
     async post<T>(

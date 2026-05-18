@@ -20,3 +20,12 @@ export interface WeezeventPaginatedResponse<T> {
         total_pages: number;
     };
 }
+
+/**
+ * Single page returned by cursor-based pagination (Link header rel="next").
+ * nextCursor is null when the last page has been reached.
+ */
+export interface WeezeventCursorPage<T> {
+    items: T[];
+    nextCursor: string | null;
+}

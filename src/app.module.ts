@@ -91,6 +91,18 @@ import { RolesGuard } from './core/auth/guards/roles.guard';
                   },
                 }]
               : []),
+            // Fichier combined : info + warn + error (tous environnements sauf test)
+            ...(process.env.NODE_ENV !== 'test'
+              ? [{
+                  target: 'pino/file',
+                  level: process.env.LOG_LEVEL || 'info',
+                  options: {
+                    destination: process.env.LOG_COMBINED_FILE ?? './logs/combined.log',
+                    mkdir: true,
+                    append: true,
+                  },
+                }]
+              : []),
           ],
         },
         redact: [

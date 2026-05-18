@@ -59,6 +59,7 @@ export class WeezeventCatalogSyncService {
 
             const eventsToCreate: any[] = [];
             const eventsToUpdate: { weezeventId: string; data: any }[] = [];
+            const seenEventIds = new Set<string>();
             let page = 1;
             let hasMore = true;
 
@@ -66,6 +67,11 @@ export class WeezeventCatalogSyncService {
                 const response = await this.weezeventClient.getEvents(tenantId, organizationId, { perPage: 100, page });
 
                 if (response.data.length === 0) { hasMore = false; break; }
+
+                // Guard against infinite loops when the API ignores the page param
+                const pageIds = response.data.map((e: any) => e.id.toString());
+                if (pageIds.every((id: string) => seenEventIds.has(id))) { hasMore = false; break; }
+                pageIds.forEach((id: string) => seenEventIds.add(id));
 
                 const weezeventIds = response.data.map(e => e.id.toString());
                 const existingEvents = await this.prisma.weezeventEvent.findMany({
@@ -191,6 +197,7 @@ export class WeezeventCatalogSyncService {
             const productsToCreate: any[] = [];
             const productsToUpdate: { weezeventId: string; data: any }[] = [];
             const productIdsNeedingDetailSync: string[] = [];
+            const seenProductIds = new Set<string>();
             let page = 1;
             let hasMore = true;
 
@@ -198,6 +205,11 @@ export class WeezeventCatalogSyncService {
                 const response = await this.weezeventClient.getProducts(tenantId, organizationId, { perPage: 100, page });
 
                 if (response.data.length === 0) { hasMore = false; break; }
+
+                // Guard against infinite loops when the API ignores the page param
+                const pageIds = response.data.map((p: any) => p.id.toString());
+                if (pageIds.every((id: string) => seenProductIds.has(id))) { hasMore = false; break; }
+                pageIds.forEach((id: string) => seenProductIds.add(id));
 
                 const weezeventIds = response.data.map(p => p.id.toString());
                 const existingProducts = await this.prisma.weezeventProduct.findMany({

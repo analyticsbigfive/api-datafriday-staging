@@ -131,8 +131,6 @@ export class WeezeventController {
         }
         this.runningSyncs.add(syncKey);
 
-        this.runningSyncs.add(syncKey);
-
         try {
         const fromDate = dto.fromDate ? new Date(dto.fromDate) : undefined;
 
@@ -162,13 +160,26 @@ export class WeezeventController {
                     forceFullSync: forceFull,
                     updatedSince: fromDate,
                 });
-                const [count, eventCount, productCount, locationCount, merchantCount] = await Promise.all([
+                let [count, eventCount, productCount, locationCount, merchantCount] = await Promise.all([
                     this.prisma.weezeventTransaction.count({ where: { tenantId, integrationId: dto.integrationId } }),
                     this.prisma.weezeventEvent.count({ where: { tenantId, integrationId: dto.integrationId } }),
                     this.prisma.weezeventProduct.count({ where: { tenantId, integrationId: dto.integrationId } }),
                     this.prisma.weezeventLocation.count({ where: { tenantId, integrationId: dto.integrationId } }),
                     this.prisma.weezeventMerchant.count({ where: { tenantId, integrationId: dto.integrationId } }),
                 ]);
+                // If transactions exist but entities are missing, backfill them from rawData
+                if (count > 0 && (eventCount === 0 || locationCount === 0 || merchantCount === 0 || productCount === 0)) {
+                    this.logger.log(`[Backfill] Transactions=${count} but entities missing (events=${eventCount}, locations=${locationCount}, merchants=${merchantCount}). Starting backfill…`);
+                    await this.incrementalSyncService.backfillEntitiesFromRawData(tenantId, dto.integrationId).catch(e => {
+                        this.logger.warn(`[Backfill] Failed: ${(e as Error).message}`);
+                    });
+                    [eventCount, productCount, locationCount, merchantCount] = await Promise.all([
+                        this.prisma.weezeventEvent.count({ where: { tenantId, integrationId: dto.integrationId } }),
+                        this.prisma.weezeventProduct.count({ where: { tenantId, integrationId: dto.integrationId } }),
+                        this.prisma.weezeventLocation.count({ where: { tenantId, integrationId: dto.integrationId } }),
+                        this.prisma.weezeventMerchant.count({ where: { tenantId, integrationId: dto.integrationId } }),
+                    ]);
+                }
                 const duration = Date.now() - t0;
                 this.logger.log(`Manual sync: transactions done in ${duration}ms — ${result.itemsSynced} synced, total=${count} (events=${eventCount}, products=${productCount}, locations=${locationCount}, merchants=${merchantCount}, hasMore=${result.hasMore})`);
                 return { status: 'completed', syncType: 'transactions', count, eventCount, productCount, locationCount, merchantCount, itemsSynced: result.itemsSynced, itemsCreated: result.itemsCreated, hasMore: result.hasMore, duration };
@@ -180,10 +191,13 @@ export class WeezeventController {
                 const result = await this.incrementalSyncService.syncEventsIncremental(tenantId, dto.integrationId, {
                     forceFullSync: forceFull,
                 });
-                const count = await this.prisma.weezeventEvent.count({ where: { tenantId, integrationId: dto.integrationId } });
+                const [count, locationCount] = await Promise.all([
+                    this.prisma.weezeventEvent.count({ where: { tenantId, integrationId: dto.integrationId } }),
+                    this.prisma.weezeventLocation.count({ where: { tenantId, integrationId: dto.integrationId } }),
+                ]);
                 const duration = Date.now() - t0;
-                this.logger.log(`Manual sync: events done in ${duration}ms — ${result.itemsSynced} synced, total=${count}`);
-                return { status: 'completed', syncType: 'events', count, itemsSynced: result.itemsSynced, itemsCreated: result.itemsCreated, duration };
+                this.logger.log(`Manual sync: events done in ${duration}ms — ${result.itemsSynced} synced, total=${count} (locations=${locationCount})`);
+                return { status: 'completed', syncType: 'events', count, locationCount, itemsSynced: result.itemsSynced, itemsCreated: result.itemsCreated, duration };
             }
 
             case 'products': {
@@ -240,24 +254,44 @@ export class WeezeventController {
     ) {
         const tenantId = user.tenantId;
 
-        const [incrementalStatus, transactionCount, eventCount, productCount, queueStats, jobsProgress] =
+        const txWhere = { tenantId, ...(integrationId ? { integrationId } : {}) };
+
+        const entityWhere = { tenantId, ...(integrationId ? { integrationId } : {}) };
+
+        const [incrementalStatus, transactionCount, eventCount, productCount, locationCount, merchantCount, lastTransaction, queueStats, jobsProgress] =
             await Promise.all([
                 this.incrementalSyncService.getSyncStatus(tenantId, integrationId),
-                this.prisma.weezeventTransaction.count({ where: { tenantId, ...(integrationId ? { integrationId } : {}) } }),
-                this.prisma.weezeventEvent.count({ where: { tenantId, ...(integrationId ? { integrationId } : {}) } }),
-                this.prisma.weezeventProduct.count({ where: { tenantId, ...(integrationId ? { integrationId } : {}) } }),
+                this.prisma.weezeventTransaction.count({ where: txWhere }),
+                this.prisma.weezeventEvent.count({ where: entityWhere }),
+                this.prisma.weezeventProduct.count({ where: entityWhere }),
+                this.prisma.weezeventLocation.count({ where: entityWhere }),
+                this.prisma.weezeventMerchant.count({ where: entityWhere }),
+                this.prisma.weezeventTransaction.findFirst({
+                    where: txWhere,
+                    orderBy: { transactionDate: 'desc' },
+                    select: { transactionDate: true },
+                }),
                 this.queueService.getQueueStats('data-sync').catch(() => null),
                 this.queueService.getActiveJobsProgress('data-sync').catch(() => ({})),
             ]);
 
+        const syncKey = `${tenantId}:transactions`;
         return {
             events: { ...incrementalStatus.events, count: eventCount },
-            transactions: { ...incrementalStatus.transactions, count: transactionCount },
+            transactions: {
+                ...incrementalStatus.transactions,
+                count: transactionCount,
+                lastTransactionDate: lastTransaction?.transactionDate ?? null,
+            },
             products: { ...incrementalStatus.products, count: productCount },
+            locations: { count: locationCount },
+            merchants: { count: merchantCount },
             // BullMQ queue stats (persistent, survives restarts)
             queue: queueStats,
             // Per-job progress for active jobs: { transactions: 45, events: 10, ... }
             jobsProgress,
+            // Whether an in-process sync is currently holding the lock for this tenant
+            syncRunning: this.runningSyncs.has(syncKey),
         };
     }
 

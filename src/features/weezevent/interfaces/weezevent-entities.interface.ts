@@ -7,7 +7,6 @@ export interface WeezeventTransaction {
     fundation_name: string;
     location_id: number;
     location_name: string;
-    seller_id: number;
     seller_wallet_id: number;
     status: 'W' | 'V' | 'C' | 'R'; // Waiting, Validated, Cancelled, Refunded
     created: string;

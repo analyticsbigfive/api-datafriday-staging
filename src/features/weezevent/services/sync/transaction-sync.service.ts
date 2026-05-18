@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { nanoid } from 'nanoid';
 import { PrismaService } from '../../../../core/database/prisma.service';
 import { WeezeventClientService } from '../weezevent-client.service';
 import {
@@ -385,7 +386,6 @@ export class WeezeventTransactionSyncService {
                 merchantName: apiTransaction.fundation_name,
                 locationName: apiTransaction.location_name,
                 locationId: locationDbId,
-                sellerId: apiTransaction.seller_id?.toString(),
                 sellerWalletId: apiTransaction.seller_wallet_id?.toString(),
                 rawData: apiTransaction as any,
                 syncedAt: new Date(),
@@ -414,12 +414,11 @@ export class WeezeventTransactionSyncService {
         rows: ApiTransaction['rows'],
         productIdMap: Map<string, string>,
     ): Promise<void> {
-        // Delete existing items (cascade deletes payments)
-        await this.prisma.weezeventTransactionItem.deleteMany({ where: { transactionId } });
-
+        // Generate item IDs client-side to avoid a SELECT round-trip after INSERT.
         const itemsData = (rows ?? []).map(row => {
             const totalQty = (row.payments ?? []).reduce((s: number, p: any) => s + (p.quantity ?? 0), 0);
             return {
+                id: nanoid(),
                 transactionId,
                 weezeventItemId: row.id.toString(),
                 productName: (row as any).item_name || `Item ${row.item_id}`,
@@ -433,13 +432,8 @@ export class WeezeventTransactionSyncService {
             };
         });
 
-        await this.prisma.weezeventTransactionItem.createMany({ data: itemsData });
-
-        const createdItems = await this.prisma.weezeventTransactionItem.findMany({
-            where: { transactionId },
-            select: { id: true, weezeventItemId: true },
-        });
-        const itemIdMap = new Map(createdItems.map(item => [item.weezeventItemId, item.id]));
+        // Build the itemId map from client-side IDs — no DB round-trip needed.
+        const itemIdMap = new Map(itemsData.map(item => [item.weezeventItemId, item.id]));
 
         const paymentsData: any[] = [];
         for (const row of (rows ?? [])) {
@@ -460,8 +454,13 @@ export class WeezeventTransactionSyncService {
             }
         }
 
-        if (paymentsData.length > 0) {
-            await this.prisma.weezeventPayment.createMany({ data: paymentsData });
-        }
+        // Batch all 3 write operations in a single DB transaction (1 BEGIN / 1 COMMIT).
+        await this.prisma.$transaction([
+            this.prisma.weezeventTransactionItem.deleteMany({ where: { transactionId } }),
+            this.prisma.weezeventTransactionItem.createMany({ data: itemsData }),
+            ...(paymentsData.length > 0
+                ? [this.prisma.weezeventPayment.createMany({ data: paymentsData })]
+                : []),
+        ]);
     }
 }

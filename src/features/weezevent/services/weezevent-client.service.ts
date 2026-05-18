@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { WeezeventApiService } from './weezevent-api.service';
 import {
     WeezeventPaginatedResponse,
+    WeezeventCursorPage,
 } from '../interfaces/weezevent.interface';
 import {
     WeezeventTransaction,
@@ -18,6 +19,8 @@ export interface GetTransactionsOptions {
     fromDate?: Date;
     toDate?: Date;
     eventId?: number;
+    /** Full cursor URL from the Link: rel="next" response header. When set, all other params are ignored. */
+    cursor?: string;
 }
 
 @Injectable()
@@ -46,11 +49,11 @@ export class WeezeventClientService {
         }
 
         if (options?.fromDate) {
-            params.from_date = options.fromDate.toISOString();
+            params.created_at__gte = options.fromDate.toISOString();
         }
 
         if (options?.toDate) {
-            params.to_date = options.toDate.toISOString();
+            params.created_at__lte = options.toDate.toISOString();
         }
 
         if (options?.eventId) {
@@ -91,6 +94,73 @@ export class WeezeventClientService {
 
         // If it's already in the correct format, return as is
         return response;
+    }
+
+    /**
+     * Fetch one page of transactions using cursor-based pagination.
+     * On first call, pass fromDate / perPage / etc. (no cursor).
+     * On subsequent calls, pass only { cursor: page.nextCursor }.
+     * Returns null nextCursor when the last page has been reached.
+     */
+    async getTransactionPage(
+        tenantId: string,
+        organizationId: string,
+        options?: GetTransactionsOptions,
+    ): Promise<WeezeventCursorPage<WeezeventTransaction>> {
+        let result: { data: any; headers: Record<string, string> };
+
+        if (options?.cursor) {
+            // Follow the cursor URL provided by Weezevent's Link header
+            result = await this.apiService.getFullResponse<any>(
+                tenantId,
+                options.cursor,
+                undefined,
+                true, // isFullUrl
+            );
+        } else {
+            // First page — build params
+            const params: Record<string, any> = {
+                per_page: options?.perPage || 50,
+            };
+            if (options?.status) params.status = options.status;
+            if (options?.fromDate) params.created_at__gte = options.fromDate.toISOString();
+            if (options?.toDate) params.created_at__lte = options.toDate.toISOString();
+            if (options?.eventId) params.event_id = options.eventId;
+
+            result = await this.apiService.getFullResponse<any>(
+                tenantId,
+                `/organizations/${organizationId}/transactions`,
+                params,
+            );
+        }
+
+        const items: WeezeventTransaction[] = Array.isArray(result.data)
+            ? result.data
+            : (result.data?.data ?? []);
+
+        const linkHeader = result.headers['link'] ?? result.headers['Link'] ?? '';
+        const nextCursor = this.parseLinkHeader(linkHeader);
+
+        this.logger.debug(
+            `getTransactionPage: ${items.length} items, nextCursor=${nextCursor ? 'present' : 'none'}`,
+        );
+
+        return { items, nextCursor };
+    }
+
+    /**
+     * Parse RFC 5988 Link header and return the rel="next" URL, or null.
+     * Example header: `<https://api.weezevent.com/...?cursor=abc>; rel="next"`
+     */
+    private parseLinkHeader(linkHeader: string): string | null {
+        if (!linkHeader) return null;
+        // Split on commas not inside angle brackets
+        const parts = linkHeader.split(/,\s*(?=<)/);
+        for (const part of parts) {
+            const match = part.match(/<([^>]+)>[^;]*;.*rel="next"/);
+            if (match) return match[1];
+        }
+        return null;
     }
 
     /**
@@ -226,20 +296,17 @@ export class WeezeventClientService {
             params,
         );
 
-        // Weezevent API returns an array directly, not a paginated response
-        // Use hasItems strategy (same as getTransactions) so a silently-capped per_page
-        // from the Weezevent API does not cause early termination.
+        // Weezevent API returns an array directly (non-paginated): treat the whole
+        // response as a single page so the caller's while-loop terminates immediately.
         if (Array.isArray(response)) {
             const perPage = options?.perPage || 50;
-            const currentPage = options?.page || 1;
-            const hasItems = response.length > 0;
             return {
                 data: response,
                 meta: {
-                    current_page: currentPage,
+                    current_page: 1,
                     per_page: perPage,
                     total: response.length,
-                    total_pages: hasItems ? currentPage + 1 : currentPage,
+                    total_pages: 1,
                 },
             };
         }
@@ -295,20 +362,17 @@ export class WeezeventClientService {
             params,
         );
 
-        // Weezevent API returns an array directly, not a paginated response
-        // Use hasItems strategy (same as getTransactions) so a silently-capped per_page
-        // from the Weezevent API does not cause early termination.
+        // Weezevent API returns an array directly (non-paginated): treat the whole
+        // response as a single page so the caller's while-loop terminates immediately.
         if (Array.isArray(response)) {
             const perPage = options?.perPage || 50;
-            const currentPage = options?.page || 1;
-            const hasItems = response.length > 0;
             return {
                 data: response,
                 meta: {
-                    current_page: currentPage,
+                    current_page: 1,
                     per_page: perPage,
                     total: response.length,
-                    total_pages: hasItems ? currentPage + 1 : currentPage,
+                    total_pages: 1,
                 },
             };
         }

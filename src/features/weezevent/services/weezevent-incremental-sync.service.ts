@@ -258,30 +258,31 @@ export class WeezeventIncrementalSyncService {
 
             // Get existing transaction IDs for fast lookup
             const existingIds = await this.getExistingTransactionIds(tenantId, integrationId, fromDate);
+            this.logger.log(
+                `[Transactions] ${existingIds.size} IDs already in DB at sync start (mode: ${useIncremental ? 'INCREMENTAL' : 'FULL'}, fromDate: ${fromDate?.toISOString() ?? 'none'})`,
+            );
 
-            let page = 1;
-            let hasMore = true;
+            let cursor: string | null = null;
+            let isFirstPage = true;
             let totalProcessed = 0;
+            let pageNumber = 0;
+            let lastTransactionDate: Date | null = null;
             const batchSize = options.batchSize || this.DEFAULT_BATCH_SIZE;
-            // No maxItems cap: fetch ALL pages until Weezevent says there are no more.
-            // The frontend should call this once and wait — no outer retry loop needed.
-            const MAX_PAGES_SAFETY = 10000; // absolute safeguard (~5M transactions)
 
-            while (hasMore && page <= MAX_PAGES_SAFETY) {
-                const response = await this.weezeventClient.getTransactions(
+            while (true) {
+                const page = await this.weezeventClient.getTransactionPage(
                     tenantId,
                     organizationId,
-                    {
-                        page,
-                        perPage: batchSize,
-                        fromDate,
-                    },
+                    isFirstPage
+                        ? { fromDate: fromDate ?? undefined, perPage: batchSize }
+                        : { cursor: cursor! },
                 );
 
-                const transactions = response.data;
+                const transactions = page.items;
+                pageNumber++;
 
                 if (transactions.length === 0) {
-                    hasMore = false;
+                    this.logger.log(`[Transactions] Page ${pageNumber}: empty response — stopping`);
                     break;
                 }
 
@@ -292,17 +293,15 @@ export class WeezeventIncrementalSyncService {
 
                 result.itemsSkipped += transactions.length - newTransactions.length;
 
-                // If all transactions on this page were already in DB, the API's from_date
-                // filter is not being honoured (Weezevent returns all historical pages).
-                // Stop early — no point fetching further pages of already-known data.
+                // If all transactions on this page were already in DB, stop early
                 if (useIncremental && newTransactions.length === 0) {
-                    this.logger.debug(`Incremental: full page skipped (all already in DB) — stopping early at page ${page}`);
-                    hasMore = false;
+                    this.logger.warn(
+                        `[Transactions] Page ${pageNumber}: all ${transactions.length} already in DB — stopping early (cursor: ${cursor ?? 'none'})`,
+                    );
                     break;
                 }
 
                 if (newTransactions.length > 0) {
-                    // Batch upsert
                     const batchResult = await this.processBatchTransactions(
                         tenantId,
                         integrationId,
@@ -315,33 +314,42 @@ export class WeezeventIncrementalSyncService {
                     result.itemsUpdated += batchResult.updated;
                     result.errors += batchResult.errors;
 
-                    // Add new IDs to set
                     newTransactions.forEach(t => existingIds.add(t.id.toString()));
                 }
 
                 totalProcessed += transactions.length;
-                hasMore = response.meta.current_page < response.meta.total_pages;
 
-                // Report progress: estimate via items processed vs a typical large dataset
-                if (options.onProgress) {
-                    const totalPages = response.meta.total_pages || 1;
-                    const donePct = Math.min(95, Math.round((page / totalPages) * 100));
-                    await options.onProgress(donePct).catch(() => {});
+                // Track the most recent transaction date seen (for lastSyncedAt)
+                const lastTx = transactions[transactions.length - 1];
+                if (lastTx?.created) {
+                    const txDate = new Date(lastTx.created);
+                    if (!lastTransactionDate || txDate > lastTransactionDate) {
+                        lastTransactionDate = txDate;
+                    }
                 }
 
-                page++;
+                if (options.onProgress && page.nextCursor) {
+                    await options.onProgress(50).catch(() => {});
+                }
 
-                this.logger.debug(
-                    `Processed page ${page - 1}: ${transactions.length} transactions (${newTransactions.length} new)`,
+                this.logger.log(
+                    `[Transactions] Page ${pageNumber}: ${transactions.length} fetched, ${newTransactions.length} new, ${transactions.length - newTransactions.length} skipped | totalProcessed=${totalProcessed} created=${result.itemsCreated} errors=${result.errors} | cursor=${page.nextCursor ?? 'LAST_PAGE'}`,
                 );
+
+                cursor = page.nextCursor;
+                isFirstPage = false;
+                if (!cursor) break; // Weezevent says no more pages
             }
 
             result.itemsSynced = result.itemsCreated + result.itemsUpdated;
-            result.hasMore = hasMore;
+            result.hasMore = cursor !== null;
 
             // Update sync state
+            // Use the most recent transaction date as checkpoint so the next incremental
+            // sync starts from that point — not from "now" (which would miss past records).
+            const checkpointDate = lastTransactionDate ?? new Date();
             await this.updateSyncState(tenantId, integrationId, syncType, {
-                lastSyncedAt: new Date(),
+                lastSyncedAt: checkpointDate,
                 lastSyncCount: result.itemsSynced,
                 lastSyncDuration: Date.now() - startTime,
                 consecutiveErrors: 0,
@@ -772,7 +780,6 @@ export class WeezeventIncrementalSyncService {
                         merchantName: rawTx.fundation_name ?? null,
                         locationId: resolvedLocationId,
                         locationName: apiTransaction.location_name,
-                        sellerId: apiTransaction.seller_id?.toString(),
                         rawData: apiTransaction as any,
                         syncedAt: new Date(),
                     });
@@ -791,6 +798,13 @@ export class WeezeventIncrementalSyncService {
                 skipDuplicates: true,
             });
             result.created = createResult.count;
+            if (createResult.count < toCreate.length) {
+                this.logger.warn(
+                    `[Transactions] createMany: ${createResult.count}/${toCreate.length} inserted (${toCreate.length - createResult.count} skipped by DB — duplicates?)`,
+                );
+            } else {
+                this.logger.log(`[Transactions] createMany: ${createResult.count}/${toCreate.length} inserted OK`);
+            }
 
             // ── 7. Create transaction items and payments for new records ───────
             const createdTxs = await this.prisma.weezeventTransaction.findMany({
@@ -1026,5 +1040,169 @@ export class WeezeventIncrementalSyncService {
         }
 
         this.logger.log(`✅ Locations sync: upserted ${totalUpserted} locations for tenant ${tenantId}`);
+    }
+
+    // ==================== ENTITY BACKFILL ====================
+
+    /**
+     * Backfill events, locations, products, and merchants from rawData of existing
+     * transactions. Called when entities are missing despite transactions being present
+     * (e.g. transactions were inserted before entity-extraction logic existed).
+     * Also links existing transactions to the newly-created entity rows.
+     */
+    async backfillEntitiesFromRawData(
+        tenantId: string,
+        integrationId: string,
+    ): Promise<{ events: number; locations: number; products: number; merchants: number }> {
+        this.logger.log(`[Backfill] Starting entity backfill from existing transactions for tenant ${tenantId}`);
+
+        const [transactions, integration] = await Promise.all([
+            this.prisma.weezeventTransaction.findMany({
+                where: { tenantId, integrationId },
+                select: { id: true, rawData: true },
+            }),
+            this.prisma.weezeventIntegration.findUnique({
+                where: { id: integrationId },
+                select: { organizationId: true },
+            }),
+        ]);
+
+        if (transactions.length === 0) {
+            this.logger.log(`[Backfill] No transactions found, skipping`);
+            return { events: 0, locations: 0, products: 0, merchants: 0 };
+        }
+
+        const rawTransactions = transactions.map(t => t.rawData as any);
+        const organizationId = integration?.organizationId ?? '';
+        const now = new Date();
+
+        // ── 1. Events ────────────────────────────────────────────────────────
+        const uniqueEventEntries = [
+            ...new Map(
+                rawTransactions
+                    .filter(t => t.event_id && t.event_name)
+                    .map(t => [String(t.event_id), { wid: String(t.event_id), name: t.event_name as string }]),
+            ).values(),
+        ];
+        if (uniqueEventEntries.length > 0) {
+            await this.prisma.weezeventEvent.createMany({
+                data: uniqueEventEntries.map(({ wid, name }) => ({
+                    weezeventId: wid, tenantId, integrationId, name, organizationId, rawData: {}, syncedAt: now,
+                })),
+                skipDuplicates: true,
+            });
+        }
+
+        // ── 2. Locations ─────────────────────────────────────────────────────
+        const uniqueLocationEntries = [
+            ...new Map(
+                rawTransactions
+                    .filter(t => t.location_id && t.location_name)
+                    .map(t => [String(t.location_id), { wid: String(t.location_id), name: t.location_name as string }]),
+            ).values(),
+        ];
+        if (uniqueLocationEntries.length > 0) {
+            await this.prisma.weezeventLocation.createMany({
+                data: uniqueLocationEntries.map(({ wid, name }) => ({
+                    weezeventId: wid, tenantId, integrationId, name, rawData: {}, syncedAt: now,
+                })),
+                skipDuplicates: true,
+            });
+        }
+
+        // ── 3. Products (from transaction rows) ──────────────────────────────
+        const allRows: any[] = rawTransactions.flatMap(t => t.rows ?? []);
+        const uniqueProductEntries = [
+            ...new Map(
+                allRows
+                    .filter(r => r.item_id)
+                    .map(r => [
+                        String(r.item_id),
+                        { wid: String(r.item_id), name: (r.item_name as string) || `Item ${r.item_id}`, price: r.unit_price ?? 0, vat: r.vat ?? null, raw: r },
+                    ]),
+            ).values(),
+        ];
+        if (uniqueProductEntries.length > 0) {
+            await this.prisma.weezeventProduct.createMany({
+                data: uniqueProductEntries.map(({ wid, name, price, vat, raw }) => ({
+                    weezeventId: wid, tenantId, integrationId, name,
+                    basePrice: price / 100, vatRate: vat, rawData: raw, syncedAt: now,
+                })),
+                skipDuplicates: true,
+            });
+        }
+
+        // ── 4. Merchants (fundations) ────────────────────────────────────────
+        const uniqueMerchantEntries = [
+            ...new Map(
+                rawTransactions
+                    .filter(t => t.fundation_id && t.fundation_name)
+                    .map(t => [String(t.fundation_id), { wid: String(t.fundation_id), name: t.fundation_name as string }]),
+            ).values(),
+        ];
+        if (uniqueMerchantEntries.length > 0) {
+            await this.prisma.weezeventMerchant.createMany({
+                data: uniqueMerchantEntries.map(({ wid, name }) => ({
+                    weezeventId: wid, tenantId, integrationId, name, organizationId, rawData: {}, syncedAt: now,
+                })),
+                skipDuplicates: true,
+            });
+        }
+
+        // ── 5. Build lookup maps and re-link existing transactions ────────────
+        const [events, locations, merchants] = await Promise.all([
+            this.prisma.weezeventEvent.findMany({
+                where: { tenantId, integrationId },
+                select: { id: true, weezeventId: true },
+            }),
+            this.prisma.weezeventLocation.findMany({
+                where: { tenantId, integrationId },
+                select: { id: true, weezeventId: true },
+            }),
+            this.prisma.weezeventMerchant.findMany({
+                where: { tenantId, integrationId },
+                select: { id: true, weezeventId: true },
+            }),
+        ]);
+
+        const eventIdMap = new Map(events.map(e => [e.weezeventId, e.id]));
+        const locationIdMap = new Map(locations.map(l => [l.weezeventId, l.id]));
+        const merchantIdMap = new Map(merchants.map(m => [m.weezeventId, m.id]));
+
+        // Update transactions with missing FK references in chunks of 50
+        const CHUNK_SIZE = 50;
+        for (let i = 0; i < transactions.length; i += CHUNK_SIZE) {
+            const chunk = transactions.slice(i, i + CHUNK_SIZE);
+            await Promise.all(
+                chunk.map(tx => {
+                    const raw = tx.rawData as any;
+                    const eventId = raw.event_id ? (eventIdMap.get(String(raw.event_id)) ?? null) : null;
+                    const locationId = raw.location_id ? (locationIdMap.get(String(raw.location_id)) ?? null) : null;
+                    const merchantId = raw.fundation_id ? (merchantIdMap.get(String(raw.fundation_id)) ?? null) : null;
+
+                    if (!eventId && !locationId && !merchantId) return Promise.resolve();
+
+                    return this.prisma.weezeventTransaction.update({
+                        where: { id: tx.id },
+                        data: {
+                            ...(eventId != null && { eventId }),
+                            ...(locationId != null && { locationId }),
+                            ...(merchantId != null && { merchantId }),
+                        },
+                    });
+                }),
+            );
+        }
+
+        this.logger.log(
+            `[Backfill] Completed: ${uniqueEventEntries.length} events, ${uniqueLocationEntries.length} locations, ${uniqueProductEntries.length} products, ${uniqueMerchantEntries.length} merchants`,
+        );
+
+        return {
+            events: uniqueEventEntries.length,
+            locations: uniqueLocationEntries.length,
+            products: uniqueProductEntries.length,
+            merchants: uniqueMerchantEntries.length,
+        };
     }
 }

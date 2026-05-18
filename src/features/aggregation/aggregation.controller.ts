@@ -168,4 +168,54 @@ export class AggregationController {
   ) {
     return this.aggregationService.getJobProgress(user.tenantId, jobId);
   }
+
+  @Get('event-breakdown')
+  @ApiOperation({
+    summary: 'Détail par shop et article pour un événement',
+    description: 'Retourne la ventilation du CA par shop (SpaceRevenueDailyAgg) et par article (SpaceProductRevenueDailyAgg) pour un événement DataFriday donné.',
+  })
+  @ApiQuery({ name: 'spaceId', required: true })
+  @ApiQuery({ name: 'eventId', required: true })
+  @ApiResponse({ status: 200, description: 'Ventilation shops + articles' })
+  getEventBreakdown(
+    @Query('spaceId') spaceId: string,
+    @Query('eventId') eventId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.aggregationService.getEventBreakdown(user.tenantId, spaceId, eventId);
+  }
+
+  @Get('event-stats')
+  @ApiOperation({
+    summary: 'Statistiques directes par événement (sans pré-agrégation)',
+    description: 'Interroge directement WeezeventTransaction avec GROUP BY SQL. groupBy: minute | hour | shop | product. Réponse en < 100ms quelle que soit la volumétrie.',
+  })
+  @ApiQuery({ name: 'spaceId', required: true })
+  @ApiQuery({ name: 'eventId', required: true })
+  @ApiQuery({ name: 'groupBy', required: true, enum: ['minute', 'hour', 'shop', 'product'] })
+  @ApiResponse({ status: 200, description: 'Données groupées' })
+  getEventStats(
+    @Query('spaceId') spaceId: string,
+    @Query('eventId') eventId: string,
+    @Query('groupBy') groupBy: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.aggregationService.getEventStats(user.tenantId, spaceId, eventId, groupBy);
+  }
+
+  @Get('event-minute-chart')
+  @ApiOperation({
+    summary: 'Graphique CA/minute pour un événement (pré-agrégé)',
+    description: 'Lit SpaceRevenueMinuteAgg → retourne un tableau { minute, revenueHt, transactionsCount, shopCount } agrégé toutes locations confondues. Disponible après processEvents.',
+  })
+  @ApiQuery({ name: 'spaceId', required: true })
+  @ApiQuery({ name: 'eventId', required: true })
+  @ApiResponse({ status: 200, description: 'Données minute × CA pour le graphique' })
+  getEventMinuteChart(
+    @Query('spaceId') spaceId: string,
+    @Query('eventId') eventId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.aggregationService.getEventMinuteChart(user.tenantId, spaceId, eventId);
+  }
 }

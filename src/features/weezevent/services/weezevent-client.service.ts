@@ -69,21 +69,22 @@ export class WeezeventClientService {
         );
 
         // Weezevent API may return an array directly, normalize to paginated format.
-        // When we receive a full page (length === perPage), there may be more pages —
-        // signal that by setting total_pages = current_page + 1 so the caller keeps going.
-        // If the page is partial (length < perPage) this is the last page: total_pages = current_page.
-        // The caller must handle the case where the next page returns 0 items (real end).
+        // We cannot rely on response.length >= perPage to detect more pages because the
+        // Weezevent API silently caps per_page at its own limit (e.g. 100), so asking for
+        // 500 and receiving 100 would incorrectly signal "last page".
+        // Strategy: if we received any items, signal "there may be more" (total_pages = current + 1)
+        // and let the caller stop on the first empty page.
         if (Array.isArray(response)) {
             const perPage = options?.perPage || 50;
             const currentPage = options?.page || 1;
-            const hasFullPage = response.length >= perPage;
+            const hasItems = response.length > 0;
             return {
                 data: response,
                 meta: {
                     current_page: currentPage,
                     per_page: perPage,
                     total: response.length,
-                    total_pages: hasFullPage ? currentPage + 1 : currentPage,
+                    total_pages: hasItems ? currentPage + 1 : currentPage,
                 },
             };
         }
@@ -226,15 +227,19 @@ export class WeezeventClientService {
         );
 
         // Weezevent API returns an array directly, not a paginated response
-        // Normalize it to match our expected format
+        // Use hasItems strategy (same as getTransactions) so a silently-capped per_page
+        // from the Weezevent API does not cause early termination.
         if (Array.isArray(response)) {
+            const perPage = options?.perPage || 50;
+            const currentPage = options?.page || 1;
+            const hasItems = response.length > 0;
             return {
                 data: response,
                 meta: {
-                    current_page: options?.page || 1,
-                    per_page: options?.perPage || 50,
+                    current_page: currentPage,
+                    per_page: perPage,
                     total: response.length,
-                    total_pages: 1,
+                    total_pages: hasItems ? currentPage + 1 : currentPage,
                 },
             };
         }
@@ -291,15 +296,19 @@ export class WeezeventClientService {
         );
 
         // Weezevent API returns an array directly, not a paginated response
-        // Normalize it to match our expected format
+        // Use hasItems strategy (same as getTransactions) so a silently-capped per_page
+        // from the Weezevent API does not cause early termination.
         if (Array.isArray(response)) {
+            const perPage = options?.perPage || 50;
+            const currentPage = options?.page || 1;
+            const hasItems = response.length > 0;
             return {
                 data: response,
                 meta: {
-                    current_page: options?.page || 1,
-                    per_page: options?.perPage || 50,
+                    current_page: currentPage,
+                    per_page: perPage,
                     total: response.length,
-                    total_pages: 1,
+                    total_pages: hasItems ? currentPage + 1 : currentPage,
                 },
             };
         }

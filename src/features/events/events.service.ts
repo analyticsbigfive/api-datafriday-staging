@@ -133,7 +133,34 @@ export class EventsService {
   }
 
   async remove(id: string, tenantId: string) {
-    await this.findOne(id, tenantId);
+    const event = await this.findOne(id, tenantId);
+
+    // Delete all aggregated data tied to this event before removing the event itself.
+    // SpaceProductRevenueDailyAgg has no weezeventEventId column — it is keyed by day.
+    // If another event exists on the same day it will need to be re-aggregated afterward.
+    await Promise.all([
+      this.prisma.spaceRevenueDailyAgg.deleteMany({
+        where: { tenantId, weezeventEventId: id },
+      }),
+      this.prisma.spaceRevenueMinuteAgg.deleteMany({
+        where: { tenantId, weezeventEventId: id },
+      }),
+      ...(event.spaceId
+        ? [
+            this.prisma.spaceProductRevenueDailyAgg.deleteMany({
+              where: { tenantId, spaceId: event.spaceId, day: event.eventDate },
+            }),
+            this.prisma.aggregationJobLog.deleteMany({
+              where: {
+                tenantId,
+                spaceId: event.spaceId,
+                metadata: { path: ['eventIds'], array_contains: id },
+              },
+            }),
+          ]
+        : []),
+    ]);
+
     return this.prisma.event.delete({ where: { id } });
   }
 

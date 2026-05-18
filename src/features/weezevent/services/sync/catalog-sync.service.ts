@@ -51,58 +51,67 @@ export class WeezeventCatalogSyncService {
 
             this.logger.log(`Syncing events for tenant ${tenantId}, organization ${organizationId}`);
 
-            const response = await this.weezeventClient.getEvents(tenantId, organizationId, { perPage: 100 });
-
             const parseDate = (dateStr: string | undefined): Date | null => {
                 if (!dateStr) return null;
                 const parsed = new Date(dateStr);
                 return isNaN(parsed.getTime()) ? null : parsed;
             };
 
-            const weezeventIds = response.data.map(e => e.id.toString());
-            const existingEvents = await this.prisma.weezeventEvent.findMany({
-                where: { tenantId, integrationId, weezeventId: { in: weezeventIds } },
-                select: { weezeventId: true },
-            });
-            const existingIds = new Set(existingEvents.map(e => e.weezeventId));
-
             const eventsToCreate: any[] = [];
             const eventsToUpdate: { weezeventId: string; data: any }[] = [];
+            let page = 1;
+            let hasMore = true;
 
-            for (const apiEvent of response.data) {
-                try {
-                    const weezeventId = apiEvent.id.toString();
-                    const startDateStr = apiEvent.live_start || apiEvent.start_date;
-                    const endDateStr = apiEvent.live_end || apiEvent.end_date;
-                    const locationStr = apiEvent.location || apiEvent.venue || null;
-                    const eventStatus = apiEvent.status as any;
-                    const statusValue = typeof eventStatus === 'object' && eventStatus?.name
-                        ? eventStatus.name
-                        : (typeof eventStatus === 'string' ? eventStatus : 'unknown');
+            while (hasMore) {
+                const response = await this.weezeventClient.getEvents(tenantId, organizationId, { perPage: 100, page });
 
-                    const eventData = {
-                        name: apiEvent.name || `Event ${apiEvent.id}`,
-                        organizationId,
-                        startDate: parseDate(startDateStr),
-                        endDate: parseDate(endDateStr),
-                        description: apiEvent.description || apiEvent.name || null,
-                        location: locationStr,
-                        capacity: apiEvent.capacity || null,
-                        status: statusValue,
-                        metadata: apiEvent.metadata || null,
-                        rawData: apiEvent as any,
-                        syncedAt: new Date(),
-                    };
+                if (response.data.length === 0) { hasMore = false; break; }
 
-                    if (existingIds.has(weezeventId)) {
-                        eventsToUpdate.push({ weezeventId, data: eventData });
-                    } else {
-                        eventsToCreate.push({ weezeventId, tenantId, integrationId, ...eventData });
+                const weezeventIds = response.data.map(e => e.id.toString());
+                const existingEvents = await this.prisma.weezeventEvent.findMany({
+                    where: { tenantId, integrationId, weezeventId: { in: weezeventIds } },
+                    select: { weezeventId: true },
+                });
+                const existingIds = new Set(existingEvents.map(e => e.weezeventId));
+
+                for (const apiEvent of response.data) {
+                    try {
+                        const weezeventId = apiEvent.id.toString();
+                        const startDateStr = apiEvent.live_start || apiEvent.start_date;
+                        const endDateStr = apiEvent.live_end || apiEvent.end_date;
+                        const locationStr = apiEvent.location || apiEvent.venue || null;
+                        const eventStatus = apiEvent.status as any;
+                        const statusValue = typeof eventStatus === 'object' && eventStatus?.name
+                            ? eventStatus.name
+                            : (typeof eventStatus === 'string' ? eventStatus : 'unknown');
+
+                        const eventData = {
+                            name: apiEvent.name || `Event ${apiEvent.id}`,
+                            organizationId,
+                            startDate: parseDate(startDateStr),
+                            endDate: parseDate(endDateStr),
+                            description: apiEvent.description || apiEvent.name || null,
+                            location: locationStr,
+                            capacity: apiEvent.capacity || null,
+                            status: statusValue,
+                            metadata: apiEvent.metadata || null,
+                            rawData: apiEvent as any,
+                            syncedAt: new Date(),
+                        };
+
+                        if (existingIds.has(weezeventId)) {
+                            eventsToUpdate.push({ weezeventId, data: eventData });
+                        } else {
+                            eventsToCreate.push({ weezeventId, tenantId, integrationId, ...eventData });
+                        }
+                    } catch (error) {
+                        this.logger.error(`Failed to prepare event ${apiEvent.id}`, (error as Error).stack);
+                        result.errors++;
                     }
-                } catch (error) {
-                    this.logger.error(`Failed to prepare event ${apiEvent.id}`, (error as Error).stack);
-                    result.errors++;
                 }
+
+                hasMore = response.meta.current_page < response.meta.total_pages;
+                page++;
             }
 
             if (eventsToCreate.length > 0) {
@@ -179,47 +188,56 @@ export class WeezeventCatalogSyncService {
 
             this.logger.log(`Syncing products for tenant ${tenantId}, organization ${organizationId}`);
 
-            const response = await this.weezeventClient.getProducts(tenantId, organizationId, { perPage: 100 });
-
-            const weezeventIds = response.data.map(p => p.id.toString());
-            const existingProducts = await this.prisma.weezeventProduct.findMany({
-                where: { tenantId, integrationId, weezeventId: { in: weezeventIds } },
-                select: { weezeventId: true, rawData: true },
-            });
-            const existingMap = new Map(existingProducts.map(p => [p.weezeventId, p.rawData]));
-
             const productsToCreate: any[] = [];
             const productsToUpdate: { weezeventId: string; data: any }[] = [];
             const productIdsNeedingDetailSync: string[] = [];
+            let page = 1;
+            let hasMore = true;
 
-            for (const apiProduct of response.data) {
-                const weezeventId = apiProduct.id.toString();
-                const productData = {
-                    name: apiProduct.name || `Product ${apiProduct.id}`,
-                    description: apiProduct.description || null,
-                    category: apiProduct.category || null,
-                    basePrice: apiProduct.base_price || null,
-                    vatRate: apiProduct.vat_rate || null,
-                    image: apiProduct.image || null,
-                    allergens: apiProduct.allergens || [],
-                    components: apiProduct.components || null,
-                    variants: apiProduct.variants || null,
-                    metadata: apiProduct.metadata || null,
-                    rawData: apiProduct as any,
-                    syncedAt: new Date(),
-                };
+            while (hasMore) {
+                const response = await this.weezeventClient.getProducts(tenantId, organizationId, { perPage: 100, page });
 
-                if (existingMap.has(weezeventId)) {
-                    const storedRaw = existingMap.get(weezeventId) as any;
-                    const hasChanged = this.productFingerprint(storedRaw) !== this.productFingerprint(apiProduct);
-                    if (hasChanged) {
-                        productsToUpdate.push({ weezeventId, data: productData });
+                if (response.data.length === 0) { hasMore = false; break; }
+
+                const weezeventIds = response.data.map(p => p.id.toString());
+                const existingProducts = await this.prisma.weezeventProduct.findMany({
+                    where: { tenantId, integrationId, weezeventId: { in: weezeventIds } },
+                    select: { weezeventId: true, rawData: true },
+                });
+                const existingMap = new Map(existingProducts.map(p => [p.weezeventId, p.rawData]));
+
+                for (const apiProduct of response.data) {
+                    const weezeventId = apiProduct.id.toString();
+                    const productData = {
+                        name: apiProduct.name || `Product ${apiProduct.id}`,
+                        description: apiProduct.description || null,
+                        category: apiProduct.category || null,
+                        basePrice: apiProduct.base_price || null,
+                        vatRate: apiProduct.vat_rate || null,
+                        image: apiProduct.image || null,
+                        allergens: apiProduct.allergens || [],
+                        components: apiProduct.components || null,
+                        variants: apiProduct.variants || null,
+                        metadata: apiProduct.metadata || null,
+                        rawData: apiProduct as any,
+                        syncedAt: new Date(),
+                    };
+
+                    if (existingMap.has(weezeventId)) {
+                        const storedRaw = existingMap.get(weezeventId) as any;
+                        const hasChanged = this.productFingerprint(storedRaw) !== this.productFingerprint(apiProduct);
+                        if (hasChanged) {
+                            productsToUpdate.push({ weezeventId, data: productData });
+                            productIdsNeedingDetailSync.push(weezeventId);
+                        }
+                    } else {
+                        productsToCreate.push({ weezeventId, tenantId, integrationId, ...productData });
                         productIdsNeedingDetailSync.push(weezeventId);
                     }
-                } else {
-                    productsToCreate.push({ weezeventId, tenantId, integrationId, ...productData });
-                    productIdsNeedingDetailSync.push(weezeventId);
                 }
+
+                hasMore = response.meta.current_page < response.meta.total_pages;
+                page++;
             }
 
             if (productsToCreate.length > 0) {
@@ -241,9 +259,9 @@ export class WeezeventCatalogSyncService {
 
             result.itemsSynced = productsToCreate.length + productsToUpdate.length;
 
-            const skippedDetails = response.data.length - productIdsNeedingDetailSync.length;
+            const skippedDetails = result.itemsSynced - productIdsNeedingDetailSync.length;
             this.logger.log(
-                `Syncing variants/components for ${productIdsNeedingDetailSync.length}/${response.data.length} products` +
+                `Syncing variants/components for ${productIdsNeedingDetailSync.length} products` +
                 (skippedDetails > 0 ? ` (${skippedDetails} unchanged — skipped)` : ''),
             );
 

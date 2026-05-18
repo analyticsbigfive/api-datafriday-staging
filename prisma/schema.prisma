@@ -1785,6 +1785,34 @@ model SpaceRevenueDailyAgg {
   @@index([tenantId, spaceId, weezeventEventId, day])
 }
 
+// Minute-level revenue aggregates per location/shop — mirrors the old KV "event-timeline" data.
+// dataPoints = COUNT(DISTINCT minute) for a given event → same semantics as the legacy system.
+model SpaceRevenueMinuteAgg {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  spaceId             String
+  // Truncated to the minute (e.g. 2024-06-15 20:35:00)
+  minute              DateTime @db.Timestamp(0)
+  timezone            String   @default("Europe/Paris")
+
+  // Dimensions
+  weezeventEventId    String
+  weezeventLocationId String
+  spaceElementId      String?
+
+  // Aggregated metrics
+  revenueHt           Decimal  @db.Decimal(12, 2)
+  transactionsCount   Int
+  itemsCount          Int
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([tenantId, spaceId, minute, weezeventEventId, weezeventLocationId])
+  @@index([tenantId, spaceId, weezeventEventId])
+  @@index([tenantId, spaceId, minute])
+}
+
 // Daily product revenue aggregates
 model SpaceProductRevenueDailyAgg {
   id                 String   @id @default(cuid())

@@ -129,7 +129,8 @@ export class WeezeventTransactionSyncService {
                     }
                     for (const row of (apiTx.rows ?? [])) {
                         const wid = String((row as any).item_id ?? '');
-                        if (!wid || seenProductWids.has(wid)) continue;
+                        // Skip rows with no product id or the sentinel value 0
+                        if (!wid || wid === '0' || seenProductWids.has(wid)) continue;
                         seenProductWids.add(wid);
                         newProductEntries.set(wid, row);
                     }

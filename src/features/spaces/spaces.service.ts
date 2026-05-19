@@ -801,9 +801,8 @@ export class SpacesService {
             mi.picture                                                     AS "menuItemPicture",
             pt.name                                                        AS "menuItemType",
             pc.name                                                        AS "menuItemCategory",
-            p.category                                                     AS "weezpayCategory",
-            p."rawData"->>'nature'                                         AS "weezpayNature",
-            p."rawData"->>'subnature'                                      AS "weezpaySubnature",
+            p.nature                                                       AS "weezpayNature",
+            p.subnature                                                    AS "weezpaySubnature",
             mi."totalCost"                                                 AS "itemCost",
             SUM(
               ti."unitPrice" * ti.quantity
@@ -840,7 +839,7 @@ export class SpacesService {
             t."eventId", we.name, we."startDate",
             mem."spaceElementId", se.name, se.type, se.attributes,
             ti."productId", wpm."menuItemId", mi.name, mi.picture, pt.name, pc.name, mi."totalCost",
-            p."vatRate", p.category, p."rawData"
+            p."vatRate", p.nature, p.subnature
         `
       : [];
 
@@ -866,7 +865,6 @@ export class SpacesService {
         menuItemType:     r.menuItemType ?? null,
         menuItemCategory: r.menuItemCategory ?? null,
         // WeezPay product classification (G4)
-        weezpayCategory:  r.weezpayCategory  ?? null,
         weezpayNature:    r.weezpayNature    ?? null,
         weezpaySubnature: r.weezpaySubnature ?? null,
         // Metrics

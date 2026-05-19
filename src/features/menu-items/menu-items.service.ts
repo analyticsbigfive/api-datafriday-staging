@@ -208,6 +208,29 @@ export class MenuItemsService {
     }
   }
 
+  async bulkCreate(items: CreateMenuItemDto[], tenantId: string) {
+    this.logger.log(`Bulk creating ${items.length} menu items for tenant ${tenantId}`);
+    const created = await this.prisma.$transaction(
+      items.map(item =>
+        this.prisma.menuItem.create({
+          data: {
+            tenantId,
+            name: item.name,
+            typeId: item.typeId || null,
+            categoryId: item.categoryId || null,
+            basePrice: item.basePrice ?? 0,
+            allergens: [],
+            diet: [],
+            storageType: [],
+          } as any,
+          select: { id: true, name: true, basePrice: true, typeId: true, categoryId: true },
+        }),
+      ),
+    );
+    await this.invalidateCache(tenantId);
+    return { count: created.length, items: created };
+  }
+
   async findAll(tenantId: string, page = 1, limit = 100) {
     this.logger.log(`Fetching menu items for tenant ${tenantId} (page=${page}, limit=${limit})`);
     try {

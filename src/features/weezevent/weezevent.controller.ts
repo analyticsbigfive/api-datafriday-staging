@@ -2,6 +2,7 @@ import { Controller, Get, Post, Delete, Body, Query, Param, UseGuards, Logger, B
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { WeezeventSyncService, SyncResult } from './services/weezevent-sync.service';
 import { WeezeventIncrementalSyncService, IncrementalSyncResult } from './services/weezevent-incremental-sync.service';
+import { WeezeventClientService } from './services/weezevent-client.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SyncWeezeventDto } from './dto/sync-weezevent.dto';
 import { GetTransactionsQueryDto } from './dto/get-transactions-query.dto';
@@ -23,6 +24,7 @@ export class WeezeventController {
     constructor(
         private readonly syncService: WeezeventSyncService,
         private readonly incrementalSyncService: WeezeventIncrementalSyncService,
+        private readonly weezeventClient: WeezeventClientService,
         private readonly prisma: PrismaService,
         private readonly syncTracker: SyncTrackerService,
         private readonly queueService: QueueService,
@@ -621,7 +623,7 @@ export class WeezeventController {
         const pp = Math.min(Math.max(1, parseInt(String(perPage), 10) || 50), 500);
         const where: any = { tenantId };
         if (integrationId) where.integrationId = integrationId;
-        if (category) where.category = category;
+        if (category) where.nature = category;
 
         const [products, total] = await Promise.all([
             this.prisma.weezeventProduct.findMany({
@@ -642,6 +644,56 @@ export class WeezeventController {
                 total_pages: Math.ceil(total / pp),
             },
         };
+    }
+
+    /**
+     * Fetch fresh product details from Weezevent API and update local record
+     */
+    @Get('products/:productId/refresh')
+    @ApiOperation({ summary: 'Rafraîchir les données d\'un produit depuis l\'API Weezevent' })
+    @ApiParam({ name: 'productId', description: 'ID interne du produit WeezeventProduct' })
+    @ApiResponse({ status: 200, description: 'Produit mis à jour avec données fraîches' })
+    async refreshProductFromApi(
+        @CurrentUser() user: any,
+        @Param('productId') productId: string,
+    ) {
+        const tenantId = user.tenantId;
+
+        const localProduct = await this.prisma.weezeventProduct.findFirst({
+            where: { id: productId, tenantId },
+            select: { id: true, weezeventId: true, integrationId: true },
+        });
+        if (!localProduct) throw new BadRequestException('Product not found');
+        if (!localProduct.weezeventId || localProduct.weezeventId === '0')
+            throw new BadRequestException('Product has no valid Weezevent ID — cannot refresh from API');
+
+        const integration = await this.prisma.weezeventIntegration.findFirst({
+            where: { id: localProduct.integrationId, tenantId },
+            select: { organizationId: true },
+        });
+        if (!integration?.organizationId) throw new BadRequestException('Integration not found or missing organizationId');
+
+        const fresh = await this.weezeventClient.getProduct(
+            tenantId,
+            integration.organizationId,
+            localProduct.weezeventId,
+        ) as any;
+
+        const updated = await this.prisma.weezeventProduct.update({
+            where: { id: productId },
+            data: {
+                // Use null explicitly so Prisma overwrites the existing value even when the
+                // API returns null (undefined would silently skip the update).
+                nature: fresh.nature !== undefined ? fresh.nature : null,
+                subnature: fresh.subnature !== undefined ? fresh.subnature : null,
+                productType: fresh.type !== undefined ? fresh.type : null,
+                categoryId: fresh.category_id != null ? String(fresh.category_id) : null,
+                rawData: fresh,
+                syncedAt: new Date(),
+            },
+        });
+
+        return updated;
     }
 
     /**

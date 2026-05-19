@@ -223,7 +223,10 @@ export class WeezeventCatalogSyncService {
                     const productData = {
                         name: apiProduct.name || `Product ${apiProduct.id}`,
                         description: apiProduct.description || null,
-                        category: apiProduct.category || null,
+                        nature: (apiProduct as any).nature || null,
+                        subnature: (apiProduct as any).subnature || null,
+                        productType: (apiProduct as any).type || null,
+                        categoryId: (apiProduct as any).category_id != null ? String((apiProduct as any).category_id) : null,
                         basePrice: apiProduct.base_price || null,
                         vatRate: apiProduct.vat_rate || null,
                         image: apiProduct.image || null,

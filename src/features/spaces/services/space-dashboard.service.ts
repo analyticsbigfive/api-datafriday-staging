@@ -444,10 +444,10 @@ export class SpaceDashboardService {
 
     const product = await this.prisma.weezeventProduct.findUnique({
       where: { id: topProduct[0].weezeventProductId },
-      select: { category: true },
+      select: { nature: true },
     });
 
-    return product?.category || null;
+    return product?.nature || null;
   }
 
   private async getCharts(

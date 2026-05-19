@@ -38,6 +38,14 @@ export class MenuItemsController {
     return this.menuItemsService.create(dto, tenantId);
   }
 
+  @Post('bulk')
+  @ApiOperation({ summary: 'Créer plusieurs articles de menu en une seule requête' })
+  @ApiResponse({ status: 201, description: 'Articles créés', schema: { type: 'object', properties: { count: { type: 'number' }, items: { type: 'array' } } } })
+  async bulkCreate(@Body() dto: { items: CreateMenuItemDto[] }, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+    this.logger.log(`POST /menu-items/bulk - ${dto.items?.length ?? 0} items, Tenant: ${tenantId}`);
+    return this.menuItemsService.bulkCreate(dto.items, tenantId);
+  }
+
   @Get()
   @ApiOperation({
     summary: 'Lister tous les articles de menu',

@@ -729,7 +729,10 @@ model WeezeventProduct {
   // Product data
   name        String
   description String?
-  category    String?
+  nature      String?   // ex: "DRINK", "FOOD" — catégorie principale Weezevent
+  subnature   String?   // ex: "BEER_PREMIUM", "SOFT_DRINK" — sous-catégorie
+  productType String?   // ex: "STANDARD", "VARIANT"
+  categoryId  String?   // category_id de l'API Weezevent
   basePrice   Decimal? @db.Decimal(10, 2)
   vatRate     Decimal? @db.Decimal(5, 2)
   image       String?
@@ -762,7 +765,9 @@ model WeezeventProduct {
   @@index([tenantId])
   @@index([integrationId])
   @@index([weezeventId])
-  @@index([category])
+  @@index([nature])
+  @@index([subnature])
+  @@index([productType])
 }
 
 model WeezeventUser {

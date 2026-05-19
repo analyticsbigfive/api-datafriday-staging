@@ -195,5 +195,47 @@ describe('WeezeventCatalogSyncService', () => {
                 }),
             );
         });
+
+        it('stores variantOfId when API product has variant_of_id', async () => {
+            const variantApiProduct = {
+                id: 1635,
+                name: '311C4ZW - L',
+                type: 'VARIANT',
+                variant_of_id: 1632,
+                variants: [],
+                components: [],
+            };
+            client.getProducts.mockResolvedValue({
+                data: [variantApiProduct],
+                meta: { total_pages: 1, current_page: 1, total: 1 },
+            });
+
+            await service.syncProducts(TENANT_ID, INTEGRATION_ID);
+
+            expect(prisma.weezeventProduct.createMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.arrayContaining([
+                        expect.objectContaining({
+                            weezeventId: '1635',
+                            productType: 'VARIANT',
+                            variantOfId: '1632',
+                        }),
+                    ]),
+                }),
+            );
+        });
+
+        it('stores variantOfId as null when variant_of_id is absent', async () => {
+            // mockApiProduct (id=7) has no variant_of_id
+            await service.syncProducts(TENANT_ID, INTEGRATION_ID);
+
+            expect(prisma.weezeventProduct.createMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.arrayContaining([
+                        expect.objectContaining({ weezeventId: '7', variantOfId: null }),
+                    ]),
+                }),
+            );
+        });
     });
 });

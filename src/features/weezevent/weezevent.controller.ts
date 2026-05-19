@@ -688,6 +688,7 @@ export class WeezeventController {
                 subnature: fresh.subnature !== undefined ? fresh.subnature : null,
                 productType: fresh.type !== undefined ? fresh.type : null,
                 categoryId: fresh.category_id != null ? String(fresh.category_id) : null,
+                variantOfId: fresh.variant_of_id != null ? String(fresh.variant_of_id) : null,
                 rawData: fresh,
                 syncedAt: new Date(),
             },
@@ -714,6 +715,7 @@ export class WeezeventController {
         // Verify product exists
         const product = await this.prisma.weezeventProduct.findFirst({
             where: { id: productId, tenantId },
+            select: { id: true, productType: true, weezeventId: true },
         });
 
         if (!product) {
@@ -747,6 +749,37 @@ export class WeezeventController {
                 mappedBy: user.id,
             },
         });
+
+        // If this is a VARIANT_BASE, auto-propagate the same mapping to all variant children
+        if (product.productType === 'VARIANT_BASE') {
+            const variantChildren = await this.prisma.weezeventProduct.findMany({
+                where: { tenantId, variantOfId: product.weezeventId },
+                select: { id: true },
+            });
+            if (variantChildren.length > 0) {
+                await this.prisma.$transaction(
+                    variantChildren.map(v =>
+                        this.prisma.weezeventProductMapping.upsert({
+                            where: { weezeventProductId: v.id },
+                            create: {
+                                tenantId,
+                                weezeventProductId: v.id,
+                                menuItemId: body.menuItemId,
+                                autoMapped: true,
+                                confidence: null,
+                                mappedBy: user.id,
+                            },
+                            update: {
+                                menuItemId: body.menuItemId,
+                                autoMapped: true,
+                                confidence: null,
+                                mappedBy: user.id,
+                            },
+                        })
+                    )
+                );
+            }
+        }
 
         return {
             success: true,
@@ -813,6 +846,26 @@ export class WeezeventController {
                 tenantId,
             },
         });
+
+        // If this is a VARIANT_BASE, also unmap all its variant children
+        const product = await this.prisma.weezeventProduct.findFirst({
+            where: { id: productId, tenantId },
+            select: { productType: true, weezeventId: true },
+        });
+        if (product?.productType === 'VARIANT_BASE') {
+            const variantChildren = await this.prisma.weezeventProduct.findMany({
+                where: { tenantId, variantOfId: product.weezeventId },
+                select: { id: true },
+            });
+            if (variantChildren.length > 0) {
+                await this.prisma.weezeventProductMapping.deleteMany({
+                    where: {
+                        weezeventProductId: { in: variantChildren.map(v => v.id) },
+                        tenantId,
+                    },
+                });
+            }
+        }
 
         return { success: true };
     }

@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { WeezeventController } from './weezevent.controller';
 import { WeezeventSyncService } from './services/weezevent-sync.service';
 import { WeezeventIncrementalSyncService } from './services/weezevent-incremental-sync.service';
+import { WeezeventClientService } from './services/weezevent-client.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SyncTrackerService } from './services/sync-tracker.service';
 import { QueueService } from '../../core/queue/queue.service';
@@ -64,6 +65,7 @@ describe('WeezeventController', () => {
       findMany: jest.fn(),
       findFirst: jest.fn(),
       count: jest.fn(),
+      update: jest.fn(),
     },
     weezeventProductMapping: {
       findMany: jest.fn(),
@@ -86,6 +88,16 @@ describe('WeezeventController', () => {
     menuItem: {
       findFirst: jest.fn(),
     },
+    weezeventIntegration: {
+      findFirst: jest.fn(),
+    },
+    $transaction: jest.fn().mockImplementation((ops: any[]) =>
+      Promise.all(Array.isArray(ops) ? ops : [ops]),
+    ),
+  };
+
+  const mockWeezeventClientService = {
+    getProduct: jest.fn(),
   };
 
   const mockSyncService = {
@@ -138,6 +150,10 @@ describe('WeezeventController', () => {
         {
           provide: QueueService,
           useValue: mockQueueService,
+        },
+        {
+          provide: WeezeventClientService,
+          useValue: mockWeezeventClientService,
         },
       ],
     }).compile();
@@ -378,7 +394,7 @@ describe('WeezeventController', () => {
 
   describe('mapProductToMenuItem', () => {
     it('should create product mapping successfully', async () => {
-      const mockProduct = { id: 'prod-123', tenantId: 'tenant-123', name: 'Burger' };
+      const mockProduct = { id: 'prod-123', tenantId: 'tenant-123', name: 'Burger', productType: 'STANDARD', weezeventId: 'weez-123' };
       const mockMenuItem = { id: 'menu-123', tenantId: 'tenant-123', name: 'Burger Classic' };
       const mockMapping = {
         id: 'mapping-123',
@@ -425,12 +441,60 @@ describe('WeezeventController', () => {
     });
 
     it('should throw error if menu item not found', async () => {
-      mockPrismaService.weezeventProduct.findFirst.mockResolvedValue({ id: 'prod-123' });
+      mockPrismaService.weezeventProduct.findFirst.mockResolvedValue({ id: 'prod-123', productType: 'STANDARD', weezeventId: 'weez-123' });
       mockPrismaService.menuItem.findFirst.mockResolvedValue(null);
 
       await expect(
         controller.mapProductToMenuItem(mockUser, 'prod-123', { menuItemId: 'invalid-menu' }),
       ).rejects.toThrow('Menu item not found');
+    });
+
+    it('should propagate mapping to VARIANT children when parent is VARIANT_BASE', async () => {
+      const mockParent = { id: 'parent-prod', tenantId: 'tenant-123', productType: 'VARIANT_BASE', weezeventId: 'weez-base-100' };
+      const mockMenuItem = { id: 'menu-123', tenantId: 'tenant-123', name: 'T-Shirt' };
+      const mockParentMapping = { id: 'mapping-parent', weezeventProductId: 'parent-prod', menuItemId: 'menu-123' };
+      const mockVariants = [{ id: 'variant-S' }, { id: 'variant-M' }, { id: 'variant-L' }];
+
+      mockPrismaService.weezeventProduct.findFirst.mockResolvedValue(mockParent);
+      mockPrismaService.menuItem.findFirst.mockResolvedValue(mockMenuItem);
+      mockPrismaService.weezeventProductMapping.upsert.mockResolvedValue(mockParentMapping);
+      mockPrismaService.weezeventProduct.findMany.mockResolvedValue(mockVariants);
+      mockPrismaService.$transaction.mockImplementation((ops: any[]) => Promise.all(ops));
+
+      const result = await controller.mapProductToMenuItem(
+        mockUser,
+        'parent-prod',
+        { menuItemId: 'menu-123' },
+      );
+
+      expect(result.success).toBe(true);
+      // findMany should be called to look up variant children
+      expect(mockPrismaService.weezeventProduct.findMany).toHaveBeenCalledWith({
+        where: { tenantId: 'tenant-123', variantOfId: 'weez-base-100' },
+        select: { id: true },
+      });
+      // $transaction called once with 3 upserts (one per variant)
+      expect(mockPrismaService.$transaction).toHaveBeenCalled();
+      // Each variant upsert should use autoMapped: true
+      expect(mockPrismaService.weezeventProductMapping.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ weezeventProductId: 'variant-S', autoMapped: true, menuItemId: 'menu-123' }),
+        }),
+      );
+    });
+
+    it('should not call findMany when product is not VARIANT_BASE', async () => {
+      const mockProduct = { id: 'prod-std', tenantId: 'tenant-123', productType: 'STANDARD', weezeventId: 'weez-std' };
+      const mockMenuItem = { id: 'menu-123', tenantId: 'tenant-123' };
+      const mockMapping = { id: 'mapping-1', weezeventProductId: 'prod-std', menuItemId: 'menu-123' };
+
+      mockPrismaService.weezeventProduct.findFirst.mockResolvedValue(mockProduct);
+      mockPrismaService.menuItem.findFirst.mockResolvedValue(mockMenuItem);
+      mockPrismaService.weezeventProductMapping.upsert.mockResolvedValue(mockMapping);
+
+      await controller.mapProductToMenuItem(mockUser, 'prod-std', { menuItemId: 'menu-123' });
+
+      expect(mockPrismaService.weezeventProduct.findMany).not.toHaveBeenCalled();
     });
   });
 
@@ -462,6 +526,7 @@ describe('WeezeventController', () => {
   describe('unmapProduct', () => {
     it('should delete product mapping', async () => {
       mockPrismaService.weezeventProductMapping.deleteMany.mockResolvedValue({ count: 1 });
+      mockPrismaService.weezeventProduct.findFirst.mockResolvedValue({ productType: 'STANDARD', weezeventId: 'weez-123' });
 
       const result = await controller.unmapProduct(mockUser, 'prod-123');
 
@@ -472,6 +537,41 @@ describe('WeezeventController', () => {
           tenantId: 'tenant-123',
         },
       });
+    });
+
+    it('should also unmap variant children when unmapping a VARIANT_BASE', async () => {
+      const mockParent = { productType: 'VARIANT_BASE', weezeventId: 'weez-base-200' };
+      const mockVariants = [{ id: 'var-1' }, { id: 'var-2' }];
+
+      mockPrismaService.weezeventProductMapping.deleteMany.mockResolvedValue({ count: 1 });
+      mockPrismaService.weezeventProduct.findFirst.mockResolvedValue(mockParent);
+      mockPrismaService.weezeventProduct.findMany.mockResolvedValue(mockVariants);
+
+      const result = await controller.unmapProduct(mockUser, 'parent-base-id');
+
+      expect(result.success).toBe(true);
+      // First deleteMany: remove the parent's own mapping
+      expect(mockPrismaService.weezeventProductMapping.deleteMany).toHaveBeenNthCalledWith(1, {
+        where: { weezeventProductId: 'parent-base-id', tenantId: 'tenant-123' },
+      });
+      // findMany: look up variant children
+      expect(mockPrismaService.weezeventProduct.findMany).toHaveBeenCalledWith({
+        where: { tenantId: 'tenant-123', variantOfId: 'weez-base-200' },
+        select: { id: true },
+      });
+      // Second deleteMany: remove all children's mappings
+      expect(mockPrismaService.weezeventProductMapping.deleteMany).toHaveBeenNthCalledWith(2, {
+        where: { weezeventProductId: { in: ['var-1', 'var-2'] }, tenantId: 'tenant-123' },
+      });
+    });
+
+    it('should not look up variants when product is not VARIANT_BASE', async () => {
+      mockPrismaService.weezeventProductMapping.deleteMany.mockResolvedValue({ count: 1 });
+      mockPrismaService.weezeventProduct.findFirst.mockResolvedValue({ productType: 'STANDARD', weezeventId: 'weez-std' });
+
+      await controller.unmapProduct(mockUser, 'prod-std');
+
+      expect(mockPrismaService.weezeventProduct.findMany).not.toHaveBeenCalled();
     });
   });
 
@@ -500,7 +600,16 @@ describe('WeezeventController', () => {
       mockPrismaService.weezeventOrder.findMany.mockResolvedValue([]);
       mockPrismaService.weezeventOrder.count.mockResolvedValue(0);
 
-      await controller.getOrders(mockUser, 1, 50, undefined, 'event-123');\n\n      expect(mockPrismaService.weezeventOrder.findMany).toHaveBeenCalledWith(\n        expect.objectContaining({\n          where: expect.objectContaining({\n            tenantId: 'tenant-123',\n            eventId: 'event-123',\n          }),\n        }),\n      );
+      await controller.getOrders(mockUser, 1, 50, undefined, 'event-123');
+
+      expect(mockPrismaService.weezeventOrder.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            tenantId: 'tenant-123',
+            eventId: 'event-123',
+          }),
+        }),
+      );
     });
   });
 
@@ -596,6 +705,61 @@ describe('WeezeventController', () => {
       await expect(
         controller.syncData(mockUser, { integrationId: 'integration-123', type: 'attendees' }),
       ).rejects.toThrow('eventId is required for attendees sync');
+    });
+  });
+
+  describe('refreshProductFromApi', () => {
+    it('should save variantOfId when API returns variant_of_id', async () => {
+      const mockLocalProduct = { id: 'prod-variant', weezeventId: '1635', integrationId: 'integ-1' };
+      const mockIntegration = { organizationId: 'org-42' };
+      const mockFreshData = {
+        id: 1635,
+        name: '311C4ZW - L',
+        type: 'VARIANT',
+        nature: null,
+        subnature: null,
+        category_id: null,
+        variant_of_id: 1632,
+      };
+      const mockUpdated = { id: 'prod-variant', productType: 'VARIANT', variantOfId: '1632' };
+
+      mockPrismaService.weezeventProduct.findFirst.mockResolvedValue(mockLocalProduct);
+      mockPrismaService.weezeventIntegration.findFirst.mockResolvedValue(mockIntegration);
+      mockWeezeventClientService.getProduct.mockResolvedValue(mockFreshData);
+      mockPrismaService.weezeventProduct.update.mockResolvedValue(mockUpdated);
+
+      const result = await controller.refreshProductFromApi(mockUser, 'prod-variant');
+
+      expect(mockPrismaService.weezeventProduct.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            productType: 'VARIANT',
+            variantOfId: '1632',
+          }),
+        }),
+      );
+      expect(result.variantOfId).toBe('1632');
+    });
+
+    it('should set variantOfId to null when variant_of_id is absent', async () => {
+      const mockLocalProduct = { id: 'prod-std', weezeventId: '1021', integrationId: 'integ-1' };
+      const mockIntegration = { organizationId: 'org-42' };
+      const mockFreshData = { id: 1021, name: '12 huitres', type: 'STANDARD', nature: null, subnature: null, category_id: 32 };
+      const mockUpdated = { id: 'prod-std', productType: 'STANDARD', variantOfId: null };
+
+      mockPrismaService.weezeventProduct.findFirst.mockResolvedValue(mockLocalProduct);
+      mockPrismaService.weezeventIntegration.findFirst.mockResolvedValue(mockIntegration);
+      mockWeezeventClientService.getProduct.mockResolvedValue(mockFreshData);
+      mockPrismaService.weezeventProduct.update.mockResolvedValue(mockUpdated);
+
+      const result = await controller.refreshProductFromApi(mockUser, 'prod-std');
+
+      expect(mockPrismaService.weezeventProduct.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ variantOfId: null }),
+        }),
+      );
+      expect(result.variantOfId).toBeNull();
     });
   });
 });

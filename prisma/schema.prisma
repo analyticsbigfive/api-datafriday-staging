@@ -731,8 +731,9 @@ model WeezeventProduct {
   description String?
   nature      String?   // ex: "DRINK", "FOOD" — catégorie principale Weezevent
   subnature   String?   // ex: "BEER_PREMIUM", "SOFT_DRINK" — sous-catégorie
-  productType String?   // ex: "STANDARD", "VARIANT"
+  productType String?   // ex: "STANDARD", "VARIANT", "VARIANT_BASE"
   categoryId  String?   // category_id de l'API Weezevent
+  variantOfId String?   // weezeventId du parent VARIANT_BASE (uniquement pour productType=VARIANT)
   basePrice   Decimal? @db.Decimal(10, 2)
   vatRate     Decimal? @db.Decimal(5, 2)
   image       String?
@@ -768,6 +769,7 @@ model WeezeventProduct {
   @@index([nature])
   @@index([subnature])
   @@index([productType])
+  @@index([variantOfId])
 }
 
 model WeezeventUser {

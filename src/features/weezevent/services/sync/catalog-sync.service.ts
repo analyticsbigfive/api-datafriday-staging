@@ -227,6 +227,7 @@ export class WeezeventCatalogSyncService {
                         subnature: (apiProduct as any).subnature || null,
                         productType: (apiProduct as any).type || null,
                         categoryId: (apiProduct as any).category_id != null ? String((apiProduct as any).category_id) : null,
+                        variantOfId: (apiProduct as any).variant_of_id != null ? String((apiProduct as any).variant_of_id) : null,
                         basePrice: apiProduct.base_price || null,
                         vatRate: apiProduct.vat_rate || null,
                         image: apiProduct.image || null,

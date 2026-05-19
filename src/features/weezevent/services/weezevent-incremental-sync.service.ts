@@ -806,16 +806,78 @@ export class WeezeventIncrementalSyncService {
                 this.logger.log(`[Transactions] createMany: ${createResult.count}/${toCreate.length} inserted OK`);
             }
 
-            // ── 7. Create transaction items and payments for new records ───────
+            // ── 7. Create transaction items and payments for new records (batched) ─
             const createdTxs = await this.prisma.weezeventTransaction.findMany({
                 where: { tenantId, integrationId, weezeventId: { in: toCreate.map(t => t.weezeventId) } },
                 select: { id: true, weezeventId: true },
             });
 
+            // Build ALL items for ALL new transactions in one pass
+            const allItemsData: any[] = [];
+            const txRawRowsMap = new Map<string, any[]>(); // db id -> raw rows
             for (const tx of createdTxs) {
                 const raw = newTxRawMap.get(tx.weezeventId);
-                if (!raw) continue;
-                await this.createTransactionItemsAndPayments(tx.id, raw.rows ?? [], productIdMap);
+                if (!raw?.rows?.length) continue;
+                txRawRowsMap.set(tx.id, raw.rows);
+                for (const row of raw.rows) {
+                    const totalQty = (row.payments ?? []).reduce((s: number, p: any) => s + (p.quantity ?? 0), 0);
+                    allItemsData.push({
+                        transactionId: tx.id,
+                        weezeventItemId: row.id.toString(),
+                        productName: row.item_name || `Item ${row.item_id}`,
+                        productId: productIdMap.get(String(row.item_id)) ?? null,
+                        compoundId: row.compound_id?.toString() || null,
+                        quantity: totalQty || 1,
+                        unitPrice: (row.unit_price || 0) / 100,
+                        vat: row.vat || 0,
+                        reduction: row.reduction || 0,
+                        rawData: row,
+                    });
+                }
+            }
+
+            if (allItemsData.length > 0) {
+                // 1 INSERT for all items of the entire page
+                await this.prisma.weezeventTransactionItem.createMany({ data: allItemsData, skipDuplicates: true });
+
+                // 1 SELECT to get all DB item IDs (needed as FK for payments)
+                const createdItems = await this.prisma.weezeventTransactionItem.findMany({
+                    where: { transactionId: { in: createdTxs.map(t => t.id) } },
+                    select: { id: true, weezeventItemId: true, transactionId: true },
+                });
+                // Key: `${transactionId}:${weezeventItemId}` → DB item id
+                const itemIdMap = new Map(createdItems.map(item => [`${item.transactionId}:${item.weezeventItemId}`, item.id]));
+
+                // Build ALL payments for ALL new transactions in one pass
+                const allPaymentsData: any[] = [];
+                for (const tx of createdTxs) {
+                    const rawRows = txRawRowsMap.get(tx.id);
+                    if (!rawRows) continue;
+                    for (const row of rawRows) {
+                        const itemId = itemIdMap.get(`${tx.id}:${row.id.toString()}`);
+                        if (!itemId || !row.payments) continue;
+                        for (const payment of row.payments) {
+                            allPaymentsData.push({
+                                itemId,
+                                weezeventPaymentId: payment.id?.toString() || null,
+                                walletId: payment.wallet_id?.toString() || null,
+                                amount: (payment.amount || 0) / 100,
+                                amountVat: (payment.amount_vat || 0) / 100,
+                                currencyId: payment.currency_id?.toString() || null,
+                                quantity: payment.quantity || 1,
+                                paymentMethodId: payment.payment_method_id?.toString() || null,
+                                rawData: payment,
+                            });
+                        }
+                    }
+                }
+
+                if (allPaymentsData.length > 0) {
+                    // 1 INSERT for all payments of the entire page
+                    await this.prisma.weezeventPayment.createMany({ data: allPaymentsData, skipDuplicates: true });
+                }
+
+                this.logger.debug(`[Transactions] Batch items/payments: ${allItemsData.length} items, ${allPaymentsData.length} payments for ${createdTxs.length} transactions`);
             }
         }
 

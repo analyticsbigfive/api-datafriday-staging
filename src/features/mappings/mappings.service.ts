@@ -3,7 +3,9 @@ import { PrismaService } from '../../core/database/prisma.service';
 import {
   CreateLocationSpaceMappingDto,
   CreateMerchantElementMappingDto,
+  CreateLocationShopMappingDto,
   BulkMerchantElementMappingDto,
+  BulkLocationShopMappingDto,
   BulkProductMappingDto,
 } from './dto/mapping.dto';
 
@@ -92,6 +94,155 @@ export class MappingsService {
   async deleteLocationSpaceMapping(tenantId: string, weezeventLocationId: string) {
     this.logger.log(`Deleting location-space mapping for location ${weezeventLocationId}`);
     return this.prisma.weezeventLocationSpaceMapping.deleteMany({
+      where: { tenantId, weezeventLocationId },
+    });
+  }
+
+  // ─── Location → SpaceElement ────────────────────────────
+
+  async getLocationShopMappings(
+    tenantId: string,
+    weezeventLocationId?: string,
+    spaceId?: string,
+    page = 1,
+    limit = 1000,
+  ) {
+    this.logger.log(
+      `Fetching location-shop mappings for tenant ${tenantId} (location=${weezeventLocationId ?? 'all'}, space=${spaceId ?? 'all'})`,
+    );
+
+    const where: any = { tenantId };
+    if (weezeventLocationId) where.weezeventLocationId = weezeventLocationId;
+
+    if (spaceId) {
+      const elements = await this.prisma.spaceElement.findMany({
+        where: {
+          OR: [
+            { floor: { config: { spaceId, space: { tenantId } } } },
+            { forecourt: { config: { spaceId, space: { tenantId } } } },
+          ],
+        },
+        select: { id: true },
+      });
+      where.spaceElementId = { in: elements.map((element) => element.id) };
+    }
+
+    const safeLimit = Math.min(Math.max(limit, 1), 1000);
+    const safePage = Math.max(page, 1);
+    const skip = (safePage - 1) * safeLimit;
+
+    const [data, total] = await Promise.all([
+      this.prisma.weezeventLocationShopMapping.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: safeLimit,
+      }),
+      this.prisma.weezeventLocationShopMapping.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: {
+        page: safePage,
+        limit: safeLimit,
+        total,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
+  }
+
+  async createLocationShopMapping(dto: CreateLocationShopMappingDto, tenantId: string) {
+    this.logger.log(`Mapping Weezevent location ${dto.weezeventLocationId} → shop ${dto.spaceElementId}`);
+
+    const element = await this.prisma.spaceElement.findFirst({
+      where: {
+        id: dto.spaceElementId,
+        OR: [
+          { floor: { config: { space: { tenantId } } } },
+          { forecourt: { config: { space: { tenantId } } } },
+        ],
+      },
+      select: { id: true },
+    });
+
+    if (!element) {
+      throw new NotFoundException(`SpaceElement ${dto.spaceElementId} not found`);
+    }
+
+    return this.prisma.weezeventLocationShopMapping.upsert({
+      where: {
+        tenantId_weezeventLocationId: {
+          tenantId,
+          weezeventLocationId: dto.weezeventLocationId,
+        },
+      },
+      create: {
+        tenantId,
+        weezeventLocationId: dto.weezeventLocationId,
+        spaceElementId: dto.spaceElementId,
+      },
+      update: {
+        spaceElementId: dto.spaceElementId,
+      },
+    });
+  }
+
+  async bulkLocationShopMappings(dto: BulkLocationShopMappingDto, tenantId: string) {
+    const total = dto.mappings.length;
+    this.logger.log(`Bulk mapping ${total} location-shop pairs (chunk=${this.BULK_CHUNK_SIZE})`);
+
+    const successes: any[] = [];
+    const errors: { weezeventLocationId: string; error: string }[] = [];
+
+    for (let i = 0; i < total; i += this.BULK_CHUNK_SIZE) {
+      const chunk = dto.mappings.slice(i, i + this.BULK_CHUNK_SIZE);
+      try {
+        const results = await this.prisma.$transaction(
+          chunk.map((m) =>
+            this.prisma.weezeventLocationShopMapping.upsert({
+              where: {
+                tenantId_weezeventLocationId: {
+                  tenantId,
+                  weezeventLocationId: m.weezeventLocationId,
+                },
+              },
+              create: {
+                tenantId,
+                weezeventLocationId: m.weezeventLocationId,
+                spaceElementId: m.spaceElementId,
+              },
+              update: {
+                spaceElementId: m.spaceElementId,
+              },
+            }),
+          ),
+        );
+        successes.push(...results);
+      } catch (err) {
+        this.logger.warn(`Location-shop chunk ${i / this.BULK_CHUNK_SIZE} failed, falling back to per-item upserts: ${err.message}`);
+        for (const m of chunk) {
+          try {
+            const result = await this.createLocationShopMapping(m, tenantId);
+            successes.push(result);
+          } catch (itemErr) {
+            errors.push({ weezeventLocationId: m.weezeventLocationId, error: itemErr.message });
+          }
+        }
+      }
+    }
+
+    return {
+      count: successes.length,
+      total,
+      failed: errors.length,
+      errors,
+      mappings: successes,
+    };
+  }
+
+  async deleteLocationShopMapping(tenantId: string, weezeventLocationId: string) {
+    return this.prisma.weezeventLocationShopMapping.deleteMany({
       where: { tenantId, weezeventLocationId },
     });
   }

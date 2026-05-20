@@ -16,7 +16,9 @@ import { MappingsService } from './mappings.service';
 import {
   CreateLocationSpaceMappingDto,
   CreateMerchantElementMappingDto,
+  CreateLocationShopMappingDto,
   BulkMerchantElementMappingDto,
+  BulkLocationShopMappingDto,
   BulkProductMappingDto,
 } from './dto/mapping.dto';
 
@@ -118,6 +120,63 @@ export class MappingsController {
     @CurrentUser() user: any,
   ) {
     return this.mappingsService.deleteLocationSpaceMapping(user.tenantId, locationId);
+  }
+
+  // ─── Location → ShopElement ─────────────────────────────
+
+  @Get('location-shop')
+  @ApiOperation({
+    summary: 'Lister les mappings location → shop',
+    description: 'Retourne les mappings entre locations Weezevent et shops DataFriday (SpaceElements). Utilisé par l’étape 2 du wizard.',
+  })
+  @ApiQuery({ name: 'locationId', required: false, description: 'Filtrer par location Weezevent' })
+  @ApiQuery({ name: 'spaceId', required: false, description: 'Filtrer par espace DataFriday' })
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 1000 })
+  getLocationShopMappings(
+    @CurrentUser() user: any,
+    @Query('locationId') locationId?: string,
+    @Query('spaceId') spaceId?: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 1000,
+  ) {
+    return this.mappingsService.getLocationShopMappings(
+      user.tenantId,
+      locationId,
+      spaceId,
+      +page,
+      +limit,
+    );
+  }
+
+  @Post('location-shop')
+  @ApiOperation({ summary: 'Créer/mettre à jour un mapping location → shop' })
+  @ApiResponse({ status: 201, description: 'Mapping créé ou mis à jour' })
+  createLocationShopMapping(
+    @Body() dto: CreateLocationShopMappingDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.mappingsService.createLocationShopMapping(dto, user.tenantId);
+  }
+
+  @Post('location-shop/bulk')
+  @ApiOperation({ summary: 'Créer/mettre à jour des mappings location → shop en masse' })
+  @ApiResponse({ status: 201, description: 'Mappings créés ou mis à jour' })
+  bulkLocationShopMappings(
+    @Body() dto: BulkLocationShopMappingDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.mappingsService.bulkLocationShopMappings(dto, user.tenantId);
+  }
+
+  @Delete('location-shop/:locationId')
+  @ApiOperation({ summary: 'Supprimer un mapping location → shop' })
+  @ApiResponse({ status: 200, description: 'Mapping supprimé' })
+  deleteLocationShopMapping(
+    @Param('locationId') locationId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.mappingsService.deleteLocationShopMapping(user.tenantId, locationId);
   }
 
   // ─── Merchant → Element ─────────────────────────────────

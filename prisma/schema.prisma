@@ -1391,8 +1391,8 @@ model ProductCategory {
 model MenuItem {
   id                   String        @id @default(cuid())
   name                 String
-  typeId               String        // FK to ProductType (required)
-  categoryId           String        // FK to ProductCategory (required)
+  typeId               String?       // FK to ProductType (optional)
+  categoryId           String?       // FK to ProductCategory (optional)
   diet                 Diet[]
   allergens            String[]
   picture              String?
@@ -1411,8 +1411,8 @@ model MenuItem {
   deletedAt            DateTime?
 
   tenant            Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  productType       ProductType               @relation(fields: [typeId], references: [id])
-  productCategory   ProductCategory           @relation(fields: [categoryId], references: [id])
+  productType       ProductType?              @relation(fields: [typeId], references: [id])
+  productCategory   ProductCategory?          @relation(fields: [categoryId], references: [id])
   components        MenuItemComponent[]
   ingredients       MenuItemIngredient[]
   packagings        MenuItemPackaging[]

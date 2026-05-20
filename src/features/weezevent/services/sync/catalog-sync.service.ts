@@ -194,10 +194,15 @@ export class WeezeventCatalogSyncService {
 
             for (const apiProduct of response.data) {
                 const weezeventId = apiProduct.id.toString();
+                const rawCategoryId = (apiProduct as any).category_id;
                 const productData = {
                     name: apiProduct.name || `Product ${apiProduct.id}`,
                     description: apiProduct.description || null,
-                    category: apiProduct.category || null,
+                    categoryId: rawCategoryId != null
+                        ? String(rawCategoryId)
+                        : apiProduct.category != null
+                            ? String(apiProduct.category)
+                            : null,
                     basePrice: apiProduct.base_price || null,
                     vatRate: apiProduct.vat_rate || null,
                     image: apiProduct.image || null,

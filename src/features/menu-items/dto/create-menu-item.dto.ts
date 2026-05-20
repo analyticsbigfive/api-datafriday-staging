@@ -170,3 +170,11 @@ export class CreateMenuItemDto {
   @Type(() => MenuItemPackagingLineDto)
   packagings?: MenuItemPackagingLineDto[];
 }
+
+export class BulkCreateMenuItemsDto {
+  @ApiProperty({ description: 'Articles de menu à créer', type: [CreateMenuItemDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateMenuItemDto)
+  items: CreateMenuItemDto[];
+}

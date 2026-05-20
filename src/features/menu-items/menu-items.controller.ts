@@ -14,7 +14,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery, ApiParam } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { MenuItemsService } from './menu-items.service';
-import { CreateMenuItemDto, ReplaceMenuItemComponentsDto, ReplaceMenuItemIngredientsDto, ReplaceMenuItemPackagingsDto } from './dto/create-menu-item.dto';
+import { BulkCreateMenuItemsDto, CreateMenuItemDto, ReplaceMenuItemComponentsDto, ReplaceMenuItemIngredientsDto, ReplaceMenuItemPackagingsDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 import { CreateProductCategoryDto } from './dto/create-product-category.dto';
 import { CreateProductTypeDto } from './dto/create-product-type.dto';
@@ -36,6 +36,14 @@ export class MenuItemsController {
   create(@Body() dto: CreateMenuItemDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`POST /menu-items - User: ${user?.id}, Tenant: ${tenantId}`);
     return this.menuItemsService.create(dto, tenantId);
+  }
+
+  @Post('bulk')
+  @ApiOperation({ summary: 'Créer plusieurs articles de menu' })
+  @ApiResponse({ status: 201, description: 'Articles créés' })
+  bulkCreate(@Body() dto: BulkCreateMenuItemsDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+    this.logger.log(`POST /menu-items/bulk - User: ${user?.id}, Tenant: ${tenantId}, Items: ${dto.items?.length || 0}`);
+    return this.menuItemsService.bulkCreate(dto.items || [], tenantId);
   }
 
   @Get()

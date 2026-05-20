@@ -208,6 +208,54 @@ export class MenuItemsService {
     }
   }
 
+  async bulkCreate(dtos: CreateMenuItemDto[], tenantId: string) {
+    if (!Array.isArray(dtos) || dtos.length === 0) {
+      return { count: 0, items: [] };
+    }
+
+    this.logger.log(`Bulk creating ${dtos.length} menu items for tenant ${tenantId}`);
+    try {
+      const items = await this.prisma.$transaction(
+        dtos.map((dto) =>
+          this.prisma.menuItem.create({
+            data: {
+              tenantId,
+              name: dto.name,
+              typeId: dto.typeId || null,
+              categoryId: dto.categoryId || null,
+              basePrice: dto.basePrice,
+              totalCost: dto.totalCost,
+              margin: dto.margin,
+              description: dto.description,
+              picture: dto.picture,
+              allergens: dto.allergens || [],
+              diet: mapDiet(dto.diet || []) as any[],
+              storageType: (dto.storageType || []) as any[],
+              readyForSale: dto.readyForSale,
+              comboItem: dto.comboItem,
+              numberOfPiecesRecipe: dto.numberOfPiecesRecipe,
+              componentsData: dto.componentsData,
+            } as any,
+            include: this.includeRelations,
+          })
+        )
+      );
+
+      await this.invalidateCache(tenantId);
+      return {
+        count: items.length,
+        items: items.map((item) => this.serializeItem(item)),
+      };
+    } catch (error) {
+      this.logger.error(`Failed to bulk create menu items: ${error.message}`, error.stack);
+      if (error.code === 'P2003') {
+        const fieldName = error.meta?.field_name || 'unknown field';
+        throw new BadRequestException(`Invalid ID provided. Foreign key constraint failed on: ${fieldName}.`);
+      }
+      throw error;
+    }
+  }
+
   async findAll(tenantId: string, page = 1, limit = 100) {
     this.logger.log(`Fetching menu items for tenant ${tenantId} (page=${page}, limit=${limit})`);
     try {

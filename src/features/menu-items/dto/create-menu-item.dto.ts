@@ -8,7 +8,7 @@ import {
   IsEnum,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 
 export class MenuItemComponentLineDto {
   @ApiProperty({ description: 'ID du composant (MenuComponent)' })
@@ -72,13 +72,17 @@ export class CreateMenuItemDto {
   @IsString()
   name: string;
 
-  @ApiProperty({ description: 'ID du ProductType' })
+  @ApiPropertyOptional({ description: 'ID du ProductType' })
+  @IsOptional()
   @IsString()
-  typeId: string;
+  @Transform(({ value }) => value || undefined)
+  typeId?: string;
 
-  @ApiProperty({ description: 'ID du ProductCategory' })
+  @ApiPropertyOptional({ description: 'ID du ProductCategory' })
+  @IsOptional()
   @IsString()
-  categoryId: string;
+  @Transform(({ value }) => value || undefined)
+  categoryId?: string;
 
   @ApiProperty({ description: 'Prix de vente de base' })
   @IsNumber()

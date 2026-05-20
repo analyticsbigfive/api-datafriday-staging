@@ -212,8 +212,8 @@ export class AggregationService {
           for (const [locationId, data] of locationRevenue) {
             // Step 2 wizard saves: WeezeventMerchantElementMapping.weezeventMerchantId = WeezeventLocation.id
             // So we look up the SpaceElement by the location id.
-            const elementMapping = await this.prisma.weezeventMerchantElementMapping.findFirst({
-              where: { tenantId, weezeventMerchantId: locationId },
+            const elementMapping = await this.prisma.weezeventLocationShopMapping.findFirst({
+              where: { tenantId, weezeventLocationId: locationId },
             });
 
             if (!elementMapping) {

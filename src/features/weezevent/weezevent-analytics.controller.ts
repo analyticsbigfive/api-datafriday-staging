@@ -320,7 +320,7 @@ export class WeezeventAnalyticsController {
             for (const item of transaction.items) {
                 const productId = item.productId || 'unknown';
                 const productName = item.productName || 'Unknown Product';
-                const category = item.product?.category || null;
+                const category = item.product?.categoryId || null;
 
                 if (!productStats.has(productId)) {
                     productStats.set(productId, {

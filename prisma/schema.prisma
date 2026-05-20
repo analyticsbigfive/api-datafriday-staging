@@ -729,7 +729,10 @@ model WeezeventProduct {
   // Product data
   name        String
   description String?
-  category    String?
+  nature      String?
+  subnature   String?
+  productType String?
+  categoryId  String?
   basePrice   Decimal? @db.Decimal(10, 2)
   vatRate     Decimal? @db.Decimal(5, 2)
   image       String?
@@ -762,7 +765,9 @@ model WeezeventProduct {
   @@index([tenantId])
   @@index([integrationId])
   @@index([weezeventId])
-  @@index([category])
+  @@index([nature])
+  @@index([subnature])
+  @@index([productType])
 }
 
 model WeezeventUser {
@@ -1726,17 +1731,17 @@ model WeezeventLocationSpaceMapping {
 }
 
 // Maps Weezevent Merchant to SpaceElement (shop) for revenue grouping
-model WeezeventMerchantElementMapping {
+model WeezeventLocationShopMapping {
   id                  String   @id @default(cuid())
   tenantId            String
-  weezeventMerchantId String
+  weezeventLocationId String
   spaceElementId      String
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  @@unique([tenantId, weezeventMerchantId])
+  @@unique([tenantId, weezeventLocationId])
   @@index([tenantId, spaceElementId])
-  @@index([weezeventMerchantId])
+  @@index([weezeventLocationId])
 }
 
 // Tenant-specific VAT configuration

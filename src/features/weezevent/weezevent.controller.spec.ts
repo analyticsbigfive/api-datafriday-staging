@@ -500,7 +500,16 @@ describe('WeezeventController', () => {
       mockPrismaService.weezeventOrder.findMany.mockResolvedValue([]);
       mockPrismaService.weezeventOrder.count.mockResolvedValue(0);
 
-      await controller.getOrders(mockUser, 1, 50, undefined, 'event-123');\n\n      expect(mockPrismaService.weezeventOrder.findMany).toHaveBeenCalledWith(\n        expect.objectContaining({\n          where: expect.objectContaining({\n            tenantId: 'tenant-123',\n            eventId: 'event-123',\n          }),\n        }),\n      );
+      await controller.getOrders(mockUser, 1, 50, undefined, 'event-123');
+
+      expect(mockPrismaService.weezeventOrder.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            tenantId: 'tenant-123',
+            eventId: 'event-123',
+          }),
+        }),
+      );
     });
   });
 

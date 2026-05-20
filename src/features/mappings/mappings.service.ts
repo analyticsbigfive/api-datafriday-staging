@@ -115,20 +115,20 @@ export class MappingsService {
         select: { merchantId: true },
         distinct: ['merchantId'],
       });
-      where.weezeventMerchantId = { in: merchantTxs.map((m) => m.merchantId).filter(Boolean) };
+      where.weezeventLocationId = { in: merchantTxs.map((m) => m.merchantId).filter(Boolean) };
     }
 
     const safeLimit = Math.min(Math.max(limit, 1), 1000);
     const skip = (Math.max(page, 1) - 1) * safeLimit;
 
     const [data, total] = await Promise.all([
-      this.prisma.weezeventMerchantElementMapping.findMany({
+      this.prisma.weezeventLocationShopMapping.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         skip,
         take: safeLimit,
       }),
-      this.prisma.weezeventMerchantElementMapping.count({ where }),
+      this.prisma.weezeventLocationShopMapping.count({ where }),
     ]);
 
     return {
@@ -140,16 +140,16 @@ export class MappingsService {
   async createMerchantElementMapping(dto: CreateMerchantElementMappingDto, tenantId: string) {
     this.logger.log(`Mapping merchant ${dto.weezeventMerchantId} → element ${dto.spaceElementId}`);
 
-    return this.prisma.weezeventMerchantElementMapping.upsert({
+    return this.prisma.weezeventLocationShopMapping.upsert({
       where: {
-        tenantId_weezeventMerchantId: {
+        tenantId_weezeventLocationId: {
           tenantId,
-          weezeventMerchantId: dto.weezeventMerchantId,
+          weezeventLocationId: dto.weezeventMerchantId,
         },
       },
       create: {
         tenantId,
-        weezeventMerchantId: dto.weezeventMerchantId,
+        weezeventLocationId: dto.weezeventMerchantId,
         spaceElementId: dto.spaceElementId,
       },
       update: {
@@ -170,16 +170,16 @@ export class MappingsService {
       try {
         const results = await this.prisma.$transaction(
           chunk.map((m) =>
-            this.prisma.weezeventMerchantElementMapping.upsert({
+            this.prisma.weezeventLocationShopMapping.upsert({
               where: {
-                tenantId_weezeventMerchantId: {
+                tenantId_weezeventLocationId: {
                   tenantId,
-                  weezeventMerchantId: m.weezeventMerchantId,
+                  weezeventLocationId: m.weezeventMerchantId,
                 },
               },
               create: {
                 tenantId,
-                weezeventMerchantId: m.weezeventMerchantId,
+                weezeventLocationId: m.weezeventMerchantId,
                 spaceElementId: m.spaceElementId,
               },
               update: {
@@ -194,11 +194,11 @@ export class MappingsService {
         this.logger.warn(`Chunk ${i / this.BULK_CHUNK_SIZE} failed, falling back to per-item upserts: ${err.message}`);
         for (const m of chunk) {
           try {
-            const result = await this.prisma.weezeventMerchantElementMapping.upsert({
+            const result = await this.prisma.weezeventLocationShopMapping.upsert({
               where: {
-                tenantId_weezeventMerchantId: { tenantId, weezeventMerchantId: m.weezeventMerchantId },
+                tenantId_weezeventLocationId: { tenantId, weezeventLocationId: m.weezeventMerchantId },
               },
-              create: { tenantId, weezeventMerchantId: m.weezeventMerchantId, spaceElementId: m.spaceElementId },
+              create: { tenantId, weezeventLocationId: m.weezeventMerchantId, spaceElementId: m.spaceElementId },
               update: { spaceElementId: m.spaceElementId },
             });
             successes.push(result);
@@ -219,8 +219,8 @@ export class MappingsService {
   }
 
   async deleteMerchantElementMapping(tenantId: string, weezeventMerchantId: string) {
-    return this.prisma.weezeventMerchantElementMapping.deleteMany({
-      where: { tenantId, weezeventMerchantId },
+    return this.prisma.weezeventLocationShopMapping.deleteMany({
+      where: { tenantId, weezeventLocationId: weezeventMerchantId },
     });
   }
 
@@ -373,10 +373,10 @@ export class MappingsService {
       });
       const merchantIds = merchantTxs.map((m) => m.merchantId).filter(Boolean);
       if (merchantIds.length > 0) {
-        const merchantMappings = await this.prisma.weezeventMerchantElementMapping.count({
+        const merchantMappings = await this.prisma.weezeventLocationShopMapping.count({
           where: {
             tenantId,
-            weezeventMerchantId: { in: merchantIds },
+            weezeventLocationId: { in: merchantIds },
           },
         });
         step2 = merchantMappings > 0;
@@ -466,9 +466,9 @@ export class MappingsService {
         select: { locationId: true, merchantId: true },
         distinct: ['locationId', 'merchantId'],
       }),
-      this.prisma.weezeventMerchantElementMapping.findMany({
+      this.prisma.weezeventLocationShopMapping.findMany({
         where: { tenantId },
-        select: { weezeventMerchantId: true },
+        select: { weezeventLocationId: true },
       }),
       this.prisma.weezeventProductMapping.count({ where: { tenantId } }),
       this.prisma.aggregationJobLog.groupBy({
@@ -485,7 +485,7 @@ export class MappingsService {
 
     // Index en Maps pour lookups O(1)
     const locSpaceMap = new Map(locationMappings.map((m) => [m.weezeventLocationId, m.spaceId]));
-    const mappedMerchantSet = new Set(merchantMappings.map((m) => m.weezeventMerchantId));
+    const mappedMerchantSet = new Set(merchantMappings.map((m) => m.weezeventLocationId));
     const merchantsByLocation = new Map<string, string[]>();
     for (const tx of merchantTxGroups) {
       if (!tx.locationId || !tx.merchantId) continue;
@@ -556,7 +556,7 @@ export class MappingsService {
         select: { merchantId: true },
         distinct: ['merchantId'],
       }),
-      this.prisma.weezeventMerchantElementMapping.count({ where: { tenantId } }),
+      this.prisma.weezeventLocationShopMapping.count({ where: { tenantId } }),
       this.prisma.weezeventProductMapping.count({ where: { tenantId } }),
       this.prisma.weezeventProduct.count({ where: { tenantId } }),
       this.prisma.aggregationJobLog.count({

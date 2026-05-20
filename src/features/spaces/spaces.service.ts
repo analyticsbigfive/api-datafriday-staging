@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateSpaceDto } from './dto/create-space.dto';
 import { UpdateSpaceDto } from './dto/update-space.dto';
@@ -643,11 +644,75 @@ export class SpacesService {
   }
 
   /**
+   * Get shop list only (no transaction data) — used by SpaceMenuView for fast initial load
+   */
+  async getSpaceShops(spaceId: string, tenantId: string) {
+    await this.findOne(spaceId, tenantId);
+
+    const configs = await this.prisma.config.findMany({
+      where: { space: { id: spaceId, tenantId } },
+      select: { id: true, name: true },
+    });
+
+    const configIds = configs.map(c => c.id);
+    const shopTypes: any[] = ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack', 'fnb_icecream', 'merchshop'];
+    const commonSelect = {
+      id: true, name: true, type: true, shopTypes: true, attributes: true, image: true, notes: true,
+      menuAssignments: { where: { enabled: true }, select: { id: true } },
+    };
+
+    const [shopsFromFloors, shopsFromForecourt]: [any[], any[]] = await Promise.all([
+      (this.prisma.spaceElement.findMany as any)({
+        where: { floor: { configId: { in: configIds } }, type: { in: shopTypes } },
+        select: { ...commonSelect, floor: { select: { id: true, name: true, config: { select: { id: true, name: true } } } } },
+      }),
+      (this.prisma.spaceElement.findMany as any)({
+        where: { forecourt: { configId: { in: configIds } }, type: { in: shopTypes } },
+        select: { ...commonSelect, forecourt: { select: { id: true, name: true, config: { select: { id: true, name: true } } } } },
+      }),
+    ]);
+
+    const allShops: any[] = [...shopsFromFloors, ...shopsFromForecourt];
+    const shopIds: string[] = allShops.map((s: any) => s.id);
+
+    const merchantMappings = await this.prisma.weezeventLocationShopMapping.findMany({
+      where: { tenantId, spaceElementId: { in: shopIds } },
+      select: { spaceElementId: true, weezeventLocationId: true },
+    });
+
+    const mappingByShop = new Map(merchantMappings.map(m => [m.spaceElementId, m.weezeventLocationId]));
+
+    const shops = allShops.map(s => {
+      const loc = (s as any).floor ?? (s as any).forecourt;
+      const menuItemsEnabledCount = Array.isArray(s.menuAssignments) ? s.menuAssignments.length : 0;
+      return {
+        id: s.id,
+        name: s.name,
+        type: s.type,
+        shopTypes: s.shopTypes,
+        attributes: s.attributes,
+        image: (s as any).image ?? null,
+        notes: (s as any).notes ?? null,
+        configId: loc?.config?.id ?? null,
+        configName: loc?.config?.name ?? null,
+        locationId: loc?.id ?? null,
+        locationName: loc?.name ?? null,
+        weezeventLocationId: mappingByShop.get(s.id) ?? null,
+        isMappedToWeezevent: mappingByShop.has(s.id),
+        menuItemsCount: menuItemsEnabledCount,
+        isOpen: menuItemsEnabledCount > 0,
+      };
+    });
+
+    return { shops };
+  }
+
+  /**
    * Get shop details (granular sales data) for a space
    * Returns all SpaceElements (shops) created in configurations for this space
    * with their aggregated sales data if available from Weezevent
    */
-  async getShopDetails(spaceId: string, tenantId: string) {
+  async getShopDetails(spaceId: string, tenantId: string, page = 1, limit = 20) {
     // Verify space exists and belongs to tenant
     await this.findOne(spaceId, tenantId);
 
@@ -766,26 +831,46 @@ export class SpacesService {
     );
 
     // Get Weezevent merchant mappings for these shops
-    const merchantMappings = await this.prisma.weezeventMerchantElementMapping.findMany({
+    const merchantMappings = await this.prisma.weezeventLocationShopMapping.findMany({
       where: {
         tenantId,
         spaceElementId: { in: shopIds },
       },
       select: {
         spaceElementId: true,
-        weezeventMerchantId: true,
+        weezeventLocationId: true,
       },
     });
 
     const mappingByShop = new Map(
-      merchantMappings.map(m => [m.spaceElementId, m.weezeventMerchantId]),
+      merchantMappings.map(m => [m.spaceElementId, m.weezeventLocationId]),
     );
 
-     // --- Per-event × shop × product granular data (3-dimension raw SQL) ---
+    // --- Paginate by event: query WeezeventEvent directly (fast, small table) ---
+    const limitRaw = Prisma.raw(String(Math.min(200, Math.max(1, limit))));
+    const offsetRaw = Prisma.raw(String(Math.max(0, (page - 1) * limit)));
+
+    const [totalCountResult, eventRows] = await Promise.all([
+      this.prisma.$queryRaw<Array<{ count: bigint }>>`
+        SELECT COUNT(*) AS count
+        FROM "WeezeventEvent"
+        WHERE "tenantId" = ${tenantId}
+      `,
+      this.prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT id
+        FROM "WeezeventEvent"
+        WHERE "tenantId" = ${tenantId}
+        ORDER BY "startDate" DESC NULLS LAST
+        LIMIT ${limitRaw} OFFSET ${offsetRaw}
+      `,
+    ]);
+
+    const totalEvents = Number(totalCountResult[0]?.count ?? 0);
+    const paginatedEventIds = eventRows.map(r => r.id);
     // Joins: WeezeventTransaction → TransactionItems → MerchantElementMapping
     //        → SpaceElement / WeezeventEvent / WeezeventProduct
     //        → WeezeventProductMapping → MenuItem → ProductType / ProductCategory
-    const granularRows: any[] = shopIds.length > 0
+    const granularRows: any[] = paginatedEventIds.length > 0
       ? await this.prisma.$queryRaw`
           SELECT
             t."eventId"                                                    AS "weezeventEventId",
@@ -801,9 +886,9 @@ export class SpacesService {
             mi.picture                                                     AS "menuItemPicture",
             pt.name                                                        AS "menuItemType",
             pc.name                                                        AS "menuItemCategory",
-            p.category                                                     AS "weezpayCategory",
-            p."rawData"->>'nature'                                         AS "weezpayNature",
-            p."rawData"->>'subnature'                                      AS "weezpaySubnature",
+            p."categoryId"                                               AS "weezpayCategory",
+            p."nature"                                                    AS "weezpayNature",
+            p."subnature"                                                 AS "weezpaySubnature",
             mi."totalCost"                                                 AS "itemCost",
             SUM(
               ti."unitPrice" * ti.quantity
@@ -814,8 +899,8 @@ export class SpacesService {
           FROM "WeezeventTransaction" t
           INNER JOIN "WeezeventTransactionItem" ti
             ON ti."transactionId" = t.id
-          INNER JOIN "WeezeventMerchantElementMapping" mem
-            ON mem."weezeventMerchantId" = t."locationId"
+          INNER JOIN "WeezeventLocationShopMapping" mem
+            ON mem."weezeventLocationId" = t."locationId"
            AND mem."tenantId"         = ${tenantId}
            AND mem."spaceElementId"   = ANY(${shopIds})
           INNER JOIN "SpaceElement" se
@@ -835,12 +920,12 @@ export class SpacesService {
             ON pc.id = mi."categoryId"
           WHERE t."tenantId" = ${tenantId}
             AND t.status    = 'V'
-            AND t."eventId" IS NOT NULL
+            AND t."eventId" = ANY(${paginatedEventIds})
           GROUP BY
             t."eventId", we.name, we."startDate",
             mem."spaceElementId", se.name, se.type, se.attributes,
             ti."productId", wpm."menuItemId", mi.name, mi.picture, pt.name, pc.name, mi."totalCost",
-            p."vatRate", p.category, p."rawData"
+            p."vatRate", p."categoryId", p."nature", p."subnature", p."rawData"
         `
       : [];
 
@@ -962,7 +1047,7 @@ export class SpacesService {
       };
     });
 
-    return { shops, shopGranularData, events, menuItemCostMap };
+    return { shops, shopGranularData, events, menuItemCostMap, meta: { page, limit, total: totalEvents, totalPages: Math.ceil(totalEvents / limit) } };
   }
 
   /**
@@ -1013,8 +1098,8 @@ export class SpacesService {
       FROM "WeezeventTransaction" t
       INNER JOIN "WeezeventTransactionItem" ti
         ON ti."transactionId" = t.id
-      INNER JOIN "WeezeventMerchantElementMapping" mem
-        ON mem."weezeventMerchantId" = t."locationId"
+      INNER JOIN "WeezeventLocationShopMapping" mem
+        ON mem."weezeventLocationId" = t."locationId"
        AND mem."tenantId"         = ${tenantId}
        AND mem."spaceElementId"   = ANY(${shopIds})
       INNER JOIN "SpaceElement" se

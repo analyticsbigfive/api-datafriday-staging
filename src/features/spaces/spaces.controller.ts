@@ -357,6 +357,14 @@ export class SpacesController {
   }
 
   /**
+   * Get shops list only — lightweight, no transaction data (used by SpaceMenuView)
+   */
+  @Get(':id/shops')
+  async getSpaceShops(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.spacesService.getSpaceShops(id, user.tenantId);
+  }
+
+  /**
    * Get shop details for a space (all shops created in configurations)
    */
   @Get(':id/shop-details')
@@ -393,8 +401,15 @@ export class SpacesController {
     },
   })
   @ApiResponse({ status: 404, description: 'Espace non trouvé' })
-  async getShopDetails(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.spacesService.getShopDetails(id, user.tenantId);
+  async getShopDetails(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Query('page') page = '1',
+    @Query('limit') limit = '20',
+  ) {
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10) || 20));
+    return this.spacesService.getShopDetails(id, user.tenantId, pageNum, limitNum);
   }
 
   /**
@@ -771,6 +786,27 @@ export class ConfigurationsController {
     @CurrentTenant() tenantId: string,
   ) {
     return this.spacesService.deleteConfiguration(id, tenantId);
+  }
+
+  /**
+   * Update a configuration by ID
+   */
+  @Patch(':id')
+  @Roles('ADMIN', 'MANAGER', 'STAFF')
+  @ApiOperation({
+    summary: 'Mettre à jour une configuration',
+    description: 'Met à jour une configuration existante (floors, forecourt, capacity, etc.).',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la configuration' })
+  @ApiResponse({ status: 200, description: 'Configuration mise à jour' })
+  @ApiResponse({ status: 404, description: 'Configuration non trouvée' })
+  @ApiResponse({ status: 403, description: 'Accès refusé' })
+  async updateConfiguration(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @Body() dto: any,
+  ) {
+    return this.spacesService.saveConfiguration({ ...dto, id }, tenantId);
   }
 
   /**

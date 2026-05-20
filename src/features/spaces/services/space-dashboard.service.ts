@@ -265,13 +265,13 @@ export class SpaceDashboardService {
 
     // Get merchant-element mappings
     const merchantMappings =
-      await this.prisma.weezeventMerchantElementMapping.findMany({
+      await this.prisma.weezeventLocationShopMapping.findMany({
         where: {
           tenantId,
-          weezeventMerchantId: { in: merchants.map((m) => m.weezeventId) },
+          weezeventLocationId: { in: merchants.map((m) => m.weezeventId) },
         },
         select: {
-          weezeventMerchantId: true,
+          weezeventLocationId: true,
           spaceElementId: true,
         },
       });
@@ -444,10 +444,10 @@ export class SpaceDashboardService {
 
     const product = await this.prisma.weezeventProduct.findUnique({
       where: { id: topProduct[0].weezeventProductId },
-      select: { category: true },
+      select: { categoryId: true },
     });
 
-    return product?.category || null;
+    return product?.categoryId || null;
   }
 
   private async getCharts(

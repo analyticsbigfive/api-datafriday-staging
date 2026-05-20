@@ -68,8 +68,7 @@ describe('DTO Validation Test Suite - Error Messages', () => {
       const errors = await validate(dto);
       
       expect(errors.length).toBeGreaterThan(0);
-      expect(errors.some(e => e.property === 'typeId')).toBe(true);
-      expect(errors.some(e => e.property === 'categoryId')).toBe(true);
+      // typeId and categoryId are now optional — only basePrice is required
       expect(errors.some(e => e.property === 'basePrice')).toBe(true);
     });
 
@@ -79,6 +78,16 @@ describe('DTO Validation Test Suite - Error Messages', () => {
         typeId: 'type-123',
         categoryId: 'cat-123',
         basePrice: 10.50,
+      });
+
+      const errors = await validate(dto);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('should accept menu item without type and category', async () => {
+      const dto = plainToInstance(CreateMenuItemDto, {
+        name: 'Test Item',
+        basePrice: 5.00,
       });
 
       const errors = await validate(dto);

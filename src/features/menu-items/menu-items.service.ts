@@ -132,8 +132,8 @@ export class MenuItemsService {
         data: {
           tenantId,
           name: dto.name,
-          typeId: dto.typeId,
-          categoryId: dto.categoryId,
+          typeId: dto.typeId || null,
+          categoryId: dto.categoryId || null,
           basePrice: dto.basePrice,
           totalCost: dto.totalCost,
           margin: dto.margin,

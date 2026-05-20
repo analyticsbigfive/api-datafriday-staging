@@ -72,13 +72,15 @@ export class CreateMenuItemDto {
   @IsString()
   name: string;
 
-  @ApiProperty({ description: 'ID du ProductType' })
+  @ApiPropertyOptional({ description: 'ID du ProductType' })
+  @IsOptional()
   @IsString()
-  typeId: string;
+  typeId?: string;
 
-  @ApiProperty({ description: 'ID du ProductCategory' })
+  @ApiPropertyOptional({ description: 'ID du ProductCategory' })
+  @IsOptional()
   @IsString()
-  categoryId: string;
+  categoryId?: string;
 
   @ApiProperty({ description: 'Prix de vente de base' })
   @IsNumber()

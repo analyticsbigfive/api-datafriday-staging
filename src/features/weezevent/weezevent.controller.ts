@@ -609,21 +609,24 @@ export class WeezeventController {
     @ApiQuery({ name: 'integrationId', required: false, description: 'ID de l\'intégration Weezevent' })
     @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
     @ApiQuery({ name: 'perPage', required: false, type: Number, example: 50 })
-    @ApiQuery({ name: 'category', required: false, description: 'Filtrer par catégorie de produit' })
+    @ApiQuery({ name: 'nature', required: false, description: 'Filtrer par nature produit (FOOD, DRINK, MERCH, CUP, OTHER)' })
+    @ApiQuery({ name: 'categoryId', required: false, description: 'Filtrer par ID de catégorie Weezevent' })
     @ApiResponse({ status: 200, description: 'Liste paginée des produits Weezevent' })
     async getProducts(
         @CurrentUser() user: any,
         @Query('page') page: number = 1,
         @Query('perPage') perPage: number = 50,
         @Query('integrationId') integrationId?: string,
-        @Query('category') category?: string,
+        @Query('nature') nature?: string,
+        @Query('categoryId') categoryId?: string,
     ) {
         const tenantId = user.tenantId;
         const p = Math.max(1, parseInt(String(page), 10) || 1);
         const pp = Math.min(Math.max(1, parseInt(String(perPage), 10) || 50), 500);
         const where: any = { tenantId };
         if (integrationId) where.integrationId = integrationId;
-        if (category) where.nature = category;
+        if (nature) where.nature = nature;
+        if (categoryId) where.categoryId = categoryId;
 
         const [products, total] = await Promise.all([
             this.prisma.weezeventProduct.findMany({
@@ -643,6 +646,51 @@ export class WeezeventController {
                 total,
                 total_pages: Math.ceil(total / pp),
             },
+        };
+    }
+
+    /**
+     * Get product categories — distinct nature/subnature and categoryIds from synced products.
+     * Note: Weezevent's REST API does not expose a product-categories list endpoint.
+     * Category names are only available in webhook transaction payloads (item.category.name).
+     */
+    @Get('products/categories')
+    @ApiOperation({ summary: 'Lister les catégories et natures des produits Weezevent' })
+    @ApiQuery({ name: 'integrationId', required: false, description: 'ID de l\'intégration Weezevent' })
+    @ApiResponse({ status: 200, description: 'Catégories produits avec compteurs' })
+    async getProductCategories(
+        @CurrentUser() user: any,
+        @Query('integrationId') integrationId?: string,
+    ) {
+        const tenantId = user.tenantId;
+        const where: any = { tenantId };
+        if (integrationId) where.integrationId = integrationId;
+
+        const [naturesRaw, categoriesRaw] = await Promise.all([
+            this.prisma.weezeventProduct.groupBy({
+                by: ['nature', 'subnature'],
+                where,
+                _count: { id: true },
+                orderBy: [{ nature: 'asc' }, { subnature: 'asc' }],
+            }),
+            this.prisma.weezeventProduct.groupBy({
+                by: ['categoryId'],
+                where: { ...where, categoryId: { not: null } },
+                _count: { id: true },
+                orderBy: { categoryId: 'asc' },
+            }),
+        ]);
+
+        return {
+            natures: naturesRaw.map(row => ({
+                nature: row.nature,
+                subnature: row.subnature,
+                count: row._count.id,
+            })),
+            categories: categoriesRaw.map(row => ({
+                categoryId: row.categoryId,
+                count: row._count.id,
+            })),
         };
     }
 

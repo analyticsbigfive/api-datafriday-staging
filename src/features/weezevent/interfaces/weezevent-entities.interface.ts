@@ -92,15 +92,46 @@ export interface WeezeventEvent {
     metadata?: Record<string, any>;
 }
 
+export type WeezeventProductNature = 'CUP' | 'DRINK' | 'FOOD' | 'MERCH' | 'OTHER';
+export type WeezeventProductSubnature =
+    | 'BEEF' | 'BEER_PREMIUM' | 'BEER_REGULAR' | 'CHICKEN' | 'CIDER_WINE'
+    | 'CUP' | 'FISH' | 'HARD' | 'MERCH' | 'OTHER' | 'PORK' | 'SOFT'
+    | 'VEGAN' | 'VEGETARIAN' | 'WATER';
+export type WeezeventProductType =
+    | 'STANDARD' | 'VARIANT' | 'VARIANT_BASE' | 'MENU' | 'PACK'
+    | 'PACK_ADVANCED' | 'DONATION' | 'FEE' | 'REFUNDABLE'
+    | 'REFUNDABLE_LEGACY_ZONE' | 'REFUNDABLE_RETURN'
+    | 'REFUNDABLE_RETURN_LEGACY_ZONE' | 'STOCK' | 'STOCK_VESSEL' | 'TIP';
+
 export interface WeezeventProduct {
     id: number;
     name: string;
-    description?: string;
-    category?: string;
+    description?: string | null;
+    /** Weezevent internal category entity ID */
+    category_id?: number | null;
+    /** High-level product nature used for DataFriday category mapping */
+    nature?: WeezeventProductNature | null;
+    /** Subcategory within a nature (e.g. BEER_PREMIUM within DRINK) */
+    subnature?: WeezeventProductSubnature | null;
+    type?: WeezeventProductType | null;
+    /** ID of the VARIANT_BASE product this variant belongs to */
+    variant_of_id?: number | null;
+    merchant_id?: number | null;
     base_price: number;
     vat_rate: number;
-    image?: string;
+    image?: string | null;
+    /** Publicly displayed name (may differ from name) */
+    online_name?: string | null;
+    online_description?: string | null;
+    online_image_path?: string | null;
     allergens?: string[];
+    tag_ids?: number[];
+    used_in_event_ids?: number[];
+    is_counted_in_stock?: boolean;
+    is_using_variable_price?: boolean;
+    stock_value?: number | null;
+    stock_measure_unit?: string | null;
+    preparation_time?: number | null;
     components?: Array<{
         id: number;
         name: string;

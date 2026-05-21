@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Body, Query, Param, UseGuards, Logger, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Query, Param, UseGuards, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { WeezeventSyncService, SyncResult } from './services/weezevent-sync.service';
 import { WeezeventIncrementalSyncService, IncrementalSyncResult } from './services/weezevent-incremental-sync.service';
@@ -10,6 +10,7 @@ import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { SyncTrackerService } from './services/sync-tracker.service';
 import { QueueService } from '../../core/queue/queue.service';
+import { WeezeventClientService } from './services/weezevent-client.service';
 
 @ApiTags('Weezevent')
 @ApiBearerAuth('supabase-jwt')
@@ -24,6 +25,7 @@ export class WeezeventController {
         private readonly prisma: PrismaService,
         private readonly syncTracker: SyncTrackerService,
         private readonly queueService: QueueService,
+        private readonly weezeventClient: WeezeventClientService,
     ) { }
 
     /**
@@ -593,6 +595,98 @@ export class WeezeventController {
                 total_pages: Math.ceil(total / pp),
             },
         };
+    }
+
+    /**
+     * Refresh one product details.
+     * Local-first: use local WeezeventProduct/rawData when possible, then try Weezevent API only
+     * for missing fields. If the external API fails, return the local record instead of breaking UI.
+     */
+    @Get('products/:productId/refresh')
+    @ApiOperation({ summary: 'Rafraîchir les détails d’un produit Weezevent local-first' })
+    @ApiParam({ name: 'productId', description: 'ID interne du produit Weezevent' })
+    @ApiResponse({ status: 200, description: 'Produit enrichi depuis la DB locale ou Weezevent' })
+    async refreshProduct(
+        @CurrentUser() user: any,
+        @Param('productId') productId: string,
+    ) {
+        const tenantId = user.tenantId;
+        const product = await this.prisma.weezeventProduct.findFirst({
+            where: { id: productId, tenantId },
+            include: { integration: true },
+        });
+
+        if (!product) {
+            throw new NotFoundException(`Product ${productId} not found`);
+        }
+
+        const rawData = (product.rawData || {}) as any;
+        const localData = {
+            nature: product.nature ?? rawData.nature ?? null,
+            subnature: product.subnature ?? rawData.subnature ?? null,
+            productType: product.productType ?? rawData.type ?? null,
+            basePrice: product.basePrice != null
+                ? Number(product.basePrice)
+                : rawData.base_price != null
+                    ? Number(rawData.base_price)
+                    : rawData.basePrice != null
+                        ? Number(rawData.basePrice)
+                        : null,
+            rawData,
+        };
+
+        const hasUsefulLocalData =
+            localData.basePrice != null &&
+            (!!localData.nature || !!localData.subnature || !!localData.productType);
+
+        if (hasUsefulLocalData) {
+            return { ...product, ...localData, source: 'local' };
+        }
+
+        if (!product.integration?.organizationId) {
+            return { ...product, ...localData, source: 'local', warning: 'Missing Weezevent organizationId' };
+        }
+
+        try {
+            const apiProduct = await this.weezeventClient.getProduct(
+                tenantId,
+                product.integration.organizationId,
+                product.weezeventId,
+            );
+
+            const rawCategoryId = (apiProduct as any).category_id;
+            const updateData = {
+                name: apiProduct.name || product.name,
+                description: apiProduct.description ?? product.description,
+                nature: (apiProduct as any).nature ?? product.nature,
+                subnature: (apiProduct as any).subnature ?? product.subnature,
+                productType: (apiProduct as any).type ?? product.productType,
+                categoryId: rawCategoryId != null
+                    ? String(rawCategoryId)
+                    : (apiProduct as any).category != null
+                        ? String((apiProduct as any).category)
+                        : product.categoryId,
+                basePrice: (apiProduct as any).base_price != null
+                    ? (apiProduct as any).base_price
+                    : product.basePrice,
+                vatRate: (apiProduct as any).vat_rate != null
+                    ? (apiProduct as any).vat_rate
+                    : product.vatRate,
+                image: (apiProduct as any).image ?? product.image,
+                rawData: apiProduct as any,
+                syncedAt: new Date(),
+            };
+
+            const refreshed = await this.prisma.weezeventProduct.update({
+                where: { id: product.id },
+                data: updateData,
+            });
+
+            return { ...refreshed, basePrice: refreshed.basePrice != null ? Number(refreshed.basePrice) : null, source: 'weezevent' };
+        } catch (error) {
+            this.logger.warn(`Weezevent product refresh failed for ${productId}: ${error.message}`);
+            return { ...product, ...localData, source: 'local', warning: 'Weezevent refresh failed' };
+        }
     }
 
     /**

@@ -1,4 +1,6 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
 import {
   CreateLocationSpaceMappingDto,
@@ -377,6 +379,36 @@ export class MappingsService {
 
   // ─── Product → MenuItem ──────────────────────────────────
 
+  async getProductMappingStats(tenantId: string, integrationId?: string) {
+    const productWhere: any = {
+      tenantId,
+      OR: [
+        { productType: null },
+        { productType: { not: 'VARIANT' } },
+      ],
+    };
+
+    if (integrationId) {
+      productWhere.integrationId = integrationId;
+    }
+
+    const [total, mapped] = await Promise.all([
+      this.prisma.weezeventProduct.count({ where: productWhere }),
+      this.prisma.weezeventProductMapping.count({
+        where: {
+          tenantId,
+          weezeventProduct: productWhere,
+        },
+      }),
+    ]);
+
+    return {
+      total,
+      mapped,
+      unmapped: Math.max(total - mapped, 0),
+    };
+  }
+
   async getProductMappings(
     tenantId: string,
     weezeventLocationId?: string,
@@ -424,37 +456,55 @@ export class MappingsService {
   }
 
   async bulkProductMappings(dto: BulkProductMappingDto, tenantId: string, userId: string) {
-    const total = dto.mappings.length;
+    const uniqueMappings = Array.from(
+      new Map(dto.mappings.map((m) => [m.weezeventProductId, m])).values(),
+    );
+    const total = uniqueMappings.length;
     this.logger.log(`Bulk mapping ${total} product-menu item pairs (chunk=${this.BULK_CHUNK_SIZE})`);
 
     const successes: any[] = [];
     const errors: { weezeventProductId: string; error: string }[] = [];
 
     for (let i = 0; i < total; i += this.BULK_CHUNK_SIZE) {
-      const chunk = dto.mappings.slice(i, i + this.BULK_CHUNK_SIZE);
+      const chunk = uniqueMappings.slice(i, i + this.BULK_CHUNK_SIZE);
       try {
-        const results = await this.prisma.$transaction(
-          chunk.map((m) =>
-            this.prisma.weezeventProductMapping.upsert({
-              where: { weezeventProductId: m.weezeventProductId },
-              create: {
-                tenantId,
-                weezeventProductId: m.weezeventProductId,
-                menuItemId: m.menuItemId,
-                autoMapped: m.autoMapped || false,
-                confidence: m.confidence || null,
-                mappedBy: userId,
-              },
-              update: {
-                menuItemId: m.menuItemId,
-                autoMapped: m.autoMapped || false,
-                confidence: m.confidence || null,
-                mappedBy: userId,
-              },
-            }),
-          ),
+        const now = new Date();
+        const values = Prisma.join(
+          chunk.map((m) => Prisma.sql`(
+            ${randomUUID()},
+            ${tenantId},
+            ${m.weezeventProductId},
+            ${m.menuItemId},
+            ${m.autoMapped || false},
+            ${m.confidence || null},
+            ${userId},
+            ${now},
+            ${now}
+          )`),
         );
-        successes.push(...results);
+
+        await this.prisma.$executeRaw`
+          INSERT INTO "public"."WeezeventProductMapping"
+            ("id", "tenantId", "weezeventProductId", "menuItemId", "autoMapped", "confidence", "mappedBy", "createdAt", "updatedAt")
+          VALUES ${values}
+          ON CONFLICT ("weezeventProductId") DO UPDATE SET
+            "menuItemId" = EXCLUDED."menuItemId",
+            "autoMapped" = EXCLUDED."autoMapped",
+            "confidence" = EXCLUDED."confidence",
+            "mappedBy" = EXCLUDED."mappedBy",
+            "updatedAt" = EXCLUDED."updatedAt"
+        `;
+
+        successes.push(
+          ...chunk.map((m) => ({
+            tenantId,
+            weezeventProductId: m.weezeventProductId,
+            menuItemId: m.menuItemId,
+            autoMapped: m.autoMapped || false,
+            confidence: m.confidence || null,
+            mappedBy: userId,
+          })),
+        );
       } catch (err) {
         this.logger.warn(`Chunk ${i / this.BULK_CHUNK_SIZE} failed, falling back to per-item upserts: ${err.message}`);
         for (const m of chunk) {

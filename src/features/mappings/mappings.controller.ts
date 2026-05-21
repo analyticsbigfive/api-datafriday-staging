@@ -287,6 +287,19 @@ export class MappingsController {
 
   // ─── Product → MenuItem ──────────────────────────────────
 
+  @Get('product-menu/stats')
+  @ApiOperation({
+    summary: 'Compteurs réels des mappings product → menu item',
+    description: 'Retourne les totaux produits, mappés et non mappés sans dépendre de la pagination des lignes.',
+  })
+  @ApiQuery({ name: 'integrationId', required: false, description: 'Filtrer par intégration Weezevent' })
+  getProductMappingStats(
+    @CurrentUser() user: any,
+    @Query('integrationId') integrationId?: string,
+  ) {
+    return this.mappingsService.getProductMappingStats(user.tenantId, integrationId);
+  }
+
   @Get('product-menu')
   @ApiOperation({
     summary: 'Lister les mappings product → menu item',

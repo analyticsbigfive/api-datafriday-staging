@@ -804,7 +804,7 @@ export class SpacesService {
     const shopMap = new Map(allShops.map(s => [s.id, s]));
 
     // --- Per-shop totals (for the shops list) ---
-    const revenueData = await this.prisma.spaceRevenueDailyAgg.groupBy({
+    const revenueData = await this.prisma.spaceRevenueMinuteAgg.groupBy({
       by: ['spaceElementId'],
       where: {
         tenantId,

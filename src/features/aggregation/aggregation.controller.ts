@@ -61,7 +61,7 @@ export class AggregationController {
   @Post('process-events')
   @ApiOperation({
     summary: 'Traiter les événements pour agrégation',
-    description: 'Lance le traitement asynchrone des ventes Weezevent pour les événements donnés. Crée ou met à jour les agrégats SpaceRevenueDailyAgg. Retourne un jobId pour suivre la progression.',
+    description: 'Lance le traitement asynchrone des ventes Weezevent pour les événements donnés. Crée ou met à jour les agrégats SpaceRevenueMinuteAgg. Retourne un jobId pour suivre la progression.',
   })
   @ApiBody({ type: ProcessEventsDto })
   @ApiResponse({
@@ -89,7 +89,7 @@ export class AggregationController {
   @Post('synchronize')
   @ApiOperation({
     summary: 'Synchronisation complète des données agrégées',
-    description: 'Recalcule tous les agrégats (SpaceRevenueDailyAgg) pour un espace donné. Plus complet que process-events mais plus long. Retourne un jobId.',
+    description: 'Recalcule tous les agrégats (SpaceRevenueMinuteAgg) pour un espace donné. Plus complet que process-events mais plus long. Retourne un jobId.',
   })
   @ApiBody({ type: SynchronizeDto })
   @ApiResponse({
@@ -217,5 +217,22 @@ export class AggregationController {
     @CurrentUser() user: any,
   ) {
     return this.aggregationService.getStep4Context(user.tenantId, spaceId, integrationId);
+  }
+
+  @Get('event-minute-chart/:spaceId/:eventId')
+  @ApiOperation({
+    summary: 'CA par minute pour un événement',
+    description: 'Retourne le chiffre d\'affaires minute par minute pour un événement. Alimente l\'onglet "CA / minute" dans le détail event. Source : SpaceRevenueMinuteAgg.',
+  })
+  @ApiParam({ name: 'spaceId', description: 'ID du space DataFriday' })
+  @ApiParam({ name: 'eventId', description: "ID de l'événement DataFriday" })
+  @ApiResponse({ status: 200, description: 'Série temporelle minute par minute' })
+  @ApiResponse({ status: 404, description: 'Événement non trouvé' })
+  getEventMinuteChart(
+    @Param('spaceId') spaceId: string,
+    @Param('eventId') eventId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.aggregationService.getEventMinuteChart(user.tenantId, spaceId, eventId);
   }
 }

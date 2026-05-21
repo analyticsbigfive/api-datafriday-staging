@@ -345,11 +345,11 @@ export class SpaceDashboardService {
     from: string,
     to: string,
   ): Promise<KpisDto> {
-    const aggregates = await this.prisma.spaceRevenueDailyAgg.aggregate({
+    const aggregates = await this.prisma.spaceRevenueMinuteAgg.aggregate({
       where: {
         tenantId,
         spaceId,
-        day: {
+        minute: {
           gte: new Date(from),
           lte: new Date(to),
         },
@@ -367,11 +367,11 @@ export class SpaceDashboardService {
       totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
 
     // Get distinct event IDs in this space's aggregation window
-    const aggEvents = await this.prisma.spaceRevenueDailyAgg.findMany({
+    const aggEvents = await this.prisma.spaceRevenueMinuteAgg.findMany({
       where: {
         tenantId,
         spaceId,
-        day: { gte: new Date(from), lte: new Date(to) },
+        minute: { gte: new Date(from), lte: new Date(to) },
         weezeventEventId: { not: null },
       },
       distinct: ['weezeventEventId'],
@@ -457,47 +457,38 @@ export class SpaceDashboardService {
     to: string,
     granularity: DashboardGranularity,
   ): Promise<ChartsDto> {
-    // Get revenue over time
-    const revenueData = await this.prisma.spaceRevenueDailyAgg.groupBy({
-      by: ['day'],
-      where: {
-        tenantId,
-        spaceId,
-        day: {
-          gte: new Date(from),
-          lte: new Date(to),
-        },
-      },
-      _sum: {
-        revenueHt: true,
-      },
-      orderBy: {
-        day: 'asc',
-      },
-    });
+    // Get revenue over time — agrégé à la journée depuis SpaceRevenueMinuteAgg
+    const revenueData = await this.prisma.$queryRaw<Array<{ day: string; revenue: any }>>`
+      SELECT
+        DATE_TRUNC('day', minute AT TIME ZONE 'UTC')::date::text as day,
+        SUM("revenueHt") as revenue
+      FROM "SpaceRevenueMinuteAgg"
+      WHERE "tenantId" = ${tenantId}
+        AND "spaceId" = ${spaceId}
+        AND minute >= ${new Date(from)}
+        AND minute <= ${new Date(to)}
+      GROUP BY 1
+      ORDER BY 1
+    `;
 
-    const labels = revenueData.map((d) => d.day.toISOString().split('T')[0]);
-    const values = revenueData.map((d) => Number(d._sum.revenueHt || 0));
+    const labels = revenueData.map((d) => d.day);
+    const values = revenueData.map((d) => Number(d.revenue || 0));
 
-    // Get revenue by shop
-    const shopData = await this.prisma.spaceRevenueDailyAgg.groupBy({
-      by: ['day', 'spaceElementId'],
-      where: {
-        tenantId,
-        spaceId,
-        day: {
-          gte: new Date(from),
-          lte: new Date(to),
-        },
-        spaceElementId: { not: null },
-      },
-      _sum: {
-        revenueHt: true,
-      },
-      orderBy: {
-        day: 'asc',
-      },
-    });
+    // Get revenue by shop — agrégé à la journée depuis SpaceRevenueMinuteAgg
+    const shopData = await this.prisma.$queryRaw<Array<{ day: string; spaceElementId: string | null; revenue: any }>>`
+      SELECT
+        DATE_TRUNC('day', minute AT TIME ZONE 'UTC')::date::text as day,
+        "spaceElementId",
+        SUM("revenueHt") as revenue
+      FROM "SpaceRevenueMinuteAgg"
+      WHERE "tenantId" = ${tenantId}
+        AND "spaceId" = ${spaceId}
+        AND minute >= ${new Date(from)}
+        AND minute <= ${new Date(to)}
+        AND "spaceElementId" IS NOT NULL
+      GROUP BY 1, 2
+      ORDER BY 1
+    `;
 
     // Group by shop
     const shopSeries = new Map<string, { label: string; values: number[] }>();
@@ -528,10 +519,10 @@ export class SpaceDashboardService {
         });
       }
 
-      const dayIndex = labels.indexOf(data.day.toISOString().split('T')[0]);
+      const dayIndex = labels.indexOf(data.day);
       if (dayIndex >= 0) {
         shopSeries.get(data.spaceElementId)!.values[dayIndex] = Number(
-          data._sum.revenueHt || 0,
+          data.revenue || 0,
         );
       }
     }
@@ -565,12 +556,12 @@ export class SpaceDashboardService {
     to: string,
   ): Promise<ListsDto> {
     // Top shops
-    const topShops = await this.prisma.spaceRevenueDailyAgg.groupBy({
+    const topShops = await this.prisma.spaceRevenueMinuteAgg.groupBy({
       by: ['spaceElementId'],
       where: {
         tenantId,
         spaceId,
-        day: {
+        minute: {
           gte: new Date(from),
           lte: new Date(to),
         },

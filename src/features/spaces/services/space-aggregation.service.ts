@@ -152,7 +152,7 @@ export class SpaceAggregationService {
 
     const transactions = await this.prisma.$queryRaw<
       Array<{
-        day: Date;
+        minute: Date;
         weezeventEventId: string | null;
         weezeventLocationId: string | null;
         weezeventMerchantId: string | null;
@@ -163,7 +163,7 @@ export class SpaceAggregationService {
       }>
     >`
       SELECT 
-        DATE(t."transactionDate" AT TIME ZONE 'UTC' AT TIME ZONE ${timezone}) as day,
+        DATE_TRUNC('minute', t."transactionDate" AT TIME ZONE 'UTC') as minute,
         t."eventId" as "weezeventEventId",
         t."locationId" as "weezeventLocationId",
         t."merchantId" as "weezeventMerchantId",
@@ -191,7 +191,7 @@ export class SpaceAggregationService {
         AND t."transactionDate" <= ${toDate}
         AND t.status = 'V'
       GROUP BY 
-        day,
+        minute,
         t."eventId",
         t."locationId",
         t."merchantId",
@@ -199,13 +199,13 @@ export class SpaceAggregationService {
     `;
 
     for (const agg of transactions) {
-      await this.prisma.spaceRevenueDailyAgg.upsert({
+      await this.prisma.spaceRevenueMinuteAgg.upsert({
         where: {
-          tenantId_spaceId_day_weezeventEventId_weezeventLocationId_weezeventMerchantId_spaceElementId:
+          tenantId_spaceId_minute_weezeventEventId_weezeventLocationId_weezeventMerchantId_spaceElementId:
             {
               tenantId,
               spaceId,
-              day: agg.day,
+              minute: agg.minute,
               weezeventEventId: agg.weezeventEventId,
               weezeventLocationId: agg.weezeventLocationId,
               weezeventMerchantId: agg.weezeventMerchantId,
@@ -215,7 +215,7 @@ export class SpaceAggregationService {
         create: {
           tenantId,
           spaceId,
-          day: agg.day,
+          minute: agg.minute,
           timezone,
           weezeventEventId: agg.weezeventEventId,
           weezeventLocationId: agg.weezeventLocationId,

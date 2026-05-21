@@ -1760,34 +1760,34 @@ model TenantVatConfig {
 
 // ==================== SPACE DASHBOARD - READ MODELS ====================
 
-// Daily revenue aggregates by space, with optional dimensions
-model SpaceRevenueDailyAgg {
+// Minute-level revenue aggregates — source de vérité unique (remplace SpaceRevenueDailyAgg)
+// Pour agréger à la journée : GROUP BY DATE_TRUNC('day', minute)
+model SpaceRevenueMinuteAgg {
   id                  String   @id @default(cuid())
   tenantId            String
   spaceId             String
-  day                 DateTime @db.Date
+  minute              DateTime // TIMESTAMPTZ tronqué à la minute (ex: 2025-05-10T20:45:00Z)
   timezone            String   @default("Europe/Paris")
-  
+
   // Optional dimensions for filtering
   weezeventEventId    String?
   weezeventLocationId String?
   weezeventMerchantId String?
   spaceElementId      String?
-  
+
   // Aggregated metrics
   revenueHt           Decimal  @db.Decimal(12, 2)
   transactionsCount   Int
   itemsCount          Int
-  
+
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  @@unique([tenantId, spaceId, day, weezeventEventId, weezeventLocationId, weezeventMerchantId, spaceElementId])
-  @@index([tenantId, spaceId, day])
-  @@index([tenantId, spaceId, spaceElementId, day])
-  @@index([tenantId, spaceId, weezeventLocationId, day])
-  @@index([tenantId, spaceId, weezeventMerchantId, day])
-  @@index([tenantId, spaceId, weezeventEventId, day])
+  @@unique([tenantId, spaceId, minute, weezeventEventId, weezeventLocationId, weezeventMerchantId, spaceElementId])
+  @@index([tenantId, spaceId, minute])
+  @@index([tenantId, spaceId, weezeventEventId, minute])
+  @@index([tenantId, spaceId, spaceElementId, minute])
+  @@index([tenantId, spaceId, weezeventLocationId, minute])
 }
 
 // Daily product revenue aggregates

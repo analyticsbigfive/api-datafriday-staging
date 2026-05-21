@@ -44,7 +44,7 @@ export class AggregationService {
     });
 
     // Pré-charge les compteurs de datapoints par event en batch (évite N count)
-    const dataPointGroups = await this.prisma.spaceRevenueDailyAgg.groupBy({
+    const dataPointGroups = await this.prisma.spaceRevenueMinuteAgg.groupBy({
       by: ['weezeventEventId'],
       where: { tenantId, spaceId },
       _count: { _all: true },
@@ -163,11 +163,20 @@ export class AggregationService {
       void eventDatesSet; // utilisé implicitement via Prisma.join ci-dessus
     }
 
+    // #11 — expectedDataPoints : nombre de shops mappés pour l'intégration (dénominateur du ratio)
+    const expectedDataPoints =
+      integrationId && integrationLocationIds.length > 0
+        ? await this.prisma.weezeventLocationShopMapping.count({
+            where: { tenantId, weezeventLocationId: { in: integrationLocationIds } },
+          })
+        : 0;
+
     return {
       events: eventsWithStatus,
       unregisteredDates,
       futureEventsCount,
       transactionStats,
+      expectedDataPoints,
       summary: {
         total: events.length,
         processed: eventsWithStatus.filter((e) => e.aggregationStatus === 'completed').length,
@@ -307,36 +316,42 @@ export class AggregationService {
             include: { items: true },
           });
 
-          const locationRevenue = new Map<string, { revenue: number; count: number; items: number }>();
+          // Group by (locationId, minute) — granularité minute pour SpaceRevenueMinuteAgg
+          const minuteRevenue = new Map<string, { locationId: string; minute: Date; revenue: number; count: number; items: number }>();
           for (const tx of transactions) {
             if (!tx.locationId) continue;
-            const current = locationRevenue.get(tx.locationId) || { revenue: 0, count: 0, items: 0 };
+            const txDate = new Date(tx.transactionDate);
+            const minute = new Date(txDate);
+            minute.setSeconds(0, 0);
+            const key = `${tx.locationId}:${minute.toISOString()}`;
+            const current = minuteRevenue.get(key) || { locationId: tx.locationId, minute, revenue: 0, count: 0, items: 0 };
             // #7b — revenue unifié sur item prices (cohérence avec SpaceAggregationService)
             current.revenue += tx.items?.reduce((s, i) => s + Number(i.unitPrice) * (i.quantity ?? 0) - Number(i.reduction ?? 0), 0) ?? Number(tx.amount || 0);
             current.count += 1;
             // #6 — itemsCount = somme des quantités, pas le nombre de lignes
             current.items += tx.items?.reduce((s, i) => s + (i.quantity ?? 0), 0) ?? 0;
-            locationRevenue.set(tx.locationId, current);
+            minuteRevenue.set(key, current);
           }
 
-          const unmappedLocationIds: string[] = [];
+          const unmappedLocationIds = new Set<string>();
 
-          for (const [locationId, data] of locationRevenue) {
+          for (const [, data] of minuteRevenue) {
+            const { locationId, minute } = data;
             const spaceElementId = shopMappingByLocation.get(locationId);
             if (!spaceElementId) {
-              unmappedLocationIds.push(locationId);
+              unmappedLocationIds.add(locationId);
               continue;
             }
-            await this.prisma.spaceRevenueDailyAgg.upsert({
+            await this.prisma.spaceRevenueMinuteAgg.upsert({
               where: {
-                tenantId_spaceId_day_weezeventEventId_weezeventLocationId_weezeventMerchantId_spaceElementId: {
-                  tenantId, spaceId, day: eventDate, weezeventEventId: event.id,
+                tenantId_spaceId_minute_weezeventEventId_weezeventLocationId_weezeventMerchantId_spaceElementId: {
+                  tenantId, spaceId, minute, weezeventEventId: event.id,
                   weezeventLocationId: locationId, weezeventMerchantId: locationId,
                   spaceElementId,
                 },
               },
               create: {
-                tenantId, spaceId, day: eventDate, weezeventEventId: event.id,
+                tenantId, spaceId, minute, weezeventEventId: event.id,
                 weezeventLocationId: locationId, weezeventMerchantId: locationId,
                 spaceElementId, revenueHt: data.revenue,
                 transactionsCount: data.count, itemsCount: data.items,
@@ -368,8 +383,8 @@ export class AggregationService {
           results.push({
             eventId: event.id, eventName: event.name, date: event.eventDate,
             transactions: transactions.length,
-            revenue: Array.from(locationRevenue.values()).reduce((s, v) => s + v.revenue, 0),
-            unmappedLocations: unmappedLocationIds, status: 'success',
+            revenue: Array.from(minuteRevenue.values()).reduce((s, v) => s + v.revenue, 0),
+            unmappedLocations: Array.from(unmappedLocationIds), status: 'success',
           });
         } catch (err) {
           results.push({ eventId: event.id, eventName: event.name, status: 'error', error: err.message });
@@ -451,7 +466,7 @@ export class AggregationService {
 
     // Phase 1: cleanup atomique (#9)
     await this.prisma.$transaction([
-      this.prisma.spaceRevenueDailyAgg.deleteMany({ where: { tenantId, spaceId } }),
+      this.prisma.spaceRevenueMinuteAgg.deleteMany({ where: { tenantId, spaceId } }),
       this.prisma.spaceProductRevenueDailyAgg.deleteMany({ where: { tenantId, spaceId } }),
     ]);
     await job.updateProgress(5);
@@ -460,7 +475,7 @@ export class AggregationService {
     const result = await this.executeProcessEvents(job);
 
     // Phase 3: résumé
-    const summary = await this.prisma.spaceRevenueDailyAgg.aggregate({
+    const summary = await this.prisma.spaceRevenueMinuteAgg.aggregate({
       where: { tenantId, spaceId },
       _sum: { revenueHt: true, transactionsCount: true, itemsCount: true },
       _count: true,
@@ -526,7 +541,7 @@ export class AggregationService {
 
     // Count aggregated data points written so far
     const aggregatedPoints = job.spaceId
-      ? await this.prisma.spaceRevenueDailyAgg.count({
+      ? await this.prisma.spaceRevenueMinuteAgg.count({
           where: {
             tenantId,
             spaceId: job.spaceId,
@@ -604,7 +619,7 @@ export class AggregationService {
 
   /**
    * Breakdown par shops et articles pour un événement donné.
-   * Shops : depuis SpaceRevenueDailyAgg (a weezeventEventId).
+   * Shops : depuis SpaceRevenueMinuteAgg (a weezeventEventId) — agrégé sur toutes les minutes.
    * Articles : depuis SpaceProductRevenueDailyAgg filtré par date de l'événement
    *            (le modèle n'a pas de weezeventEventId — on filtre par day).
    */
@@ -623,7 +638,7 @@ export class AggregationService {
     nextDay.setDate(nextDay.getDate() + 1);
 
     const [shopAggs, productAggs] = await Promise.all([
-      this.prisma.spaceRevenueDailyAgg.groupBy({
+      this.prisma.spaceRevenueMinuteAgg.groupBy({
         by: ['weezeventLocationId', 'spaceElementId'],
         where: { tenantId, spaceId, weezeventEventId: eventId },
         _sum: { revenueHt: true, transactionsCount: true, itemsCount: true },
@@ -666,13 +681,13 @@ export class AggregationService {
       throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
     }
 
-    const agg = await this.prisma.spaceRevenueDailyAgg.aggregate({
+    const agg = await this.prisma.spaceRevenueMinuteAgg.aggregate({
       where: { tenantId, spaceId, weezeventEventId: eventId },
       _sum: { revenueHt: true, transactionsCount: true, itemsCount: true },
       _count: { _all: true },
     });
 
-    const shopCount = await this.prisma.spaceRevenueDailyAgg.findMany({
+    const shopCount = await this.prisma.spaceRevenueMinuteAgg.findMany({
       where: { tenantId, spaceId, weezeventEventId: eventId, weezeventLocationId: { not: null } },
       select: { weezeventLocationId: true },
       distinct: ['weezeventLocationId'],
@@ -687,6 +702,39 @@ export class AggregationService {
       itemsCount: agg._sum.itemsCount ?? 0,
       shopCount: shopCount.length,
       aggregationRecords: agg._count._all,
+    };
+  }
+
+  /**
+   * CA par minute pour un événement — alimente l'onglet "CA / minute" dans le détail event.
+   * Retourne chaque minute avec au moins 1 transaction, ordonnée chronologiquement.
+   */
+  async getEventMinuteChart(tenantId: string, spaceId: string, eventId: string) {
+    const event = await this.prisma.event.findFirst({
+      where: { id: eventId, tenantId, spaceId },
+      select: { id: true, name: true, eventDate: true },
+    });
+    if (!event) {
+      throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
+    }
+
+    const rows = await this.prisma.spaceRevenueMinuteAgg.groupBy({
+      by: ['minute'],
+      where: { tenantId, spaceId, weezeventEventId: eventId },
+      _sum: { revenueHt: true, transactionsCount: true, itemsCount: true },
+      orderBy: { minute: 'asc' },
+    });
+
+    return {
+      eventId,
+      eventName: event.name,
+      eventDate: event.eventDate,
+      data: rows.map((r) => ({
+        minute: r.minute,
+        revenueHt: Number(r._sum.revenueHt ?? 0),
+        transactionsCount: r._sum.transactionsCount ?? 0,
+        itemsCount: r._sum.itemsCount ?? 0,
+      })),
     };
   }
 }

@@ -589,18 +589,19 @@ export class MappingsService {
       });
       step3 = productMappings > 0;
 
-      // Step 4: Aggregation jobs completed?
-      const completedJobs = await this.prisma.aggregationJobLog.count({
-        where: {
-          tenantId,
-          spaceId: locationMapping.spaceId,
-          status: 'completed',
-        },
-      });
-      step4 = completedJobs > 0;
+      // Step 4: All past events have been aggregated?
+      const [completedJobs, pastEventCount] = await Promise.all([
+        this.prisma.aggregationJobLog.count({
+          where: { tenantId, spaceId: locationMapping.spaceId, status: 'completed' },
+        }),
+        this.prisma.event.count({
+          where: { tenantId, spaceId: locationMapping.spaceId, eventDate: { lte: new Date() } },
+        }),
+      ]);
+      step4 = pastEventCount > 0 && completedJobs >= pastEventCount;
 
       // Step 5: Space revenue aggregations exist?
-      const aggregations = await this.prisma.spaceRevenueDailyAgg.count({
+      const aggregations = await this.prisma.spaceRevenueMinuteAgg.count({
         where: {
           tenantId,
           spaceId: locationMapping.spaceId,
@@ -670,8 +671,9 @@ export class MappingsService {
       locationMappings,     // step1 : integrationId → spaceId
       shopMappings,         // step2 : WeezeventLocation.id (cuid) → SpaceElement
       productMappingsCount, // step3
-      aggJobs,              // step4
+      aggJobs,              // step4 — completed jobs per spaceId
       revenueAggs,          // step5
+      pastEvents,           // step4 — past events per spaceId
     ] = await Promise.all([
       // step1 : WeezeventLocationSpaceMapping.weezeventLocationId = integrationId (convention step1)
       this.prisma.weezeventLocationSpaceMapping.findMany({
@@ -691,7 +693,12 @@ export class MappingsService {
         where: { tenantId, status: 'completed' },
         _count: true,
       }),
-      this.prisma.spaceRevenueDailyAgg.groupBy({
+      this.prisma.event.groupBy({
+        by: ['spaceId'],
+        where: { tenantId, eventDate: { lte: new Date() } },
+        _count: true,
+      }),
+      this.prisma.spaceRevenueMinuteAgg.groupBy({
         by: ['spaceId'],
         where: { tenantId },
         _count: true,
@@ -701,7 +708,8 @@ export class MappingsService {
     // Index en Maps pour lookups O(1)
     const integSpaceMap = new Map(locationMappings.map((m) => [m.weezeventLocationId, m.spaceId]));
     const mappedLocationCuidSet = new Set(shopMappings.map((m) => m.weezeventLocationId));
-    const aggJobsBySpace = new Set(aggJobs.map((j) => j.spaceId).filter(Boolean));
+    const aggJobCountBySpace = new Map(aggJobs.filter((j) => j.spaceId).map((j) => [j.spaceId as string, j._count]));
+    const pastEventCountBySpace = new Map(pastEvents.filter((e) => e.spaceId).map((e) => [e.spaceId as string, e._count]));
     const revenueBySpace = new Set(revenueAggs.map((r) => r.spaceId).filter(Boolean));
 
     // 3. Calcul par intégration
@@ -717,7 +725,9 @@ export class MappingsService {
       // step3 : global au tenant (pas par intégration)
       const step3 = productMappingsCount > 0;
 
-      const step4 = !!spaceId && aggJobsBySpace.has(spaceId);
+      const pastEvtCount = (spaceId && pastEventCountBySpace.get(spaceId)) || 0;
+      const completedJobCount = (spaceId && aggJobCountBySpace.get(spaceId)) || 0;
+      const step4 = pastEvtCount > 0 && completedJobCount >= pastEvtCount;
       const step5 = !!spaceId && revenueBySpace.has(spaceId);
 
       const completedSteps = [step1, step2, step3, step4, step5].filter(Boolean).length;

@@ -202,4 +202,20 @@ export class AggregationController {
   ) {
     return this.aggregationService.getEventStats(user.tenantId, spaceId, eventId);
   }
+
+  @Get('step4-context/:spaceId')
+  @ApiOperation({
+    summary: 'Contexte complet pour le step 4 du wizard',
+    description: 'Répond en un seul appel : timeline des événements, événements Weezevent synchro’s et indicateur de mappings. Réduit les 7 appels séparés du mounted() en 1.',
+  })
+  @ApiParam({ name: 'spaceId', description: 'ID du space DataFriday' })
+  @ApiQuery({ name: 'integrationId', required: false, description: 'ID de l\'intégration Weezevent' })
+  @ApiResponse({ status: 200, description: 'Timeline + weezeventEvents + hasMappings' })
+  getStep4Context(
+    @Param('spaceId') spaceId: string,
+    @Query('integrationId') integrationId: string | undefined,
+    @CurrentUser() user: any,
+  ) {
+    return this.aggregationService.getStep4Context(user.tenantId, spaceId, integrationId);
+  }
 }

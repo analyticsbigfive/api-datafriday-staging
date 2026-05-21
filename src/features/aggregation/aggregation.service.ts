@@ -109,10 +109,65 @@ export class AggregationService {
       unregisteredDates = transactionDates;
     }
 
+    // #5 — transactionStats : total / matched / unmatched / unmappedLocationIds
+    let transactionStats: {
+      total: number;
+      matched: number;
+      unmatched: number;
+      unmappedLocationIds: string[];
+    } | null = null;
+
+    if (integrationId && integrationLocationIds.length > 0) {
+      const locationIdsFilter = Prisma.sql`AND t."locationId" = ANY(ARRAY[${Prisma.join(integrationLocationIds)}]::text[])`;
+      const integrationFilter = Prisma.sql`AND t."integrationId" = ${integrationId}`;
+      const eventDatesSet = new Set(
+        events.map((e) => new Date(e.eventDate).toISOString().slice(0, 10)),
+      );
+
+      const [totalRow, unmappedRows] = await Promise.all([
+        this.prisma.$queryRaw<Array<{ total: bigint; matched: bigint }>>`
+          SELECT
+            COUNT(*)::bigint as total,
+            COUNT(*) FILTER (
+              WHERE DATE(t."transactionDate") = ANY(ARRAY[${Prisma.join(events.map((e) => new Date(e.eventDate).toISOString().slice(0, 10)))}]::date[])
+            )::bigint as matched
+          FROM "WeezeventTransaction" t
+          WHERE t."tenantId" = ${tenantId}
+            ${integrationFilter}
+            ${locationIdsFilter}
+        `,
+        // Locations avec transactions mais sans shop mapping
+        this.prisma.$queryRaw<Array<{ locationId: string }>>`
+          SELECT DISTINCT t."locationId"
+          FROM "WeezeventTransaction" t
+          WHERE t."tenantId" = ${tenantId}
+            ${integrationFilter}
+            ${locationIdsFilter}
+            AND t."locationId" IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM "WeezeventLocationShopMapping" m
+              WHERE m."tenantId" = ${tenantId}
+                AND m."weezeventLocationId" = t."locationId"
+            )
+        `,
+      ]);
+
+      const total = Number(totalRow[0]?.total ?? 0);
+      const matched = Number(totalRow[0]?.matched ?? 0);
+      transactionStats = {
+        total,
+        matched,
+        unmatched: total - matched,
+        unmappedLocationIds: unmappedRows.map((r) => r.locationId),
+      };
+      void eventDatesSet; // utilisé implicitement via Prisma.join ci-dessus
+    }
+
     return {
       events: eventsWithStatus,
       unregisteredDates,
       futureEventsCount,
+      transactionStats,
       summary: {
         total: events.length,
         processed: eventsWithStatus.filter((e) => e.aggregationStatus === 'completed').length,
@@ -237,7 +292,9 @@ export class AggregationService {
       for (const event of events) {
         try {
           const eventDate = new Date(event.eventDate);
-          const nextDay = new Date(eventDate);
+          // #8 — événements multi-jours : utiliser eventEndDate si disponible
+          const baseEndDate = event.eventEndDate ? new Date(event.eventEndDate) : new Date(eventDate);
+          const nextDay = new Date(baseEndDate);
           nextDay.setDate(nextDay.getDate() + 1);
 
           const transactions = await this.prisma.weezeventTransaction.findMany({
@@ -254,9 +311,11 @@ export class AggregationService {
           for (const tx of transactions) {
             if (!tx.locationId) continue;
             const current = locationRevenue.get(tx.locationId) || { revenue: 0, count: 0, items: 0 };
-            current.revenue += Number(tx.amount || 0);
+            // #7b — revenue unifié sur item prices (cohérence avec SpaceAggregationService)
+            current.revenue += tx.items?.reduce((s, i) => s + Number(i.unitPrice) * (i.quantity ?? 0) - Number(i.reduction ?? 0), 0) ?? Number(tx.amount || 0);
             current.count += 1;
-            current.items += tx.items?.length || 0;
+            // #6 — itemsCount = somme des quantités, pas le nombre de lignes
+            current.items += tx.items?.reduce((s, i) => s + (i.quantity ?? 0), 0) ?? 0;
             locationRevenue.set(tx.locationId, current);
           }
 
@@ -390,9 +449,11 @@ export class AggregationService {
     });
     await job.updateProgress(2);
 
-    // Phase 1: cleanup
-    await this.prisma.spaceRevenueDailyAgg.deleteMany({ where: { tenantId, spaceId } });
-    await this.prisma.spaceProductRevenueDailyAgg.deleteMany({ where: { tenantId, spaceId } });
+    // Phase 1: cleanup atomique (#9)
+    await this.prisma.$transaction([
+      this.prisma.spaceRevenueDailyAgg.deleteMany({ where: { tenantId, spaceId } }),
+      this.prisma.spaceProductRevenueDailyAgg.deleteMany({ where: { tenantId, spaceId } }),
+    ]);
     await job.updateProgress(5);
 
     // Phase 2: retraitement (executeProcessEvents gère le job log status + progression)
@@ -490,7 +551,7 @@ export class AggregationService {
   }
 
   /**
-   * Mark an event as skipped \u2014 no sales data available or deliberately excluded
+   * Mark an event as skipped — no sales data available or deliberately excluded
    */
   async skipEvent(tenantId: string, spaceId: string, eventId: string) {
     const event = await this.prisma.event.findFirst({
@@ -515,6 +576,30 @@ export class AggregationService {
 
     this.logger.log(`Event ${eventId} marked as skipped for space ${spaceId}`);
     return { eventId, status: 'skipped' };
+  }
+
+  /**
+   * #10 — Contexte complet du step 4 en un seul appel.
+   * Bundle : timeline + transactionStats + weezeventEvents + hasMappings.
+   * Remplace les 7 appels séparés du mounted() du wizard.
+   */
+  async getStep4Context(tenantId: string, spaceId: string, integrationId?: string) {
+    const [timeline, weezeventEvents, mappingCount] = await Promise.all([
+      this.getEventsTimelineStatus(tenantId, spaceId, integrationId),
+      integrationId
+        ? this.prisma.weezeventEvent.findMany({
+            where: { tenantId, integrationId },
+            orderBy: { startDate: 'asc' },
+          })
+        : Promise.resolve([]),
+      this.prisma.weezeventLocationShopMapping.count({ where: { tenantId } }),
+    ]);
+
+    return {
+      ...timeline,
+      weezeventEvents,
+      hasMappings: mappingCount > 0,
+    };
   }
 
   /**

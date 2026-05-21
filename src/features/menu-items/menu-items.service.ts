@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
@@ -215,36 +216,42 @@ export class MenuItemsService {
 
     this.logger.log(`Bulk creating ${dtos.length} menu items for tenant ${tenantId}`);
     try {
-      const items = await this.prisma.$transaction(
-        dtos.map((dto) =>
-          this.prisma.menuItem.create({
-            data: {
-              tenantId,
-              name: dto.name,
-              typeId: dto.typeId || null,
-              categoryId: dto.categoryId || null,
-              basePrice: dto.basePrice,
-              totalCost: dto.totalCost,
-              margin: dto.margin,
-              description: dto.description,
-              picture: dto.picture,
-              allergens: dto.allergens || [],
-              diet: mapDiet(dto.diet || []) as any[],
-              storageType: (dto.storageType || []) as any[],
-              readyForSale: dto.readyForSale,
-              comboItem: dto.comboItem,
-              numberOfPiecesRecipe: dto.numberOfPiecesRecipe,
-              componentsData: dto.componentsData,
-            } as any,
-            include: this.includeRelations,
-          })
-        )
-      );
+      const items = dtos.map((dto) => ({
+        id: randomUUID(),
+        tenantId,
+        name: dto.name,
+        typeId: dto.typeId || null,
+        categoryId: dto.categoryId || null,
+        basePrice: dto.basePrice,
+        totalCost: dto.totalCost,
+        margin: dto.margin,
+        description: dto.description,
+        picture: dto.picture,
+        allergens: dto.allergens || [],
+        diet: mapDiet(dto.diet || []) as any[],
+        storageType: (dto.storageType || []) as any[],
+        readyForSale: dto.readyForSale,
+        comboItem: dto.comboItem,
+        numberOfPiecesRecipe: dto.numberOfPiecesRecipe,
+        componentsData: dto.componentsData,
+      }));
+
+      await this.prisma.menuItem.createMany({
+        data: items as any[],
+      });
 
       await this.invalidateCache(tenantId);
       return {
         count: items.length,
-        items: items.map((item) => this.serializeItem(item)),
+        items: items.map((item) => ({
+          id: item.id,
+          name: item.name,
+          typeId: item.typeId,
+          categoryId: item.categoryId,
+          basePrice: item.basePrice,
+          tenantId: item.tenantId,
+          spaceIds: [],
+        })),
       };
     } catch (error) {
       this.logger.error(`Failed to bulk create menu items: ${error.message}`, error.stack);

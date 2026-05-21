@@ -1,12 +1,17 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { Job } from 'bullmq';
 import { PrismaService } from '../../core/database/prisma.service';
+import { QueueService, AggregationJobEnqueueData } from '../../core/queue/queue.service';
 
 @Injectable()
 export class AggregationService {
   private readonly logger = new Logger(AggregationService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private queueService: QueueService,
+  ) {}
 
   /**
    * Get events with their processing status for a space
@@ -32,32 +37,43 @@ export class AggregationService {
       where: { tenantId, spaceId, eventDate: { gt: new Date() } },
     });
 
-    // Get aggregation job logs for each event
-    const eventsWithStatus = await Promise.all(
-      events.map(async (event) => {
-        const job = await this.prisma.aggregationJobLog.findFirst({
-          where: {
-            tenantId,
-            spaceId,
-            // metadata.eventIds is an array — use array_contains
-            metadata: { path: ['eventIds'], array_contains: event.id },
-          },
-          orderBy: { startedAt: 'desc' },
-        });
+    // Pré-charge tous les jobs du space en batch (évite N findFirst)
+    const allJobs = await this.prisma.aggregationJobLog.findMany({
+      where: { tenantId, spaceId },
+      orderBy: { startedAt: 'desc' },
+    });
 
-        const dataPoints = await this.prisma.spaceRevenueDailyAgg.count({
-          where: { tenantId, spaceId, weezeventEventId: event.id },
-        });
-
-        return {
-          ...event,
-          aggregationStatus: job?.status || 'pending',
-          lastProcessedAt: job?.completedAt || null,
-          transactionsProcessed: job?.transactionsProcessed || 0,
-          dataPoints,
-        };
-      }),
+    // Pré-charge les compteurs de datapoints par event en batch (évite N count)
+    const dataPointGroups = await this.prisma.spaceRevenueDailyAgg.groupBy({
+      by: ['weezeventEventId'],
+      where: { tenantId, spaceId },
+      _count: { _all: true },
+    });
+    const dataPointsByEvent = new Map(
+      dataPointGroups.map((g) => [g.weezeventEventId, g._count._all]),
     );
+
+    // Index : event.id → dernier job (allJobs déjà triés desc par startedAt)
+    const latestJobByEvent = new Map<string, (typeof allJobs)[0]>();
+    for (const job of allJobs) {
+      const eventIds: string[] = (job.metadata as any)?.eventIds || [];
+      for (const eid of eventIds) {
+        if (!latestJobByEvent.has(eid)) {
+          latestJobByEvent.set(eid, job);
+        }
+      }
+    }
+
+    const eventsWithStatus = events.map((event) => {
+      const job = latestJobByEvent.get(event.id);
+      return {
+        ...event,
+        aggregationStatus: job?.status || 'pending',
+        lastProcessedAt: job?.completedAt || null,
+        transactionsProcessed: job?.transactionsProcessed || 0,
+        dataPoints: dataPointsByEvent.get(event.id) ?? 0,
+      };
+    });
 
     // Get unregistered dates — transactions that exist but have no matching Event configured.
     // Step 1 saves integrationId as weezeventLocationId, so we look it up directly.
@@ -108,15 +124,15 @@ export class AggregationService {
   }
 
   /**
-   * Process events: aggregate transaction data per event
+   * Process events: aggregate transaction data per event.
+   * Version BullMQ — crée le job log (pending) et enqueue. Retourne immédiatement.
+   * Le traitement réel est effectué par AggregationProcessor → executeProcessEvents().
    */
   async processEvents(tenantId: string, spaceId: string, eventIds?: string[], integrationId?: string) {
-    this.logger.log(`Processing events for space ${spaceId}`);
+    this.logger.log(`Queueing process-events for space ${spaceId}`);
 
     const where: any = { tenantId, spaceId };
-    if (eventIds?.length) {
-      where.id = { in: eventIds };
-    }
+    if (eventIds?.length) where.id = { in: eventIds };
 
     const events = await this.prisma.event.findMany({
       where,
@@ -127,17 +143,53 @@ export class AggregationService {
       return { processed: 0, total: 0, results: [] };
     }
 
-    // Create a job log
-    const job = await this.prisma.aggregationJobLog.create({
+    const allEventIds = eventIds || events.map((e) => e.id);
+
+    // Pré-création du job log — ID stable pour getJobProgress pendant l'exécution async
+    const jobLog = await this.prisma.aggregationJobLog.create({
       data: {
         tenantId,
         spaceId,
         jobType: eventIds?.length ? 'incremental' : 'full',
-        status: 'running',
+        status: 'pending',
         fromDate: events[0].eventDate,
         toDate: events[events.length - 1].eventDate,
-        metadata: { eventIds: eventIds || events.map((e) => e.id) },
+        metadata: { eventIds: allEventIds },
       },
+    });
+
+    await this.queueService.queueAggregationJob({
+      type: 'process-events',
+      tenantId,
+      spaceId,
+      jobLogId: jobLog.id,
+      eventIds: allEventIds,
+      integrationId,
+    });
+
+    return { jobId: jobLog.id, status: 'queued', total: events.length };
+  }
+
+  /**
+   * Logique d'exécution réelle — appelée par AggregationProcessor.
+   * Met à jour AggregationJobLog en DB + progression BullMQ au fil du traitement.
+   */
+  async executeProcessEvents(job: Job<AggregationJobEnqueueData>) {
+    const { tenantId, spaceId, eventIds, integrationId, jobLogId } = job.data;
+    this.logger.log(`Executing process-events for space ${spaceId} (LogId: ${jobLogId})`);
+
+    await this.prisma.aggregationJobLog.update({
+      where: { id: jobLogId },
+      data: { status: 'running' },
+    });
+    await job.updateProgress(0);
+
+    const where: any = { tenantId, spaceId };
+    if (eventIds?.length) where.id = { in: eventIds };
+
+    const events = await this.prisma.event.findMany({
+      where,
+      orderBy: { eventDate: 'asc' },
     });
 
     const results: any[] = [];
@@ -159,7 +211,6 @@ export class AggregationService {
       }
 
       // Get the real WeezeventLocation DB ids for this integration.
-      // Step 2 of the wizard saves these as weezeventMerchantId in WeezeventMerchantElementMapping.
       const integrationLocations = integrationId
         ? await this.prisma.weezeventLocation.findMany({
             where: { tenantId, integrationId },
@@ -172,33 +223,36 @@ export class AggregationService {
         throw new Error(`No Weezevent locations found for integration ${integrationId}. Sync locations first.`);
       }
 
+      // Pré-charge les shop mappings (WeezeventLocation.id → spaceElementId) une seule fois
+      const shopMappingsList = locationIds.length > 0
+        ? await this.prisma.weezeventLocationShopMapping.findMany({
+            where: { tenantId, weezeventLocationId: { in: locationIds } },
+            select: { weezeventLocationId: true, spaceElementId: true },
+          })
+        : [];
+      const shopMappingByLocation = new Map(
+        shopMappingsList.map((m) => [m.weezeventLocationId, m.spaceElementId]),
+      );
+
       for (const event of events) {
         try {
           const eventDate = new Date(event.eventDate);
           const nextDay = new Date(eventDate);
           nextDay.setDate(nextDay.getDate() + 1);
 
-          // Get transactions scoped to this integration's locations.
-          // Group by locationId (point de vente), NOT by merchantId:
-          //   - Step 2 maps WeezeventLocation → SpaceElement (weezeventMerchantId = location.id)
-          //   - We therefore need to group revenue by the location, not by the merchant/standiste.
           const transactions = await this.prisma.weezeventTransaction.findMany({
             where: {
               tenantId,
               ...(integrationId ? { integrationId } : {}),
               ...(locationIds.length ? { locationId: { in: locationIds } } : {}),
-              transactionDate: {
-                gte: eventDate,
-                lt: nextDay,
-              },
+              transactionDate: { gte: eventDate, lt: nextDay },
             },
             include: { items: true },
           });
 
-          // Aggregate revenue by locationId (point de vente physique)
           const locationRevenue = new Map<string, { revenue: number; count: number; items: number }>();
           for (const tx of transactions) {
-            if (!tx.locationId) continue; // skip transactions with no location
+            if (!tx.locationId) continue;
             const current = locationRevenue.get(tx.locationId) || { revenue: 0, count: 0, items: 0 };
             current.revenue += Number(tx.amount || 0);
             current.count += 1;
@@ -208,62 +262,36 @@ export class AggregationService {
 
           const unmappedLocationIds: string[] = [];
 
-          // Upsert daily aggregation records, one row per mapped location
           for (const [locationId, data] of locationRevenue) {
-            // Step 2 wizard saves: WeezeventMerchantElementMapping.weezeventMerchantId = WeezeventLocation.id
-            // So we look up the SpaceElement by the location id.
-            const elementMapping = await this.prisma.weezeventLocationShopMapping.findFirst({
-              where: { tenantId, weezeventLocationId: locationId },
-            });
-
-            if (!elementMapping) {
-              // No mapping configured in step 2 — skip silently would hide data.
-              // Record it so the caller can surface it to the user.
+            const spaceElementId = shopMappingByLocation.get(locationId);
+            if (!spaceElementId) {
               unmappedLocationIds.push(locationId);
               continue;
             }
-
             await this.prisma.spaceRevenueDailyAgg.upsert({
               where: {
                 tenantId_spaceId_day_weezeventEventId_weezeventLocationId_weezeventMerchantId_spaceElementId: {
-                  tenantId,
-                  spaceId,
-                  day: eventDate,
-                  weezeventEventId: event.id,
-                  weezeventLocationId: locationId,
-                  weezeventMerchantId: locationId, // same id: location acts as the shop grouping dimension
-                  spaceElementId: elementMapping.spaceElementId,
+                  tenantId, spaceId, day: eventDate, weezeventEventId: event.id,
+                  weezeventLocationId: locationId, weezeventMerchantId: locationId,
+                  spaceElementId,
                 },
               },
               create: {
-                tenantId,
-                spaceId,
-                day: eventDate,
-                weezeventEventId: event.id,
-                weezeventLocationId: locationId,
-                weezeventMerchantId: locationId,
-                spaceElementId: elementMapping.spaceElementId,
-                revenueHt: data.revenue,
-                transactionsCount: data.count,
-                itemsCount: data.items,
+                tenantId, spaceId, day: eventDate, weezeventEventId: event.id,
+                weezeventLocationId: locationId, weezeventMerchantId: locationId,
+                spaceElementId, revenueHt: data.revenue,
+                transactionsCount: data.count, itemsCount: data.items,
               },
-              update: {
-                revenueHt: data.revenue,
-                transactionsCount: data.count,
-                itemsCount: data.items,
-              },
+              update: { revenueHt: data.revenue, transactionsCount: data.count, itemsCount: data.items },
             });
           }
 
-          // Aggregate product revenue into SpaceProductRevenueDailyAgg
-          // Revenue per item = unitPrice * quantity - reduction
           const productRevenue = new Map<string, { revenue: number; quantity: number }>();
           for (const tx of transactions) {
             for (const item of tx.items || []) {
               if (!item.productId) continue;
               const current = productRevenue.get(item.productId) || { revenue: 0, quantity: 0 };
-              const itemRevenue = Number(item.unitPrice) * item.quantity - Number(item.reduction || 0);
-              current.revenue += itemRevenue;
+              current.revenue += Number(item.unitPrice) * item.quantity - Number(item.reduction || 0);
               current.quantity += item.quantity;
               productRevenue.set(item.productId, current);
             }
@@ -271,93 +299,106 @@ export class AggregationService {
 
           for (const [productId, data] of productRevenue) {
             await this.prisma.spaceProductRevenueDailyAgg.upsert({
-              where: {
-                tenantId_spaceId_day_weezeventProductId: {
-                  tenantId,
-                  spaceId,
-                  day: eventDate,
-                  weezeventProductId: productId,
-                },
-              },
-              create: {
-                tenantId,
-                spaceId,
-                day: eventDate,
-                weezeventProductId: productId,
-                revenueHt: data.revenue,
-                quantity: data.quantity,
-              },
-              update: {
-                revenueHt: data.revenue,
-                quantity: data.quantity,
-              },
+              where: { tenantId_spaceId_day_weezeventProductId: { tenantId, spaceId, day: eventDate, weezeventProductId: productId } },
+              create: { tenantId, spaceId, day: eventDate, weezeventProductId: productId, revenueHt: data.revenue, quantity: data.quantity },
+              update: { revenueHt: data.revenue, quantity: data.quantity },
             });
           }
 
           processedCount++;
           results.push({
-            eventId: event.id,
-            eventName: event.name,
-            date: event.eventDate,
+            eventId: event.id, eventName: event.name, date: event.eventDate,
             transactions: transactions.length,
             revenue: Array.from(locationRevenue.values()).reduce((s, v) => s + v.revenue, 0),
-            unmappedLocations: unmappedLocationIds,
-            status: 'success',
+            unmappedLocations: unmappedLocationIds, status: 'success',
           });
         } catch (err) {
-          results.push({
-            eventId: event.id,
-            eventName: event.name,
-            status: 'error',
-            error: err.message,
-          });
+          results.push({ eventId: event.id, eventName: event.name, status: 'error', error: err.message });
         }
+
+        // Mise à jour progression DB + BullMQ après chaque event traité
+        await this.prisma.aggregationJobLog.update({
+          where: { id: jobLogId },
+          data: { transactionsProcessed: processedCount },
+        });
+        await job.updateProgress(Math.min(Math.round((processedCount / events.length) * 100), 99));
       }
 
-      // Update job log
       await this.prisma.aggregationJobLog.update({
-        where: { id: job.id },
-        data: {
-          status: 'completed',
-          completedAt: new Date(),
-          transactionsProcessed: processedCount,
-        },
+        where: { id: jobLogId },
+        data: { status: 'completed', completedAt: new Date(), transactionsProcessed: processedCount },
       });
+      await job.updateProgress(100);
     } catch (err) {
       await this.prisma.aggregationJobLog.update({
-        where: { id: job.id },
-        data: {
-          status: 'failed',
-          error: err.message,
-          completedAt: new Date(),
-        },
+        where: { id: jobLogId },
+        data: { status: 'failed', error: err.message, completedAt: new Date() },
       });
       throw err;
     }
 
-    return {
-      jobId: job.id,
-      processed: processedCount,
-      total: events.length,
-      results,
-    };
+    return { jobId: jobLogId, processed: processedCount, total: events.length, results };
   }
 
   /**
-   * Synchronize: cleanup + rebuild all aggregation data for a space
+   * Synchronize: cleanup + rebuild all aggregation data for a space.
+   * Version BullMQ — enqueue un job full rebuild. Retourne immédiatement.
    */
   async synchronize(tenantId: string, spaceId: string, integrationId?: string) {
-    this.logger.log(`Synchronizing aggregated data for space ${spaceId}`);
+    this.logger.log(`Queueing synchronize for space ${spaceId}`);
 
-    // Phase 1: Cleanup old data
-    await this.prisma.spaceRevenueDailyAgg.deleteMany({
+    const events = await this.prisma.event.findMany({
       where: { tenantId, spaceId },
+      orderBy: { eventDate: 'asc' },
+      select: { id: true, eventDate: true },
     });
 
-    // Phase 2: Process all events
-    const result = await this.processEvents(tenantId, spaceId, undefined, integrationId);
+    const jobLog = await this.prisma.aggregationJobLog.create({
+      data: {
+        tenantId,
+        spaceId,
+        jobType: 'full',
+        status: 'pending',
+        fromDate: events[0]?.eventDate ?? new Date(),
+        toDate: events[events.length - 1]?.eventDate ?? new Date(),
+        metadata: { eventIds: events.map((e) => e.id) },
+      },
+    });
 
-    // Phase 3: Compute space summary metrics
+    await this.queueService.queueAggregationJob({
+      type: 'synchronize',
+      tenantId,
+      spaceId,
+      jobLogId: jobLog.id,
+      integrationId,
+    });
+
+    return { jobId: jobLog.id, status: 'queued' };
+  }
+
+  /**
+   * Logique de synchronisation réelle — appelée par AggregationProcessor.
+   * Nettoie toutes les agrégats du space puis délègue à executeProcessEvents.
+   */
+  async executeSynchronize(job: Job<AggregationJobEnqueueData>) {
+    const { tenantId, spaceId, jobLogId } = job.data;
+    this.logger.log(`Executing synchronize for space ${spaceId} (LogId: ${jobLogId})`);
+
+    await this.prisma.aggregationJobLog.update({
+      where: { id: jobLogId },
+      data: { status: 'running' },
+    });
+    await job.updateProgress(2);
+
+    // Phase 1: cleanup
+    await this.prisma.spaceRevenueDailyAgg.deleteMany({ where: { tenantId, spaceId } });
+    await this.prisma.spaceProductRevenueDailyAgg.deleteMany({ where: { tenantId, spaceId } });
+    await job.updateProgress(5);
+
+    // Phase 2: retraitement (executeProcessEvents gère le job log status + progression)
+    const result = await this.executeProcessEvents(job);
+
+    // Phase 3: résumé
     const summary = await this.prisma.spaceRevenueDailyAgg.aggregate({
       where: { tenantId, spaceId },
       _sum: { revenueHt: true, transactionsCount: true, itemsCount: true },
@@ -373,6 +414,17 @@ export class AggregationService {
         aggregationRecords: summary._count,
       },
     };
+  }
+
+  /**
+   * Marque un job log comme failed — utilisé par AggregationProcessor.onFailed.
+   * updateMany (pas update) pour ne pas lever d'erreur si le job est déjà completed.
+   */
+  async markJobLogFailed(jobLogId: string, errorMessage: string) {
+    await this.prisma.aggregationJobLog.updateMany({
+      where: { id: jobLogId, status: { not: 'completed' } },
+      data: { status: 'failed', error: errorMessage, completedAt: new Date() },
+    });
   }
 
   /**
@@ -463,5 +515,93 @@ export class AggregationService {
 
     this.logger.log(`Event ${eventId} marked as skipped for space ${spaceId}`);
     return { eventId, status: 'skipped' };
+  }
+
+  /**
+   * Breakdown par shops et articles pour un événement donné.
+   * Shops : depuis SpaceRevenueDailyAgg (a weezeventEventId).
+   * Articles : depuis SpaceProductRevenueDailyAgg filtré par date de l'événement
+   *            (le modèle n'a pas de weezeventEventId — on filtre par day).
+   */
+  async getEventBreakdown(tenantId: string, spaceId: string, eventId: string) {
+    const event = await this.prisma.event.findFirst({
+      where: { id: eventId, tenantId, spaceId },
+      select: { id: true, name: true, eventDate: true },
+    });
+    if (!event) {
+      throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
+    }
+
+    const eventDay = new Date(event.eventDate);
+    eventDay.setUTCHours(0, 0, 0, 0);
+    const nextDay = new Date(eventDay);
+    nextDay.setDate(nextDay.getDate() + 1);
+
+    const [shopAggs, productAggs] = await Promise.all([
+      this.prisma.spaceRevenueDailyAgg.groupBy({
+        by: ['weezeventLocationId', 'spaceElementId'],
+        where: { tenantId, spaceId, weezeventEventId: eventId },
+        _sum: { revenueHt: true, transactionsCount: true, itemsCount: true },
+      }),
+      this.prisma.spaceProductRevenueDailyAgg.groupBy({
+        by: ['weezeventProductId'],
+        where: { tenantId, spaceId, day: { gte: eventDay, lt: nextDay } },
+        _sum: { revenueHt: true, quantity: true },
+      }),
+    ]);
+
+    return {
+      eventId,
+      eventName: event.name,
+      eventDate: event.eventDate,
+      shops: shopAggs.map((s) => ({
+        weezeventLocationId: s.weezeventLocationId,
+        spaceElementId: s.spaceElementId,
+        revenueHt: Number(s._sum.revenueHt ?? 0),
+        transactionsCount: s._sum.transactionsCount ?? 0,
+        itemsCount: s._sum.itemsCount ?? 0,
+      })),
+      products: productAggs.map((p) => ({
+        weezeventProductId: p.weezeventProductId,
+        revenueHt: Number(p._sum.revenueHt ?? 0),
+        quantity: p._sum.quantity ?? 0,
+      })),
+    };
+  }
+
+  /**
+   * Statistiques agrégées (totaux) pour un événement donné.
+   */
+  async getEventStats(tenantId: string, spaceId: string, eventId: string) {
+    const event = await this.prisma.event.findFirst({
+      where: { id: eventId, tenantId, spaceId },
+      select: { id: true, name: true, eventDate: true },
+    });
+    if (!event) {
+      throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
+    }
+
+    const agg = await this.prisma.spaceRevenueDailyAgg.aggregate({
+      where: { tenantId, spaceId, weezeventEventId: eventId },
+      _sum: { revenueHt: true, transactionsCount: true, itemsCount: true },
+      _count: { _all: true },
+    });
+
+    const shopCount = await this.prisma.spaceRevenueDailyAgg.findMany({
+      where: { tenantId, spaceId, weezeventEventId: eventId, weezeventLocationId: { not: null } },
+      select: { weezeventLocationId: true },
+      distinct: ['weezeventLocationId'],
+    });
+
+    return {
+      eventId,
+      eventName: event.name,
+      eventDate: event.eventDate,
+      revenueHt: Number(agg._sum.revenueHt ?? 0),
+      transactionsCount: agg._sum.transactionsCount ?? 0,
+      itemsCount: agg._sum.itemsCount ?? 0,
+      shopCount: shopCount.length,
+      aggregationRecords: agg._count._all,
+    };
   }
 }

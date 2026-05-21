@@ -43,6 +43,7 @@ export { QUEUES } from './queue.constants';
       { name: QUEUES.ANALYTICS },
       { name: QUEUES.NOTIFICATIONS },
       { name: QUEUES.EXPORTS },
+      { name: QUEUES.AGGREGATION },
     ),
     forwardRef(() => WeezeventModule),
     RedisModule.forRoot(),

@@ -168,4 +168,38 @@ export class AggregationController {
   ) {
     return this.aggregationService.getJobProgress(user.tenantId, jobId);
   }
+
+  @Get('event-breakdown/:spaceId/:eventId')
+  @ApiOperation({
+    summary: 'Détail par shops et articles pour un événement',
+    description: 'Retourne la décomposition du CA par point de vente (shops) et par article (products) pour un événement précis.',
+  })
+  @ApiParam({ name: 'spaceId', description: 'ID du space DataFriday' })
+  @ApiParam({ name: 'eventId', description: 'ID de l\'événement DataFriday' })
+  @ApiResponse({ status: 200, description: 'Breakdown shops + articles' })
+  @ApiResponse({ status: 404, description: 'Événement non trouvé' })
+  getEventBreakdown(
+    @Param('spaceId') spaceId: string,
+    @Param('eventId') eventId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.aggregationService.getEventBreakdown(user.tenantId, spaceId, eventId);
+  }
+
+  @Get('event-stats/:spaceId/:eventId')
+  @ApiOperation({
+    summary: 'Statistiques agrégées d\'un événement',
+    description: 'Retourne les totaux (CA HT, nb transactions, nb articles, nb shops) pour un événement.',
+  })
+  @ApiParam({ name: 'spaceId', description: 'ID du space DataFriday' })
+  @ApiParam({ name: 'eventId', description: 'ID de l\'événement DataFriday' })
+  @ApiResponse({ status: 200, description: 'Statistiques de l\'événement' })
+  @ApiResponse({ status: 404, description: 'Événement non trouvé' })
+  getEventStats(
+    @Param('spaceId') spaceId: string,
+    @Param('eventId') eventId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.aggregationService.getEventStats(user.tenantId, spaceId, eventId);
+  }
 }

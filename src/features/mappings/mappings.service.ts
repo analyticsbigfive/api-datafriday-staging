@@ -625,52 +625,66 @@ export class MappingsService {
   }
 
   /**
-   * Retourne la progression d'intégration pour toutes les locations Weezevent du tenant.
+   * Retourne la progression d'intégration pour toutes les intégrations Weezevent du tenant.
    * Optimisé : précharge les compteurs en parallèle pour éviter N×5 queries.
    * Utilisé par l'écran "LocationListItem" du wizard.
+   *
+   * Clé de conception :
+   *  - L'entité primaire du wizard est WeezeventIntegration (= un compte Weezevent / "location" dans l'UI).
+   *  - WeezeventLocationSpaceMapping.weezeventLocationId stocke l'integrationId (convention step1).
+   *  - WeezeventLocationShopMapping.weezeventLocationId stocke WeezeventLocation.id (cuid, convention step2).
+   *  - WeezeventTransaction.locationId est une FK vers WeezeventLocation.id (cuid).
    */
   async getAllIntegrationProgress(tenantId: string) {
-    this.logger.log(`Fetching integration progress for all locations of tenant ${tenantId}`);
+    this.logger.log(`Fetching integration progress for all integrations of tenant ${tenantId}`);
 
-    // 1. Toutes les locations Weezevent connues (via sync)
-    const locations = await this.prisma.weezeventLocation.findMany({
+    // 1. Toutes les intégrations Weezevent du tenant (= "locations" dans le wizard)
+    const integrations = await this.prisma.weezeventIntegration.findMany({
       where: { tenantId },
-      select: { id: true, weezeventId: true, name: true },
+      select: { id: true, name: true },
     });
 
-    if (locations.length === 0) {
+    if (integrations.length === 0) {
       return { data: [], meta: { total: 0 } };
     }
 
-    const weezeventLocationIds = locations.map((l) => l.weezeventId);
+    const integrationIds = integrations.map((i) => i.id);
+
+    // Résoudre les WeezeventLocation.id (cuids) par integrationId
+    // Nécessaire pour step2 : WeezeventLocationShopMapping.weezeventLocationId = WeezeventLocation.id
+    const locationsByIntegration = await this.prisma.weezeventLocation.findMany({
+      where: { tenantId, integrationId: { in: integrationIds } },
+      select: { id: true, integrationId: true },
+    });
+
+    const locationIdsByIntegration = new Map<string, string[]>();
+    for (const loc of locationsByIntegration) {
+      const list = locationIdsByIntegration.get(loc.integrationId) ?? [];
+      list.push(loc.id);
+      locationIdsByIntegration.set(loc.integrationId, list);
+    }
+    const allLocationCuids = locationsByIntegration.map((l) => l.id);
 
     // 2. Précharge en parallèle (évite N×5 queries série)
     const [
-      locationMappings,
-      merchantTxGroups,
-      merchantMappings,
-      productMappingsCount,
-      aggJobs,
-      revenueAggs,
+      locationMappings,     // step1 : integrationId → spaceId
+      shopMappings,         // step2 : WeezeventLocation.id (cuid) → SpaceElement
+      productMappingsCount, // step3
+      aggJobs,              // step4
+      revenueAggs,          // step5
     ] = await Promise.all([
+      // step1 : WeezeventLocationSpaceMapping.weezeventLocationId = integrationId (convention step1)
       this.prisma.weezeventLocationSpaceMapping.findMany({
-        where: { tenantId, weezeventLocationId: { in: weezeventLocationIds } },
+        where: { tenantId, weezeventLocationId: { in: integrationIds } },
         select: { weezeventLocationId: true, spaceId: true },
       }),
-      // Distinct merchants per location
-      this.prisma.weezeventTransaction.findMany({
-        where: {
-          tenantId,
-          locationId: { in: weezeventLocationIds },
-          merchantId: { not: null },
-        },
-        select: { locationId: true, merchantId: true },
-        distinct: ['locationId', 'merchantId'],
-      }),
-      this.prisma.weezeventLocationShopMapping.findMany({
-        where: { tenantId },
-        select: { weezeventLocationId: true },
-      }),
+      // step2 : WeezeventLocationShopMapping.weezeventLocationId = WeezeventLocation.id (cuid)
+      allLocationCuids.length > 0
+        ? this.prisma.weezeventLocationShopMapping.findMany({
+            where: { tenantId, weezeventLocationId: { in: allLocationCuids } },
+            select: { weezeventLocationId: true },
+          })
+        : Promise.resolve([]),
       this.prisma.weezeventProductMapping.count({ where: { tenantId } }),
       this.prisma.aggregationJobLog.groupBy({
         by: ['spaceId'],
@@ -685,27 +699,22 @@ export class MappingsService {
     ]);
 
     // Index en Maps pour lookups O(1)
-    const locSpaceMap = new Map(locationMappings.map((m) => [m.weezeventLocationId, m.spaceId]));
-    const mappedMerchantSet = new Set(merchantMappings.map((m) => m.weezeventLocationId));
-    const merchantsByLocation = new Map<string, string[]>();
-    for (const tx of merchantTxGroups) {
-      if (!tx.locationId || !tx.merchantId) continue;
-      const list = merchantsByLocation.get(tx.locationId) ?? [];
-      list.push(tx.merchantId);
-      merchantsByLocation.set(tx.locationId, list);
-    }
+    const integSpaceMap = new Map(locationMappings.map((m) => [m.weezeventLocationId, m.spaceId]));
+    const mappedLocationCuidSet = new Set(shopMappings.map((m) => m.weezeventLocationId));
     const aggJobsBySpace = new Set(aggJobs.map((j) => j.spaceId).filter(Boolean));
     const revenueBySpace = new Set(revenueAggs.map((r) => r.spaceId).filter(Boolean));
 
-    // 3. Calcul par location
-    const data = locations.map((loc) => {
-      const spaceId = locSpaceMap.get(loc.weezeventId) ?? null;
+    // 3. Calcul par intégration
+    const data = integrations.map((integ) => {
+      // step1 : l'intégration est-elle liée à un espace ?
+      const spaceId = integSpaceMap.get(integ.id) ?? null;
       const step1 = !!spaceId;
 
-      const merchants = merchantsByLocation.get(loc.weezeventId) ?? [];
-      const step2 = merchants.length > 0 && merchants.some((m) => mappedMerchantSet.has(m));
+      // step2 : au moins un point de vente (WeezeventLocation) mappé à un SpaceElement ?
+      const locationCuids = locationIdsByIntegration.get(integ.id) ?? [];
+      const step2 = locationCuids.some((lid) => mappedLocationCuidSet.has(lid));
 
-      // step3: product mappings existent (global au tenant, pas par location)
+      // step3 : global au tenant (pas par intégration)
       const step3 = productMappingsCount > 0;
 
       const step4 = !!spaceId && aggJobsBySpace.has(spaceId);
@@ -714,8 +723,8 @@ export class MappingsService {
       const completedSteps = [step1, step2, step3, step4, step5].filter(Boolean).length;
 
       return {
-        weezeventLocationId: loc.weezeventId,
-        name: loc.name,
+        weezeventLocationId: integ.id, // compatibilité frontend : le wizard identifie les intégrations par leur id
+        name: integ.name,
         spaceId,
         steps: {
           step1_space_mapped: step1,

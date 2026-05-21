@@ -57,6 +57,17 @@ export interface ExportJobData {
   params: Record<string, any>;
 }
 
+export interface AggregationJobEnqueueData {
+  /** 'process-events' = agréger une sélection d'events ; 'synchronize' = full rebuild */
+  type: 'process-events' | 'synchronize';
+  tenantId: string;
+  spaceId: string;
+  /** ID de l'AggregationJobLog pré-créé en DB (utilisé par getJobProgress) */
+  jobLogId: string;
+  eventIds?: string[];
+  integrationId?: string;
+}
+
 @Injectable()
 export class QueueService {
   private readonly logger = new Logger(QueueService.name);
@@ -66,6 +77,7 @@ export class QueueService {
     @InjectQueue(QUEUES.ANALYTICS) private analyticsQueue: Queue<AnalyticsJobData>,
     @InjectQueue(QUEUES.NOTIFICATIONS) private notificationsQueue: Queue<NotificationJobData>,
     @InjectQueue(QUEUES.EXPORTS) private exportsQueue: Queue<ExportJobData>,
+    @InjectQueue(QUEUES.AGGREGATION) private aggregationQueue: Queue<AggregationJobEnqueueData>,
   ) {}
 
   // ==================== DATA SYNC JOBS ====================
@@ -242,6 +254,29 @@ export class QueueService {
     );
 
     this.logger.log(`Queued ${data.type} export for tenant ${data.tenantId} (Job: ${job.id})`);
+    return job;
+  }
+
+  // ==================== AGGREGATION JOBS ====================
+
+  /**
+   * Enqueue un job d'agrégation (process-events ou synchronize).
+   * Le jobLogId doit être pré-créé en DB pour que getJobProgress puisse suivre l'avancement.
+   * Pas de retry automatique (l'agrégation modifie l'état DB — une seule tentative).
+   */
+  async queueAggregationJob(data: AggregationJobEnqueueData): Promise<Job<AggregationJobEnqueueData>> {
+    const job = await this.aggregationQueue.add(
+      `aggregation-${data.type}`,
+      data,
+      {
+        attempts: 1,         // pas de retry — l'opération est déjà idempotente (upsert)
+        removeOnComplete: 50,
+        removeOnFail: 50,
+      },
+    );
+    this.logger.log(
+      `Queued aggregation-${data.type} for space ${data.spaceId} (BullJob: ${job.id}, LogId: ${data.jobLogId})`,
+    );
     return job;
   }
 

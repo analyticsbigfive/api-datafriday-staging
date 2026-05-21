@@ -5,6 +5,7 @@ export const QUEUES = {
   ANALYTICS: 'analytics',
   NOTIFICATIONS: 'notifications',
   EXPORTS: 'exports',
+  AGGREGATION: 'aggregation',
 } as const;
 
 export type QueueName = typeof QUEUES[keyof typeof QUEUES];

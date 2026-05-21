@@ -128,10 +128,25 @@ export class SpaceAggregationService {
         select: { weezeventLocationId: true },
       });
 
-    const locationIds = locationMappings.map((m) => m.weezeventLocationId);
+    // weezeventLocationId stocke l'integrationId (convention step1).
+    // WeezeventTransaction.locationId est une FK vers WeezeventLocation.id (cuid).
+    // On résout ici les cuids réels pour que les filtres SQL matchent.
+    const integrationIds = locationMappings.map((m) => m.weezeventLocationId);
+
+    if (integrationIds.length === 0) {
+      this.logger.warn(`No location mappings found for space ${spaceId}`);
+      return 0;
+    }
+
+    const actualLocations = await this.prisma.weezeventLocation.findMany({
+      where: { tenantId, integrationId: { in: integrationIds } },
+      select: { id: true },
+    });
+
+    const locationIds = actualLocations.map((l) => l.id);
 
     if (locationIds.length === 0) {
-      this.logger.warn(`No location mappings found for space ${spaceId}`);
+      this.logger.warn(`No WeezeventLocation records found for integrations of space ${spaceId}`);
       return 0;
     }
 

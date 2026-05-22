@@ -19,36 +19,33 @@ export class AggregationService {
   async getEventsTimelineStatus(tenantId: string, spaceId: string, integrationId?: string) {
     this.logger.log(`Getting events timeline status for space ${spaceId}`);
 
-    // Verify space exists
-    const space = await this.prisma.space.findFirst({
-      where: { id: spaceId, tenantId },
-    });
+    // Vague 1 — toutes les requêtes indépendantes en parallèle (y compris la résolution des locationIds)
+    const now = new Date();
+    const [space, events, futureEventsCount, allJobs, dataPointGroups, locations] = await Promise.all([
+      this.prisma.space.findFirst({ where: { id: spaceId, tenantId } }),
+      this.prisma.event.findMany({
+        where: { tenantId, spaceId, eventDate: { lte: now } },
+        orderBy: { eventDate: 'desc' },
+      }),
+      this.prisma.event.count({ where: { tenantId, spaceId, eventDate: { gt: now } } }),
+      this.prisma.aggregationJobLog.findMany({
+        where: { tenantId, spaceId },
+        orderBy: { startedAt: 'desc' },
+      }),
+      this.prisma.spaceRevenueMinuteAgg.groupBy({
+        by: ['weezeventEventId'],
+        where: { tenantId, spaceId },
+        _count: { _all: true },
+      }),
+      integrationId
+        ? this.prisma.weezeventLocation.findMany({ where: { tenantId, integrationId }, select: { id: true } })
+        : Promise.resolve([]),
+    ]);
+
     if (!space) {
       throw new NotFoundException(`Space ${spaceId} not found`);
     }
 
-    // Get past events only — future events have no sales data yet
-    const events = await this.prisma.event.findMany({
-      where: { tenantId, spaceId, eventDate: { lte: new Date() } },
-      orderBy: { eventDate: 'desc' },
-    });
-
-    const futureEventsCount = await this.prisma.event.count({
-      where: { tenantId, spaceId, eventDate: { gt: new Date() } },
-    });
-
-    // Pré-charge tous les jobs du space en batch (évite N findFirst)
-    const allJobs = await this.prisma.aggregationJobLog.findMany({
-      where: { tenantId, spaceId },
-      orderBy: { startedAt: 'desc' },
-    });
-
-    // Pré-charge le COUNT des lignes d'agrégation par event (= nb combinaisons minute×shop×item, aligné sur l'ancien code)
-    const dataPointGroups = await this.prisma.spaceRevenueMinuteAgg.groupBy({
-      by: ['weezeventEventId'],
-      where: { tenantId, spaceId },
-      _count: { _all: true },
-    });
     const dataPointsByEvent = new Map(
       dataPointGroups.map((g) => [g.weezeventEventId, Number(g._count._all ?? 0)]),
     );
@@ -75,41 +72,10 @@ export class AggregationService {
       };
     });
 
-    // Get unregistered dates — transactions that exist but have no matching Event configured.
-    // Step 1 saves integrationId as weezeventLocationId, so we look it up directly.
-    // Then we resolve the actual WeezeventLocation.ids to filter transactions.
-    let integrationLocationIds: string[] = [];
-    if (integrationId) {
-      const locations = await this.prisma.weezeventLocation.findMany({
-        where: { tenantId, integrationId },
-        select: { id: true },
-      });
-      integrationLocationIds = locations.map((l) => l.id);
-    }
+    const integrationLocationIds = locations.map((l) => l.id);
 
+    // Vague 2 — unregisteredDates et transactionStats sont indépendants → parallèle
     let unregisteredDates: any[] = [];
-    if (integrationId && integrationLocationIds.length > 0) {
-      const locationIdsFilter = Prisma.sql`AND t."locationId" = ANY(ARRAY[${Prisma.join(integrationLocationIds)}]::text[])`;
-      const integrationFilter = Prisma.sql`AND t."integrationId" = ${integrationId}`;
-      const transactionDates = await this.prisma.$queryRaw<any[]>`
-        SELECT 
-          DATE(t."transactionDate") as "date",
-          COUNT(*)::int as "transactionCount",
-          SUM(t."amount")::float as "revenue"
-        FROM "WeezeventTransaction" t
-        WHERE t."tenantId" = ${tenantId}
-          ${integrationFilter}
-          ${locationIdsFilter}
-          AND DATE(t."transactionDate") NOT IN (
-            SELECT DATE(e."eventDate") FROM "Event" e WHERE e."tenantId" = ${tenantId} AND e."spaceId" = ${spaceId}
-          )
-        GROUP BY DATE(t."transactionDate")
-        ORDER BY DATE(t."transactionDate") DESC
-      `;
-      unregisteredDates = transactionDates;
-    }
-
-    // #5 — transactionStats : total / matched / unmatched / unmappedLocationIds
     let transactionStats: {
       total: number;
       matched: number;
@@ -122,9 +88,24 @@ export class AggregationService {
       const integrationFilter = Prisma.sql`AND t."integrationId" = ${integrationId}`;
       const eventDates = events.map((e) => new Date(e.eventDate).toISOString().slice(0, 10));
 
-      const [totalRow, unmappedRows] = await Promise.all([
+      const [transactionDates, totalRow, unmappedRows] = await Promise.all([
+        this.prisma.$queryRaw<any[]>(Prisma.sql`
+          SELECT
+            DATE(t."transactionDate") as "date",
+            COUNT(*)::int as "transactionCount",
+            SUM(t."amount")::float as "revenue"
+          FROM "WeezeventTransaction" t
+          WHERE t."tenantId" = ${tenantId}
+            ${integrationFilter}
+            ${locationIdsFilter}
+            AND DATE(t."transactionDate") NOT IN (
+              SELECT DATE(e."eventDate") FROM "Event" e WHERE e."tenantId" = ${tenantId} AND e."spaceId" = ${spaceId}
+            )
+          GROUP BY DATE(t."transactionDate")
+          ORDER BY DATE(t."transactionDate") DESC
+        `),
         eventDates.length > 0
-          ? this.prisma.$queryRaw<Array<{ total: bigint; matched: bigint }>>`
+          ? this.prisma.$queryRaw<Array<{ total: bigint; matched: bigint }>>(Prisma.sql`
               SELECT
                 COUNT(*)::bigint as total,
                 COUNT(*) FILTER (
@@ -134,18 +115,15 @@ export class AggregationService {
               WHERE t."tenantId" = ${tenantId}
                 ${integrationFilter}
                 ${locationIdsFilter}
-            `
-          : this.prisma.$queryRaw<Array<{ total: bigint; matched: bigint }>>`
-              SELECT
-                COUNT(*)::bigint as total,
-                0::bigint as matched
+            `)
+          : this.prisma.$queryRaw<Array<{ total: bigint; matched: bigint }>>(Prisma.sql`
+              SELECT COUNT(*)::bigint as total, 0::bigint as matched
               FROM "WeezeventTransaction" t
               WHERE t."tenantId" = ${tenantId}
                 ${integrationFilter}
                 ${locationIdsFilter}
-            `,
-        // Locations avec transactions mais sans shop mapping
-        this.prisma.$queryRaw<Array<{ locationId: string }>>`
+            `),
+        this.prisma.$queryRaw<Array<{ locationId: string }>>(Prisma.sql`
           SELECT DISTINCT t."locationId"
           FROM "WeezeventTransaction" t
           WHERE t."tenantId" = ${tenantId}
@@ -157,9 +135,10 @@ export class AggregationService {
               WHERE m."tenantId" = ${tenantId}
                 AND m."weezeventLocationId" = t."locationId"
             )
-        `,
+        `),
       ]);
 
+      unregisteredDates = transactionDates;
       const total = Number(totalRow[0]?.total ?? 0);
       const matched = Number(totalRow[0]?.matched ?? 0);
       transactionStats = {

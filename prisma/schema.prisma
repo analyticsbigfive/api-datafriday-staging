@@ -907,6 +907,7 @@ model WeezeventTransaction {
   @@unique([tenantId, integrationId, weezeventId])
   @@index([tenantId, eventId, status])
   @@index([eventId, transactionDate])
+  @@index([tenantId, locationId, transactionDate]) // Aggregation query: WHERE tenantId + locationId IN (...) + transactionDate range
 }
 
 // ==================== WEEZEVENT SYNC STATE ====================

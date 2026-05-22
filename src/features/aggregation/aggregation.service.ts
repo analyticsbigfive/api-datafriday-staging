@@ -285,17 +285,6 @@ export class AggregationService {
         throw new Error(`No Weezevent locations found for integration ${integrationId}. Sync locations first.`);
       }
 
-      // Pré-charge les shop mappings (WeezeventLocation.id → spaceElementId) une seule fois
-      const shopMappingsList = locationIds.length > 0
-        ? await this.prisma.weezeventLocationShopMapping.findMany({
-            where: { tenantId, weezeventLocationId: { in: locationIds } },
-            select: { weezeventLocationId: true, spaceElementId: true },
-          })
-        : [];
-      const shopMappingByLocation = new Map(
-        shopMappingsList.map((m) => [m.weezeventLocationId, m.spaceElementId]),
-      );
-
       for (const event of events) {
         try {
           const eventDate = new Date(event.eventDate);
@@ -304,85 +293,94 @@ export class AggregationService {
           const nextDay = new Date(baseEndDate);
           nextDay.setDate(nextDay.getDate() + 1);
 
-          const transactions = await this.prisma.weezeventTransaction.findMany({
-            where: {
-              tenantId,
-              ...(integrationId ? { integrationId } : {}),
-              ...(locationIds.length ? { locationId: { in: locationIds } } : {}),
-              transactionDate: { gte: eventDate, lt: nextDay },
-            },
-            include: { items: true },
+          // Efface les anciennes lignes de cet event avant re-agrégation
+          await this.prisma.spaceRevenueMinuteAgg.deleteMany({
+            where: { tenantId, spaceId, weezeventEventId: event.id },
           });
 
-          // Group by (locationId, minute) — granularité minute pour SpaceRevenueMinuteAgg
-          const minuteRevenue = new Map<string, { locationId: string; minute: Date; revenue: number; count: number; items: number }>();
-          for (const tx of transactions) {
-            if (!tx.locationId) continue;
-            const txDate = new Date(tx.transactionDate);
-            const minute = new Date(txDate);
-            minute.setSeconds(0, 0);
-            const key = `${tx.locationId}:${minute.toISOString()}`;
-            const current = minuteRevenue.get(key) || { locationId: tx.locationId, minute, revenue: 0, count: 0, items: 0 };
-            // #7b — revenue unifié sur item prices (cohérence avec SpaceAggregationService)
-            current.revenue += tx.items?.reduce((s, i) => s + Number(i.unitPrice) * (i.quantity ?? 0) - Number(i.reduction ?? 0), 0) ?? Number(tx.amount || 0);
-            current.count += 1;
-            // #6 — itemsCount = somme des quantités, pas le nombre de lignes
-            current.items += tx.items?.reduce((s, i) => s + (i.quantity ?? 0), 0) ?? 0;
-            minuteRevenue.set(key, current);
-          }
+          // Filtres dynamiques (SQL fragments composables)
+          const integrationClause = integrationId
+            ? Prisma.sql`AND t."integrationId" = ${integrationId}`
+            : Prisma.sql``;
+          const locationClause = locationIds.length > 0
+            ? Prisma.sql`AND t."locationId" IN (${Prisma.join(locationIds)})`
+            : Prisma.sql``;
 
-          const unmappedLocationIds = new Set<string>();
+          // Agrégation DB-level : JOIN + GROUP BY + INSERT en une seule requête
+          // Aucune donnée chargée en mémoire Node.js — élimination du findMany + JS loop
+          const dataPoints = await this.prisma.$executeRaw(Prisma.sql`
+            INSERT INTO "SpaceRevenueMinuteAgg"
+              ("id","tenantId","spaceId","minute","timezone","weezeventEventId","weezeventLocationId","weezeventMerchantId","spaceElementId","revenueHt","transactionsCount","itemsCount","createdAt","updatedAt")
+            SELECT
+              gen_random_uuid(),
+              ${tenantId},
+              ${spaceId},
+              date_trunc('minute', t."transactionDate"),
+              'Europe/Paris',
+              ${event.id},
+              t."locationId",
+              t."locationId",
+              pm."menuItemId",
+              SUM(ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)),
+              COUNT(ti."id")::int,
+              SUM(ti."quantity")::int,
+              NOW(),
+              NOW()
+            FROM "WeezeventTransaction" t
+            JOIN "WeezeventTransactionItem" ti ON ti."transactionId" = t."id"
+            JOIN "WeezeventProductMapping" pm
+              ON pm."weezeventProductId" = ti."productId" AND pm."tenantId" = ${tenantId}
+            WHERE t."tenantId" = ${tenantId}
+              ${integrationClause}
+              ${locationClause}
+              AND t."transactionDate" >= ${eventDate}
+              AND t."transactionDate" < ${nextDay}
+            GROUP BY
+              date_trunc('minute', t."transactionDate"),
+              t."locationId",
+              pm."menuItemId"
+            ON CONFLICT ("tenantId","spaceId","minute","weezeventEventId","weezeventLocationId","weezeventMerchantId","spaceElementId")
+            DO UPDATE SET
+              "revenueHt" = EXCLUDED."revenueHt",
+              "transactionsCount" = EXCLUDED."transactionsCount",
+              "itemsCount" = EXCLUDED."itemsCount",
+              "updatedAt" = NOW()
+          `);
 
-          for (const [, data] of minuteRevenue) {
-            const { locationId, minute } = data;
-            const spaceElementId = shopMappingByLocation.get(locationId);
-            if (!spaceElementId) {
-              unmappedLocationIds.add(locationId);
-              continue;
-            }
-            await this.prisma.spaceRevenueMinuteAgg.upsert({
-              where: {
-                tenantId_spaceId_minute_weezeventEventId_weezeventLocationId_weezeventMerchantId_spaceElementId: {
-                  tenantId, spaceId, minute, weezeventEventId: event.id,
-                  weezeventLocationId: locationId, weezeventMerchantId: locationId,
-                  spaceElementId,
-                },
-              },
-              create: {
-                tenantId, spaceId, minute, weezeventEventId: event.id,
-                weezeventLocationId: locationId, weezeventMerchantId: locationId,
-                spaceElementId, revenueHt: data.revenue,
-                transactionsCount: data.count, itemsCount: data.items,
-              },
-              update: { revenueHt: data.revenue, transactionsCount: data.count, itemsCount: data.items },
-            });
-          }
-
-          const productRevenue = new Map<string, { revenue: number; quantity: number }>();
-          for (const tx of transactions) {
-            for (const item of tx.items || []) {
-              if (!item.productId) continue;
-              const current = productRevenue.get(item.productId) || { revenue: 0, quantity: 0 };
-              current.revenue += Number(item.unitPrice) * item.quantity - Number(item.reduction || 0);
-              current.quantity += item.quantity;
-              productRevenue.set(item.productId, current);
-            }
-          }
-
-          for (const [productId, data] of productRevenue) {
-            await this.prisma.spaceProductRevenueDailyAgg.upsert({
-              where: { tenantId_spaceId_day_weezeventProductId: { tenantId, spaceId, day: eventDate, weezeventProductId: productId } },
-              create: { tenantId, spaceId, day: eventDate, weezeventProductId: productId, revenueHt: data.revenue, quantity: data.quantity },
-              update: { revenueHt: data.revenue, quantity: data.quantity },
-            });
-          }
+          // SpaceProductRevenueDailyAgg — même approche DB-level
+          await this.prisma.$executeRaw(Prisma.sql`
+            INSERT INTO "SpaceProductRevenueDailyAgg"
+              ("id","tenantId","spaceId","day","weezeventProductId","revenueHt","quantity","createdAt","updatedAt")
+            SELECT
+              gen_random_uuid(),
+              ${tenantId},
+              ${spaceId},
+              ${eventDate}::date,
+              ti."productId",
+              SUM(ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)),
+              SUM(ti."quantity")::int,
+              NOW(),
+              NOW()
+            FROM "WeezeventTransaction" t
+            JOIN "WeezeventTransactionItem" ti ON ti."transactionId" = t."id"
+            WHERE t."tenantId" = ${tenantId}
+              ${integrationClause}
+              ${locationClause}
+              AND t."transactionDate" >= ${eventDate}
+              AND t."transactionDate" < ${nextDay}
+              AND ti."productId" IS NOT NULL
+            GROUP BY ti."productId"
+            ON CONFLICT ("tenantId","spaceId","day","weezeventProductId")
+            DO UPDATE SET
+              "revenueHt" = EXCLUDED."revenueHt",
+              "quantity" = EXCLUDED."quantity",
+              "updatedAt" = NOW()
+          `);
 
           processedCount++;
           results.push({
             eventId: event.id, eventName: event.name, date: event.eventDate,
-            transactions: transactions.length,
-            revenue: Array.from(minuteRevenue.values()).reduce((s, v) => s + v.revenue, 0),
-            unmappedLocations: Array.from(unmappedLocationIds), status: 'success',
+            dataPoints, status: 'success',
           });
         } catch (err) {
           results.push({ eventId: event.id, eventName: event.name, status: 'error', error: err.message });

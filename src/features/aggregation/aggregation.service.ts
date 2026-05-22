@@ -43,14 +43,14 @@ export class AggregationService {
       orderBy: { startedAt: 'desc' },
     });
 
-    // Pré-charge les compteurs de transactions agrégées par event en batch (évite N count)
+    // Pré-charge le COUNT des lignes d'agrégation par event (= nb combinaisons minute×shop×item, aligné sur l'ancien code)
     const dataPointGroups = await this.prisma.spaceRevenueMinuteAgg.groupBy({
       by: ['weezeventEventId'],
       where: { tenantId, spaceId },
-      _sum: { transactionsCount: true },
+      _count: { _all: true },
     });
     const dataPointsByEvent = new Map(
-      dataPointGroups.map((g) => [g.weezeventEventId, Number(g._sum.transactionsCount ?? 0)]),
+      dataPointGroups.map((g) => [g.weezeventEventId, Number(g._count._all ?? 0)]),
     );
 
     // Index : event.id → dernier job (allJobs déjà triés desc par startedAt)
@@ -170,20 +170,11 @@ export class AggregationService {
       };
     }
 
-    // #11 — expectedDataPoints : nombre de shops mappés pour l'intégration (dénominateur du ratio)
-    const expectedDataPoints =
-      integrationId && integrationLocationIds.length > 0
-        ? await this.prisma.weezeventLocationShopMapping.count({
-            where: { tenantId, weezeventLocationId: { in: integrationLocationIds } },
-          })
-        : 0;
-
     return {
       events: eventsWithStatus,
       unregisteredDates,
       futureEventsCount,
       transactionStats,
-      expectedDataPoints,
       summary: {
         total: events.length,
         processed: eventsWithStatus.filter((e) => e.aggregationStatus === 'completed').length,

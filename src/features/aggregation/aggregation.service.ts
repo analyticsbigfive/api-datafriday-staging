@@ -21,7 +21,7 @@ export class AggregationService {
 
     // Vague 1 — toutes les requêtes indépendantes en parallèle (y compris la résolution des locationIds)
     const now = new Date();
-    const [space, events, futureEventsCount, allJobs, dataPointGroups, locations] = await Promise.all([
+    const [space, events, futureEventsCount, allJobs, dataPointGroups] = await Promise.all([
       this.prisma.space.findFirst({ where: { id: spaceId, tenantId } }),
       this.prisma.event.findMany({
         where: { tenantId, spaceId, eventDate: { lte: now } },
@@ -37,9 +37,6 @@ export class AggregationService {
         where: { tenantId, spaceId },
         _count: { _all: true },
       }),
-      integrationId
-        ? this.prisma.weezeventLocation.findMany({ where: { tenantId, integrationId }, select: { id: true } })
-        : Promise.resolve([]),
     ]);
 
     if (!space) {
@@ -72,9 +69,8 @@ export class AggregationService {
       };
     });
 
-    const integrationLocationIds = locations.map((l) => l.id);
-
     // Vague 2 — unregisteredDates et transactionStats sont indépendants → parallèle
+    // Filtre par integrationId uniquement : suppression du tableau de 100+ locationIds en paramètre
     let unregisteredDates: any[] = [];
     let transactionStats: {
       total: number;
@@ -83,8 +79,7 @@ export class AggregationService {
       unmappedLocationIds: string[];
     } | null = null;
 
-    if (integrationId && integrationLocationIds.length > 0) {
-      const locationIdsFilter = Prisma.sql`AND t."locationId" = ANY(ARRAY[${Prisma.join(integrationLocationIds)}]::text[])`;
+    if (integrationId) {
       const integrationFilter = Prisma.sql`AND t."integrationId" = ${integrationId}`;
       const eventDates = events.map((e) => new Date(e.eventDate).toISOString().slice(0, 10));
 
@@ -97,7 +92,6 @@ export class AggregationService {
           FROM "WeezeventTransaction" t
           WHERE t."tenantId" = ${tenantId}
             ${integrationFilter}
-            ${locationIdsFilter}
             AND DATE(t."transactionDate") NOT IN (
               SELECT DATE(e."eventDate") FROM "Event" e WHERE e."tenantId" = ${tenantId} AND e."spaceId" = ${spaceId}
             )
@@ -114,27 +108,23 @@ export class AggregationService {
               FROM "WeezeventTransaction" t
               WHERE t."tenantId" = ${tenantId}
                 ${integrationFilter}
-                ${locationIdsFilter}
             `)
           : this.prisma.$queryRaw<Array<{ total: bigint; matched: bigint }>>(Prisma.sql`
               SELECT COUNT(*)::bigint as total, 0::bigint as matched
               FROM "WeezeventTransaction" t
               WHERE t."tenantId" = ${tenantId}
                 ${integrationFilter}
-                ${locationIdsFilter}
             `),
         this.prisma.$queryRaw<Array<{ locationId: string }>>(Prisma.sql`
           SELECT DISTINCT t."locationId"
           FROM "WeezeventTransaction" t
+          LEFT JOIN "WeezeventLocationShopMapping" m
+            ON m."tenantId" = ${tenantId}
+            AND m."weezeventLocationId" = t."locationId"
           WHERE t."tenantId" = ${tenantId}
             ${integrationFilter}
-            ${locationIdsFilter}
             AND t."locationId" IS NOT NULL
-            AND NOT EXISTS (
-              SELECT 1 FROM "WeezeventLocationShopMapping" m
-              WHERE m."tenantId" = ${tenantId}
-                AND m."weezeventLocationId" = t."locationId"
-            )
+            AND m."id" IS NULL
         `),
       ]);
 
@@ -251,19 +241,6 @@ export class AggregationService {
         }
       }
 
-      // Get the real WeezeventLocation DB ids for this integration.
-      const integrationLocations = integrationId
-        ? await this.prisma.weezeventLocation.findMany({
-            where: { tenantId, integrationId },
-            select: { id: true },
-          })
-        : [];
-      const locationIds = integrationLocations.map((l) => l.id);
-
-      if (integrationId && locationIds.length === 0) {
-        throw new Error(`No Weezevent locations found for integration ${integrationId}. Sync locations first.`);
-      }
-
       for (const event of events) {
         try {
           const eventDate = new Date(event.eventDate);
@@ -280,9 +257,6 @@ export class AggregationService {
           // Filtres dynamiques (SQL fragments composables)
           const integrationClause = integrationId
             ? Prisma.sql`AND t."integrationId" = ${integrationId}`
-            : Prisma.sql``;
-          const locationClause = locationIds.length > 0
-            ? Prisma.sql`AND t."locationId" IN (${Prisma.join(locationIds)})`
             : Prisma.sql``;
 
           // Agrégation DB-level : JOIN + GROUP BY + INSERT en une seule requête
@@ -311,7 +285,6 @@ export class AggregationService {
               ON pm."weezeventProductId" = ti."productId" AND pm."tenantId" = ${tenantId}
             WHERE t."tenantId" = ${tenantId}
               ${integrationClause}
-              ${locationClause}
               AND t."transactionDate" >= ${eventDate}
               AND t."transactionDate" < ${nextDay}
             GROUP BY
@@ -344,7 +317,6 @@ export class AggregationService {
             JOIN "WeezeventTransactionItem" ti ON ti."transactionId" = t."id"
             WHERE t."tenantId" = ${tenantId}
               ${integrationClause}
-              ${locationClause}
               AND t."transactionDate" >= ${eventDate}
               AND t."transactionDate" < ${nextDay}
               AND ti."productId" IS NOT NULL
@@ -625,6 +597,22 @@ export class AggregationService {
       }),
     ]);
 
+    // Resolve human-readable names for shops and products
+    const locationIds = shopAggs.map((s) => s.weezeventLocationId).filter(Boolean) as string[];
+    const productIds = productAggs.map((p) => p.weezeventProductId).filter(Boolean) as string[];
+
+    const [locations, products] = await Promise.all([
+      locationIds.length
+        ? this.prisma.weezeventLocation.findMany({ where: { id: { in: locationIds } }, select: { id: true, name: true } })
+        : [],
+      productIds.length
+        ? this.prisma.weezeventProduct.findMany({ where: { id: { in: productIds } }, select: { id: true, name: true } })
+        : [],
+    ]);
+
+    const locationNameMap = new Map(locations.map((l) => [l.id, l.name] as [string, string]));
+    const productNameMap = new Map(products.map((p) => [p.id, p.name] as [string, string]));
+
     return {
       eventId,
       eventName: event.name,
@@ -632,12 +620,16 @@ export class AggregationService {
       shops: shopAggs.map((s) => ({
         weezeventLocationId: s.weezeventLocationId,
         spaceElementId: s.spaceElementId,
+        shopName: s.weezeventLocationId
+          ? (locationNameMap.get(s.weezeventLocationId) ?? s.weezeventLocationId)
+          : 'Inconnu',
         revenueHt: Number(s._sum.revenueHt ?? 0),
         transactionsCount: s._sum.transactionsCount ?? 0,
         itemsCount: s._sum.itemsCount ?? 0,
       })),
       products: productAggs.map((p) => ({
         weezeventProductId: p.weezeventProductId,
+        productName: productNameMap.get(p.weezeventProductId) ?? p.weezeventProductId,
         revenueHt: Number(p._sum.revenueHt ?? 0),
         quantity: p._sum.quantity ?? 0,
       })),

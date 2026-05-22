@@ -23,7 +23,7 @@ export interface JwtPayload {
  */
 @Injectable()
 export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
-  private readonly AUTH_CACHE_TTL = 60; // 60 seconds
+  private readonly AUTH_CACHE_TTL = 300; // 5 minutes (was 60s — user/tenant data rarely changes)
   private readonly LOCAL_AUTH_CACHE_TTL_MS = 15_000;
   private readonly localCache = new Map<string, { user: any; expiresAt: number }>();
   private readonly pendingLookups = new Map<string, Promise<any>>();

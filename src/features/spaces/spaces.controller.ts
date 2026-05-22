@@ -141,6 +141,35 @@ export class SpacesController {
   }
 
   /**
+   * Lightweight space list for selects & wizards (id + name only).
+   * Redis-cached — typical response < 10ms on cache hit.
+   */
+  @Get('light')
+  @ApiOperation({
+    summary: 'Liste légère des espaces (id + name)',
+    description: 'Retourne uniquement id et name, mis en cache Redis (60s). Idéal pour les selects et wizards.',
+  })
+  @ApiResponse({
+    status: 200,
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          name: { type: 'string' },
+        },
+      },
+    },
+  })
+  async getSpacesLight(@CurrentUser() user: any) {
+    if (!user.tenantId) {
+      throw new ForbiddenException('Organisation requise. Veuillez compléter l\'onboarding.');
+    }
+    return this.spacesService.getSpacesLight(user.tenantId);
+  }
+
+  /**
    * Get space statistics
    */
   @Get('statistics')

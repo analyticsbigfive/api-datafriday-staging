@@ -43,14 +43,14 @@ export class AggregationService {
       orderBy: { startedAt: 'desc' },
     });
 
-    // Pré-charge les compteurs de datapoints par event en batch (évite N count)
+    // Pré-charge les compteurs de transactions agrégées par event en batch (évite N count)
     const dataPointGroups = await this.prisma.spaceRevenueMinuteAgg.groupBy({
       by: ['weezeventEventId'],
       where: { tenantId, spaceId },
-      _count: { _all: true },
+      _sum: { transactionsCount: true },
     });
     const dataPointsByEvent = new Map(
-      dataPointGroups.map((g) => [g.weezeventEventId, g._count._all]),
+      dataPointGroups.map((g) => [g.weezeventEventId, Number(g._sum.transactionsCount ?? 0)]),
     );
 
     // Index : event.id → dernier job (allJobs déjà triés desc par startedAt)

@@ -109,7 +109,7 @@ describe('AggregationService', () => {
       mockPrisma.event.count.mockResolvedValue(0); // futureEventsCount
       mockPrisma.aggregationJobLog.findMany.mockResolvedValue([makeJob('completed', [EVENT_1])]);
       mockPrisma.spaceRevenueMinuteAgg.groupBy.mockResolvedValue([
-        { weezeventEventId: EVENT_1, _count: { _all: 480 } },
+        { weezeventEventId: EVENT_1, _sum: { transactionsCount: 480 } },
       ]);
       mockPrisma.weezeventLocation.findMany.mockResolvedValue([]);
       mockPrisma.weezeventLocationShopMapping.count.mockResolvedValue(0);

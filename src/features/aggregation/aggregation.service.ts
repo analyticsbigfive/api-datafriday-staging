@@ -120,22 +120,30 @@ export class AggregationService {
     if (integrationId && integrationLocationIds.length > 0) {
       const locationIdsFilter = Prisma.sql`AND t."locationId" = ANY(ARRAY[${Prisma.join(integrationLocationIds)}]::text[])`;
       const integrationFilter = Prisma.sql`AND t."integrationId" = ${integrationId}`;
-      const eventDatesSet = new Set(
-        events.map((e) => new Date(e.eventDate).toISOString().slice(0, 10)),
-      );
+      const eventDates = events.map((e) => new Date(e.eventDate).toISOString().slice(0, 10));
 
       const [totalRow, unmappedRows] = await Promise.all([
-        this.prisma.$queryRaw<Array<{ total: bigint; matched: bigint }>>`
-          SELECT
-            COUNT(*)::bigint as total,
-            COUNT(*) FILTER (
-              WHERE DATE(t."transactionDate") = ANY(ARRAY[${Prisma.join(events.map((e) => new Date(e.eventDate).toISOString().slice(0, 10)))}]::date[])
-            )::bigint as matched
-          FROM "WeezeventTransaction" t
-          WHERE t."tenantId" = ${tenantId}
-            ${integrationFilter}
-            ${locationIdsFilter}
-        `,
+        eventDates.length > 0
+          ? this.prisma.$queryRaw<Array<{ total: bigint; matched: bigint }>>`
+              SELECT
+                COUNT(*)::bigint as total,
+                COUNT(*) FILTER (
+                  WHERE DATE(t."transactionDate") = ANY(ARRAY[${Prisma.join(eventDates)}]::date[])
+                )::bigint as matched
+              FROM "WeezeventTransaction" t
+              WHERE t."tenantId" = ${tenantId}
+                ${integrationFilter}
+                ${locationIdsFilter}
+            `
+          : this.prisma.$queryRaw<Array<{ total: bigint; matched: bigint }>>`
+              SELECT
+                COUNT(*)::bigint as total,
+                0::bigint as matched
+              FROM "WeezeventTransaction" t
+              WHERE t."tenantId" = ${tenantId}
+                ${integrationFilter}
+                ${locationIdsFilter}
+            `,
         // Locations avec transactions mais sans shop mapping
         this.prisma.$queryRaw<Array<{ locationId: string }>>`
           SELECT DISTINCT t."locationId"
@@ -160,7 +168,6 @@ export class AggregationService {
         unmatched: total - matched,
         unmappedLocationIds: unmappedRows.map((r) => r.locationId),
       };
-      void eventDatesSet; // utilisé implicitement via Prisma.join ci-dessus
     }
 
     // #11 — expectedDataPoints : nombre de shops mappés pour l'intégration (dénominateur du ratio)

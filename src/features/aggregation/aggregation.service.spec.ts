@@ -148,6 +148,25 @@ describe('AggregationService', () => {
       expect(result.transactionStats!.unmatched).toBe(20);
     });
 
+    it('ne plante pas quand aucun event passé (régression join([]))', async () => {
+      mockPrisma.event.findMany.mockResolvedValue([]);
+      mockPrisma.weezeventLocation.findMany.mockResolvedValue([{ id: LOCATION_ID }]);
+      mockPrisma.$queryRaw
+        .mockResolvedValueOnce([]) // unregisteredDates
+        .mockResolvedValueOnce([{ total: BigInt(12), matched: BigInt(0) }]) // totalRow sans événements
+        .mockResolvedValueOnce([]); // unmappedRows
+
+      const result = await service.getEventsTimelineStatus(TENANT, SPACE, INT_ID);
+
+      expect(result.events).toHaveLength(0);
+      expect(result.transactionStats).toEqual({
+        total: 12,
+        matched: 0,
+        unmatched: 12,
+        unmappedLocationIds: [],
+      });
+    });
+
     it('retourne transactionStats = null sans integrationId', async () => {
       const result = await service.getEventsTimelineStatus(TENANT, SPACE);
       expect(result.transactionStats).toBeNull();

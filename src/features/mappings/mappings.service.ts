@@ -117,11 +117,13 @@ export class MappingsService {
     if (weezeventLocationId) where.weezeventLocationId = weezeventLocationId;
 
     if (spaceId) {
+      // Use spaceId directly to avoid a deep 4-level JOIN chain (forecourt → config → space → tenantId).
+      // tenantId scoping is enforced on the mapping itself via `where.tenantId = tenantId` above.
       const elements = await this.prisma.spaceElement.findMany({
         where: {
           OR: [
-            { floor: { config: { spaceId, space: { tenantId } } } },
-            { forecourt: { config: { spaceId, space: { tenantId } } } },
+            { floor: { config: { spaceId } } },
+            { forecourt: { config: { spaceId } } },
           ],
         },
         select: { id: true },
@@ -222,13 +224,13 @@ export class MappingsService {
         );
         successes.push(...results);
       } catch (err) {
-        this.logger.warn(`Location-shop chunk ${i / this.BULK_CHUNK_SIZE} failed, falling back to per-item upserts: ${err.message}`);
+        this.logger.warn(`Location-shop chunk ${i / this.BULK_CHUNK_SIZE} failed, falling back to per-item upserts: ${err instanceof Error ? err.message : String(err)}`);
         for (const m of chunk) {
           try {
             const result = await this.createLocationShopMapping(m, tenantId);
             successes.push(result);
           } catch (itemErr) {
-            errors.push({ weezeventLocationId: m.weezeventLocationId, error: itemErr.message });
+            errors.push({ weezeventLocationId: m.weezeventLocationId, error: itemErr instanceof Error ? itemErr.message : String(itemErr) });
           }
         }
       }
@@ -344,7 +346,7 @@ export class MappingsService {
         successes.push(...results);
       } catch (err) {
         // Chunk-level failure: fallback to per-item upsert so a single bad row doesn't lose the whole chunk
-        this.logger.warn(`Chunk ${i / this.BULK_CHUNK_SIZE} failed, falling back to per-item upserts: ${err.message}`);
+        this.logger.warn(`Chunk ${i / this.BULK_CHUNK_SIZE} failed, falling back to per-item upserts: ${err instanceof Error ? err.message : String(err)}`);
         for (const m of chunk) {
           try {
             const result = await this.prisma.weezeventLocationShopMapping.upsert({
@@ -356,7 +358,7 @@ export class MappingsService {
             });
             successes.push(result);
           } catch (itemErr) {
-            errors.push({ weezeventMerchantId: m.weezeventMerchantId, error: itemErr.message });
+            errors.push({ weezeventMerchantId: m.weezeventMerchantId, error: itemErr instanceof Error ? itemErr.message : String(itemErr) });
           }
         }
       }
@@ -506,7 +508,7 @@ export class MappingsService {
           })),
         );
       } catch (err) {
-        this.logger.warn(`Chunk ${i / this.BULK_CHUNK_SIZE} failed, falling back to per-item upserts: ${err.message}`);
+        this.logger.warn(`Chunk ${i / this.BULK_CHUNK_SIZE} failed, falling back to per-item upserts: ${err instanceof Error ? err.message : String(err)}`);
         for (const m of chunk) {
           try {
             const result = await this.prisma.weezeventProductMapping.upsert({
@@ -528,7 +530,7 @@ export class MappingsService {
             });
             successes.push(result);
           } catch (itemErr) {
-            errors.push({ weezeventProductId: m.weezeventProductId, error: itemErr.message });
+            errors.push({ weezeventProductId: m.weezeventProductId, error: itemErr instanceof Error ? itemErr.message : String(itemErr) });
           }
         }
       }

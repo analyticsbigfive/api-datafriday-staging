@@ -701,18 +701,26 @@ export class SpacesService {
    * Get shop list only (no transaction data) — used by SpaceMenuView for fast initial load
    */
   async getSpaceShops(spaceId: string, tenantId: string) {
-    await this.findOne(spaceId, tenantId);
+    // Lightweight ownership check — avoids the heavy findOne with _count aggregates and full configs
+    const spaceExists = await this.prisma.space.findFirst({
+      where: { id: spaceId, tenantId },
+      select: { id: true },
+    });
+    if (!spaceExists) {
+      throw new NotFoundException(`Space with ID ${spaceId} not found`);
+    }
 
+    // Direct spaceId lookup — no JOIN through Space needed since ownership is already verified
     const configs = await this.prisma.config.findMany({
-      where: { space: { id: spaceId, tenantId } },
+      where: { spaceId },
       select: { id: true, name: true },
     });
 
     const configIds = configs.map(c => c.id);
     const shopTypes: any[] = ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack', 'fnb_icecream', 'merchshop'];
+    // Exclude menuAssignments from SpaceElement queries — fetched in parallel below
     const commonSelect = {
       id: true, name: true, type: true, shopTypes: true, attributes: true, image: true, notes: true,
-      menuAssignments: { where: { enabled: true }, select: { id: true } },
     };
 
     const [shopsFromFloors, shopsFromForecourt]: [any[], any[]] = await Promise.all([
@@ -729,16 +737,27 @@ export class SpacesService {
     const allShops: any[] = [...shopsFromFloors, ...shopsFromForecourt];
     const shopIds: string[] = allShops.map((s: any) => s.id);
 
-    const merchantMappings = await this.prisma.weezeventLocationShopMapping.findMany({
-      where: { tenantId, spaceElementId: { in: shopIds } },
-      select: { spaceElementId: true, weezeventLocationId: true },
-    });
+    // Fetch merchant mappings and menu assignments in parallel
+    const [merchantMappings, enabledMenuAssignments] = await Promise.all([
+      this.prisma.weezeventLocationShopMapping.findMany({
+        where: { tenantId, spaceElementId: { in: shopIds } },
+        select: { spaceElementId: true, weezeventLocationId: true },
+      }),
+      this.prisma.menuAssignment.findMany({
+        where: { enabled: true, elementId: { in: shopIds } },
+        select: { elementId: true },
+      }),
+    ]);
 
     const mappingByShop = new Map(merchantMappings.map(m => [m.spaceElementId, m.weezeventLocationId]));
+    const menuAssignmentCountByShop = enabledMenuAssignments.reduce<Record<string, number>>((acc, ma) => {
+      acc[ma.elementId] = (acc[ma.elementId] ?? 0) + 1;
+      return acc;
+    }, {});
 
     const shops = allShops.map(s => {
       const loc = (s as any).floor ?? (s as any).forecourt;
-      const menuItemsEnabledCount = Array.isArray(s.menuAssignments) ? s.menuAssignments.length : 0;
+      const menuItemsEnabledCount = menuAssignmentCountByShop[s.id] ?? 0;
       return {
         id: s.id,
         name: s.name,

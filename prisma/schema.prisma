@@ -477,6 +477,8 @@ model SpaceElement {
   @@index([floorId])
   @@index([forecourtId])
   @@index([type])
+  @@index([floorId, type])      // Composite: shop queries filter by floor + type
+  @@index([forecourtId, type])  // Composite: shop queries filter by forecourt + type
 }
 
 // ==================== ELEMENT PERFORMANCE ====================
@@ -1511,6 +1513,7 @@ model MenuAssignment {
   @@unique([elementId, menuItemId])
   @@index([stationId])
   @@index([elementId])
+  @@index([elementId, enabled])  // Composite: shop menu assignment query filters by elementId + enabled
   @@index([menuItemId])
 }
 

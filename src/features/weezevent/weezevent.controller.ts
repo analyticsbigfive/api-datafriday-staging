@@ -4,6 +4,7 @@ import { WeezeventSyncService, SyncResult } from './services/weezevent-sync.serv
 import { WeezeventIncrementalSyncService, IncrementalSyncResult } from './services/weezevent-incremental-sync.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SyncWeezeventDto } from './dto/sync-weezevent.dto';
+import { StartSyncJobDto } from './dto/start-sync-job.dto';
 import { GetTransactionsQueryDto } from './dto/get-transactions-query.dto';
 import { MapProductToMenuItemDto } from './dto/map-product-to-menu-item.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
@@ -11,6 +12,8 @@ import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { SyncTrackerService } from './services/sync-tracker.service';
 import { QueueService } from '../../core/queue/queue.service';
 import { WeezeventClientService } from './services/weezevent-client.service';
+import { WeezeventCollectWorkerService } from './services/weezevent-collect-worker.service';
+import { WeezeventInsertWorkerService } from './services/weezevent-insert-worker.service';
 
 @ApiTags('Weezevent')
 @ApiBearerAuth('supabase-jwt')
@@ -26,6 +29,8 @@ export class WeezeventController {
         private readonly syncTracker: SyncTrackerService,
         private readonly queueService: QueueService,
         private readonly weezeventClient: WeezeventClientService,
+        private readonly collectWorker: WeezeventCollectWorkerService,
+        private readonly insertWorker: WeezeventInsertWorkerService,
     ) { }
 
     /**
@@ -108,6 +113,41 @@ export class WeezeventController {
     }
 
     /**
+     * Fetch transactions DIRECTLY from the Weezevent API (no DB, no sync).
+     * Useful for debugging / checking what the real Weezevent data looks like.
+     */
+    @Get('raw-transactions')
+    @ApiOperation({ summary: 'Récupérer les transactions brutes depuis l\'API Weezevent (sans passer par la DB)' })
+    @ApiResponse({ status: 200, description: 'Transactions brutes Weezevent' })
+    async getRawTransactions(
+        @CurrentUser() user: any,
+        @Query() query: GetTransactionsQueryDto,
+    ) {
+        const tenantId = user.tenantId;
+        const { integrationId, page = 1, perPage = 100, status, fromDate, toDate } = query;
+
+        const integration = await this.prisma.weezeventIntegration.findUnique({
+            where: { id: integrationId },
+            select: { id: true, organizationId: true, enabled: true, tenantId: true },
+        });
+
+        if (!integration || integration.tenantId !== tenantId) {
+            throw new BadRequestException(`Intégration Weezevent ${integrationId} introuvable.`);
+        }
+        if (!integration.organizationId) {
+            throw new BadRequestException(`L\'organisation Weezevent n\'est pas configurée pour cette intégration.`);
+        }
+
+        return this.weezeventClient.getTransactions(tenantId, integration.organizationId, {
+            page,
+            perPage,
+            status,
+            fromDate: fromDate ? new Date(fromDate) : undefined,
+            toDate: toDate ? new Date(toDate) : undefined,
+        });
+    }
+
+    /**
      * Trigger manual synchronization — runs synchronously and returns the result directly.
      * transactions / events / products are executed in-process (no queue).
      * orders / prices / attendees are still queued via BullMQ.
@@ -126,6 +166,7 @@ export class WeezeventController {
         );
 
         const fromDate = dto.fromDate ? new Date(dto.fromDate) : undefined;
+        const toDate = dto.toDate ? new Date(dto.toDate) : undefined;
 
         // Auto-recovery: if DB is empty for this type, force a full sync regardless of dto.full.
         // This fixes the case where data was purged but sync state still has lastSyncedAt set —
@@ -152,6 +193,7 @@ export class WeezeventController {
                 const result = await this.incrementalSyncService.syncTransactionsIncremental(tenantId, dto.integrationId, {
                     forceFullSync: forceFull,
                     updatedSince: fromDate,
+                    updatedUntil: toDate,
                 });
                 const [count, eventCount, productCount, locationCount] = await Promise.all([
                     this.prisma.weezeventTransaction.count({ where: { tenantId, integrationId: dto.integrationId } }),
@@ -941,5 +983,245 @@ export class WeezeventController {
                 total_pages: Math.ceil(total / perPage),
             },
         };
+    }
+
+    // ==================== SYNC JOBS (nouvelle architecture bisection) ====================
+
+    /**
+     * Démarre un job de sync asynchrone avec bissection.
+     * Retourne immédiatement un jobId — le frontend poll GET /sync/status/:jobId.
+     */
+    @Post('sync/start')
+    @ApiOperation({ summary: 'Démarrer un job de synchronisation par bissection' })
+    @ApiBody({ type: StartSyncJobDto })
+    @ApiResponse({ status: 201, description: 'Job créé, retourne jobId' })
+    async startSyncJob(
+        @CurrentUser() user: any,
+        @Body() dto: StartSyncJobDto,
+    ) {
+        const tenantId = user.tenantId;
+
+        const integration = await this.prisma.weezeventIntegration.findFirst({
+            where: { id: dto.integrationId, tenantId, enabled: true },
+            select: { id: true, organizationId: true },
+        });
+
+        if (!integration) {
+            throw new BadRequestException(`Intégration Weezevent ${dto.integrationId} introuvable ou désactivée.`);
+        }
+        if (!integration.organizationId) {
+            throw new BadRequestException(`L'organisation Weezevent n'est pas configurée pour cette intégration.`);
+        }
+
+        // Refuser si un job est déjà en cours pour cette intégration
+        const running = await this.prisma.weezeventSyncJob.findFirst({
+            where: { integrationId: dto.integrationId, status: 'COLLECTING' },
+            select: { id: true },
+        });
+        if (running) {
+            throw new BadRequestException(`Un job de sync est déjà en cours (jobId: ${running.id}).`);
+        }
+
+        const job = await this.prisma.weezeventSyncJob.create({
+            data: {
+                tenantId,
+                integrationId: dto.integrationId,
+                fromDate: new Date(dto.fromDate),
+                toDate: new Date(dto.toDate),
+                status: 'PENDING',
+            },
+        });
+
+        // Lancer collect + insert en background (sans await)
+        this.collectWorker.start(job.id).catch(err =>
+            this.logger.error(`[startSyncJob] CollectWorker crash for job ${job.id}: ${err.message}`),
+        );
+        this.insertWorker.watch(job.id).catch(err =>
+            this.logger.error(`[startSyncJob] InsertWorker crash for job ${job.id}: ${err.message}`),
+        );
+
+        this.logger.log(`Job de sync démarré: jobId=${job.id} intégration=${dto.integrationId} ${dto.fromDate} → ${dto.toDate}`);
+
+        return { jobId: job.id, status: 'PENDING' };
+    }
+
+    /**
+     * Retourne l'état en temps réel d'un job de sync.
+     * Le frontend poll cet endpoint toutes les 3s.
+     */
+    @Get('sync/status/:jobId')
+    @ApiOperation({ summary: 'État d\'un job de synchronisation' })
+    @ApiParam({ name: 'jobId', description: 'ID du job retourné par POST /sync/start' })
+    @ApiResponse({ status: 200, description: 'État du job' })
+    async getSyncJobStatus(
+        @CurrentUser() user: any,
+        @Param('jobId') jobId: string,
+    ) {
+        const tenantId = user.tenantId;
+        const job = await this.prisma.weezeventSyncJob.findFirst({
+            where: { id: jobId, tenantId },
+            select: {
+                id: true,
+                status: true,
+                fromDate: true,
+                toDate: true,
+                totalCollected: true,
+                totalInserted: true,
+                totalChunks: true,
+                processedChunks: true,
+                collectDone: true,
+                errorMessage: true,
+                startedAt: true,
+                completedAt: true,
+            },
+        });
+
+        if (!job) throw new NotFoundException(`Job ${jobId} introuvable.`);
+
+        const collectProgress = job.totalChunks > 0
+            ? Math.round((job.processedChunks / job.totalChunks) * 100)
+            : 0;
+        const insertProgress = job.totalCollected > 0
+            ? Math.round((job.totalInserted / job.totalCollected) * 100)
+            : 0;
+
+        return {
+            jobId: job.id,
+            status: job.status,
+            fromDate: job.fromDate,
+            toDate: job.toDate,
+            totalCollected: job.totalCollected,
+            totalInserted: job.totalInserted,
+            totalChunks: job.totalChunks,
+            processedChunks: job.processedChunks,
+            collectDone: job.collectDone,
+            collectProgress,
+            insertProgress,
+            errorMessage: job.errorMessage,
+            startedAt: job.startedAt,
+            completedAt: job.completedAt,
+        };
+    }
+
+    /**
+     * Liste les jobs de sync pour une intégration donnée.
+     */
+    @Get('sync/jobs')
+    @ApiOperation({ summary: 'Lister les jobs de sync pour une intégration' })
+    @ApiQuery({ name: 'integrationId', required: true, description: 'ID de l\'intégration' })
+    @ApiResponse({ status: 200, description: 'Liste des jobs' })
+    async listSyncJobs(
+        @CurrentUser() user: any,
+        @Query('integrationId') integrationId: string,
+    ) {
+        const tenantId = user.tenantId;
+        const jobs = await this.prisma.weezeventSyncJob.findMany({
+            where: { tenantId, integrationId },
+            orderBy: { startedAt: 'desc' },
+            take: 20,
+            select: {
+                id: true,
+                status: true,
+                fromDate: true,
+                toDate: true,
+                totalCollected: true,
+                totalInserted: true,
+                startedAt: true,
+                completedAt: true,
+            },
+        });
+        return { data: jobs };
+    }
+
+    /**
+     * Retourne des statistiques sur les transactions couvertes par un job de sync.
+     * Calcule le nombre distinct d'événements, locations et produits dans la plage de dates du job.
+     */
+    @Get('sync/jobs/:jobId/stats')
+    @ApiOperation({ summary: 'Statistiques d\'un job de sync (transactions, events, locations, produits)' })
+    @ApiParam({ name: 'jobId', description: 'ID du job' })
+    @ApiResponse({ status: 200, description: 'Statistiques du job' })
+    async getSyncJobStats(
+        @CurrentUser() user: any,
+        @Param('jobId') jobId: string,
+    ) {
+        const tenantId = user.tenantId;
+
+        const job = await this.prisma.weezeventSyncJob.findFirst({
+            where: { id: jobId, tenantId },
+            select: { id: true, integrationId: true, fromDate: true, toDate: true, totalCollected: true, totalInserted: true },
+        });
+        if (!job) throw new NotFoundException(`Job ${jobId} introuvable.`);
+
+        const where = {
+            tenantId,
+            integrationId: job.integrationId,
+            transactionDate: { gte: job.fromDate, lte: job.toDate },
+        };
+
+        const [transactionCount, eventGroups, locationGroups, productGroups] = await Promise.all([
+            this.prisma.weezeventTransaction.count({ where }),
+            this.prisma.weezeventTransaction.groupBy({
+                by: ['eventId'],
+                where: { ...where, eventId: { not: null } },
+            }),
+            this.prisma.weezeventTransaction.groupBy({
+                by: ['locationId'],
+                where: { ...where, locationId: { not: null } },
+            }),
+            this.prisma.weezeventTransactionItem.groupBy({
+                by: ['productId'],
+                where: {
+                    productId: { not: null },
+                    transaction: where,
+                },
+            }),
+        ]);
+
+        return {
+            jobId,
+            transactions: transactionCount,
+            events: eventGroups.length,
+            locations: locationGroups.length,
+            products: productGroups.length,
+        };
+    }
+
+    /**
+     * Supprime un job de sync (et ses chunks via cascade).
+     * Interdit si le job est encore actif (COLLECTING ou INSERTING).
+     */
+    @Delete('sync/jobs/:jobId')
+    @ApiOperation({ summary: 'Supprimer un job de sync' })
+    @ApiParam({ name: 'jobId', description: 'ID du job à supprimer' })
+    @ApiResponse({ status: 200, description: 'Job supprimé' })
+    async deleteSyncJob(
+        @CurrentUser() user: any,
+        @Param('jobId') jobId: string,
+    ) {
+        const tenantId = user.tenantId;
+
+        const job = await this.prisma.weezeventSyncJob.findFirst({
+            where: { id: jobId, tenantId },
+            select: { id: true, status: true, startedAt: true },
+        });
+
+        if (!job) {
+            throw new NotFoundException(`Job de sync ${jobId} introuvable.`);
+        }
+
+        // Bloquer uniquement si le job a démarré il y a moins de 2 minutes
+        // (jobs bloqués par un ancien bug ou un redémarrage serveur peuvent être supprimés)
+        if (job.status === 'COLLECTING' || job.status === 'INSERTING') {
+            const ageMs = Date.now() - new Date(job.startedAt).getTime();
+            if (ageMs < 2 * 60 * 1000) {
+                throw new BadRequestException(`Impossible de supprimer un job démarré il y a moins de 2 minutes (status: ${job.status}).`);
+            }
+            this.logger.warn(`[deleteSyncJob] Suppression forcée d'un job bloqué: ${jobId} status=${job.status}`);
+        }
+
+        await this.prisma.weezeventSyncJob.delete({ where: { id: jobId } });
+
+        return { deleted: true, jobId };
     }
 }

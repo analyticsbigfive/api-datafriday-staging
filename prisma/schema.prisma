@@ -241,6 +241,7 @@ model WeezeventIntegration {
   productComponents WeezeventProductComponent[]
   syncStates        WeezeventSyncState[]
   webhookEvents     WeezeventWebhookEvent[]
+  syncJobs          WeezeventSyncJob[]
 
   @@index([tenantId])
   @@index([tenantId, enabled])
@@ -1126,6 +1127,48 @@ model WeezeventProductComponent {
   @@index([integrationId])
   @@index([productId])
   @@index([weezeventId])
+}
+
+// ==================== WEEZEVENT SYNC JOBS ====================
+
+model WeezeventSyncJob {
+  id              String    @id @default(cuid())
+  tenantId        String
+  integrationId   String
+  fromDate        DateTime
+  toDate          DateTime
+  status          String    @default("PENDING") // PENDING | COLLECTING | COMPLETED | FAILED
+
+  totalCollected  Int       @default(0)
+  totalInserted   Int       @default(0)
+  totalChunks     Int       @default(0)
+  processedChunks Int       @default(0)
+  collectDone     Boolean   @default(false)
+
+  errorMessage    String?
+  startedAt       DateTime  @default(now())
+  completedAt     DateTime?
+
+  integration WeezeventIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  chunks      WeezeventSyncChunk[]
+
+  @@index([integrationId, status])
+  @@index([tenantId, integrationId])
+}
+
+model WeezeventSyncChunk {
+  id        String   @id @default(cuid())
+  jobId     String
+  fromDate  DateTime
+  toDate    DateTime
+  status    String   @default("PENDING") // PENDING | PROCESSING | DONE | FAILED
+  itemCount Int      @default(0)
+  rawData   Json
+  createdAt DateTime @default(now())
+
+  job WeezeventSyncJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, status])
 }
 
 model WeezeventOrder {

@@ -1,24 +1,30 @@
 export interface WeezeventTransaction {
     id: number;
-    application_id: number;
-    event_id: number;
-    event_name: string;
+    application_id: number | null;
+    event_id: number | null;
+    event_name: string | null;       // null pour les transactions POS sans événement billetterie
     fundation_id: number;
     fundation_name: string;
-    location_id: number;
-    location_name: string;
-    seller_id: number;
-    seller_wallet_id: number;
+    location_id: number | null;
+    location_name: string | null;
+    seller_id: number | null;
+    seller_wallet_id: number | null;
     status: 'W' | 'V' | 'C' | 'R'; // Waiting, Validated, Cancelled, Refunded
     created: string;
-    updated: string;
+    modified?: string | null;
+    validated?: string | null;
+    started_at?: string | null;
+    removed?: string | null;
+    transaction_identifiers?: Record<string, unknown>;
     rows: WeezeventTransactionRow[];
 }
 
 export interface WeezeventTransactionRow {
     id: number;
     item_id: number;
-    compound_id: number;
+    item_name?: string | null;
+    compound_id: number | null;
+    compound_name?: string | null;
     component: boolean;
     unit_price: number;
     vat: number;
@@ -29,13 +35,14 @@ export interface WeezeventTransactionRow {
 export interface WeezeventPayment {
     id: number;
     wallet_id: number;
-    balance_id: number;
+    balance_id: number | null;
     amount: number;
     amount_vat: number;
     currency_id: number;
     quantity: number;
-    payment_method_id: number;
-    invoice_id: number;
+    payment_method_id: number | null;
+    payment_method_name?: string | null;
+    invoice_id: number | null;
 }
 
 export interface WeezeventWallet {

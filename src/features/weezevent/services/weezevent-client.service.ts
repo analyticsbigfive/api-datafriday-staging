@@ -46,11 +46,11 @@ export class WeezeventClientService {
         }
 
         if (options?.fromDate) {
-            params.from_date = options.fromDate.toISOString();
+            params.created_at__gte = options.fromDate.toISOString();
         }
 
         if (options?.toDate) {
-            params.to_date = options.toDate.toISOString();
+            params.created_at__lte = options.toDate.toISOString();
         }
 
         if (options?.eventId) {

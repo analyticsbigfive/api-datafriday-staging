@@ -16,6 +16,8 @@ import { OnboardingModule } from '../onboarding/onboarding.module';
 import { SyncTrackerService } from './services/sync-tracker.service';
 import { WeezeventCronService } from './services/weezevent-cron.service';
 import { WeezeventIncrementalSyncService } from './services/weezevent-incremental-sync.service';
+import { WeezeventCollectWorkerService } from './services/weezevent-collect-worker.service';
+import { WeezeventInsertWorkerService } from './services/weezevent-insert-worker.service';
 
 @Module({
     imports: [
@@ -41,6 +43,8 @@ import { WeezeventIncrementalSyncService } from './services/weezevent-incrementa
         WebhookEventHandler,
         SyncTrackerService,
         WeezeventCronService,
+        WeezeventCollectWorkerService,
+        WeezeventInsertWorkerService,
     ],
     exports: [
         WeezeventClientService,

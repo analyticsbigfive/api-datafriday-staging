@@ -741,16 +741,28 @@ export class WeezeventIncrementalSyncService {
 
         // ── 4. Build transaction list (synchronous — map lookups only) ────────
         const toCreate: any[] = [];
+        // itemsByTxWeezeventId stores rows per transaction for WeezeventTransactionItem insertion
+        const itemsByTxWeezeventId = new Map<string, any[]>();
 
         for (const apiTransaction of transactions) {
             try {
                 const weezeventId = apiTransaction.id.toString();
-                if (existingIds.has(weezeventId)) continue;
 
                 const transactionStatus = apiTransaction.status as any;
                 const statusValue = typeof transactionStatus === 'object' && transactionStatus?.name
                     ? transactionStatus.name
                     : (typeof transactionStatus === 'string' ? transactionStatus : 'unknown');
+
+                // Seules les transactions Validated (V) sont insérées — W/C/R ignorées
+                if (statusValue !== 'V') continue;
+
+                // Collect rows for all V transactions (new + existing) to backfill missing items
+                const txRows: any[] = (apiTransaction as any).rows ?? [];
+                if (txRows.length > 0) {
+                    itemsByTxWeezeventId.set(weezeventId, txRows);
+                }
+
+                if (existingIds.has(weezeventId)) continue;
 
                 const rawTx = apiTransaction as any;
                 const dateStr = rawTx.created || rawTx.updated || rawTx.validated || rawTx.date || rawTx.created_at;
@@ -771,8 +783,8 @@ export class WeezeventIncrementalSyncService {
                 if (apiLocationId && !resolvedLocationId) this.logger.warn(`Transaction ${weezeventId} references location ${apiLocationId} not found in DB`);
                 if (apiMerchantId && !resolvedMerchantId) this.logger.warn(`Transaction ${weezeventId} references merchant ${apiMerchantId} not found in DB`);
 
-                const txRows: any[] = (apiTransaction as any).rows ?? [];
-                const totalAmountCents = txRows.reduce((sum: number, row: any) =>
+                const txRowsForAmount: any[] = itemsByTxWeezeventId.get(weezeventId) ?? [];
+                const totalAmountCents = txRowsForAmount.reduce((sum: number, row: any) =>
                     sum + (row.payments ?? []).reduce((s: number, p: any) => s + (p.amount ?? 0), 0), 0);
 
                 toCreate.push({
@@ -798,13 +810,67 @@ export class WeezeventIncrementalSyncService {
             }
         }
 
-        // ── 5. Batch insert ───────────────────────────────────────────────────
+        // ── 5. Batch insert transactions ──────────────────────────────────────
         if (toCreate.length > 0) {
             const createResult = await this.prisma.weezeventTransaction.createMany({
                 data: toCreate,
                 skipDuplicates: true,
             });
             result.created = createResult.count;
+        }
+
+        // ── 6. Insert WeezeventTransactionItem rows (new + backfill existing) ─
+        if (itemsByTxWeezeventId.size > 0) {
+            const allWeezeventIds = [...itemsByTxWeezeventId.keys()];
+
+            // Get DB ids for all V transactions in this batch
+            const dbTxs = await this.prisma.weezeventTransaction.findMany({
+                where: { tenantId, integrationId, weezeventId: { in: allWeezeventIds } },
+                select: { id: true, weezeventId: true },
+            });
+
+            // Find which transactions already have items (to avoid duplicates)
+            const txIdsWithItems = new Set<string>();
+            if (dbTxs.length > 0) {
+                const existingItems = await this.prisma.weezeventTransactionItem.findMany({
+                    where: { transactionId: { in: dbTxs.map(t => t.id) } },
+                    select: { transactionId: true },
+                    distinct: ['transactionId'],
+                });
+                for (const item of existingItems) txIdsWithItems.add(item.transactionId);
+            }
+
+            const itemsToInsert: any[] = [];
+            for (const tx of dbTxs) {
+                // Skip transactions that already have items (idempotency)
+                if (txIdsWithItems.has(tx.id)) continue;
+
+                const rows = itemsByTxWeezeventId.get(tx.weezeventId) ?? [];
+                for (const row of rows) {
+                    const productWid = String(row.item_id ?? '');
+                    const resolvedProductId = productWid ? (productIdMap.get(productWid) ?? null) : null;
+                    const qty = (row.payments ?? []).reduce((s: number, p: any) => s + (p.quantity ?? 1), 0) || 1;
+                    itemsToInsert.push({
+                        transactionId: tx.id,
+                        weezeventItemId: row.id?.toString() ?? null,
+                        productId: resolvedProductId,
+                        productName: row.item_name ?? null,
+                        compoundId: null,
+                        quantity: qty,
+                        unitPrice: (row.unit_price ?? 0) / 100,
+                        vat: row.vat ?? 0,
+                        reduction: (row.reduction ?? 0) / 100,
+                        rawData: row,
+                    });
+                }
+            }
+
+            if (itemsToInsert.length > 0) {
+                await this.prisma.weezeventTransactionItem.createMany({
+                    data: itemsToInsert,
+                    skipDuplicates: true,
+                });
+            }
         }
 
         return result;

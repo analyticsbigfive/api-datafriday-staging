@@ -435,10 +435,12 @@ export class SpacesController {
     @CurrentUser() user: any,
     @Query('page') page = '1',
     @Query('limit') limit = '20',
+    @Query('granular') granular = '0',
   ) {
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10) || 20));
-    return this.spacesService.getShopDetails(id, user.tenantId, pageNum, limitNum);
+    const includeGranular = granular === '1' || granular === 'true';
+    return this.spacesService.getShopDetails(id, user.tenantId, pageNum, limitNum, includeGranular);
   }
 
   /**

@@ -797,9 +797,9 @@ export class SpacesService {
    * Delegates to the Supabase PostgreSQL RPC `get_space_shop_details`,
    * collapsing 8 sequential DB round-trips into a single network call (~2s → ~300ms).
    */
-  async getShopDetails(spaceId: string, tenantId: string, page = 1, limit = 20) {
+  async getShopDetails(spaceId: string, tenantId: string, page = 1, limit = 20, includeGranular = false) {
     const rows = await this.prisma.$queryRaw<Array<{ get_space_shop_details: any }>>`
-      SELECT get_space_shop_details(${spaceId}, ${tenantId}, ${page}::int, ${limit}::int)
+      SELECT get_space_shop_details(${spaceId}, ${tenantId}, ${page}::int, ${limit}::int, ${includeGranular}::boolean)
     `;
     const data = rows[0]?.get_space_shop_details;
     if (!data || data.__error === 'space_not_found') {
@@ -813,29 +813,75 @@ export class SpacesService {
    * Returns one record per (minute, spaceElementId, weezeventProductId) combination.
    */
   async getEventTimeline(spaceId: string, eventId: string, tenantId: string) {
-    // Verify space belongs to tenant
-    await this.findOne(spaceId, tenantId);
+    // All independent queries run in parallel: ownership check, event dates (tried
+    // against both DataFriday Event and WeezeventEvent so the frontend can pass
+    // either a DataFriday UUID or a WeezeventEvent CUID), integration scope, and
+    // shop IDs resolved from plan floors + forecourt.
+    const [, datafridayEvent, weezeventEvent, locationMapping, shopIds] = await Promise.all([
+      this.findOne(spaceId, tenantId),
+      this.prisma.event.findFirst({
+        where: { id: eventId, tenantId, spaceId },
+        select: { eventDate: true, eventEndDate: true },
+      }),
+      this.prisma.weezeventEvent.findFirst({
+        where: { id: eventId, tenantId },
+        select: { startDate: true, endDate: true },
+      }),
+      this.prisma.weezeventLocationSpaceMapping.findFirst({
+        where: { tenantId, spaceId },
+        select: { weezeventLocationId: true },
+      }),
+      this.prisma.config.findMany({
+        where: { space: { id: spaceId, tenantId } },
+        select: { id: true },
+      }).then(async (configs) => {
+        const configIds = configs.map(c => c.id);
+        const [floors, forecourt] = await Promise.all([
+          this.prisma.spaceElement.findMany({
+            where: { floor: { configId: { in: configIds } }, type: { in: ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack', 'fnb_icecream', 'merchshop'] } },
+            select: { id: true },
+          }),
+          this.prisma.spaceElement.findMany({
+            where: { forecourt: { configId: { in: configIds } }, type: { in: ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack', 'fnb_icecream', 'merchshop'] } },
+            select: { id: true },
+          }),
+        ]);
+        return [...floors, ...forecourt].map(s => s.id);
+      }),
+    ]);
 
-    // Get mapped shop IDs for this space to scope the join
-    const configs = await this.prisma.config.findMany({
-      where: { space: { id: spaceId, tenantId } },
-      select: { id: true },
-    });
-    const configIds = configs.map(c => c.id);
+    // Resolve date window: prefer DataFriday Event (accurate multi-day), fall back to
+    // WeezeventEvent (when the frontend passes a Weezevent CUID instead of a DataFriday UUID).
+    const resolvedEventDate: Date | null = datafridayEvent
+      ? new Date(datafridayEvent.eventDate)
+      : weezeventEvent?.startDate
+        ? new Date(weezeventEvent.startDate)
+        : null;
 
-    const shopsFromFloors = await this.prisma.spaceElement.findMany({
-      where: { floor: { configId: { in: configIds } }, type: { in: ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack', 'fnb_icecream', 'merchshop'] } },
-      select: { id: true },
-    });
-    const shopsFromForecourt = await this.prisma.spaceElement.findMany({
-      where: { forecourt: { configId: { in: configIds } }, type: { in: ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack', 'fnb_icecream', 'merchshop'] } },
-      select: { id: true },
-    });
-    const shopIds = [...shopsFromFloors, ...shopsFromForecourt].map(s => s.id);
+    const resolvedEndDate: Date | null = datafridayEvent
+      ? new Date(datafridayEvent.eventEndDate ?? datafridayEvent.eventDate)
+      : weezeventEvent?.endDate
+        ? new Date(weezeventEvent.endDate)
+        : resolvedEventDate;
 
+    // Event not found in either table → nothing to show
+    if (!resolvedEventDate) return [];
     if (shopIds.length === 0) return [];
 
-    const rows: any[] = await this.prisma.$queryRaw`
+    // Date window: event day (or multi-day if eventEndDate/endDate is set)
+    const eventDate = resolvedEventDate;
+    const windowEnd = new Date(resolvedEndDate!);
+    windowEnd.setDate(windowEnd.getDate() + 1);
+
+    // Scope transactions to the integration that feeds this space (étape 1 du wizard).
+    // WeezeventLocationSpaceMapping.weezeventLocationId stores the integrationId.
+    // If no mapping yet, fall back to tenant-wide (degraded mode, broader scope).
+    const integrationId = locationMapping?.weezeventLocationId ?? null;
+    const integrationClause = integrationId
+      ? Prisma.sql`AND t."integrationId" = ${integrationId}`
+      : Prisma.sql``;
+
+    const rows: any[] = await this.prisma.$queryRaw(Prisma.sql`
       SELECT
         TO_CHAR(DATE_TRUNC('minute', t."transactionDate"), 'HH24:MI')    AS minute,
         mem."spaceElementId"                                              AS "shopId",
@@ -874,15 +920,17 @@ export class SpacesService {
       LEFT JOIN "ProductCategory" pc
         ON pc.id = mi."categoryId"
       WHERE t."tenantId" = ${tenantId}
-        AND t."eventId"  = ${eventId}
-        AND t.status     = 'V'
+        ${integrationClause}
+        AND t."transactionDate" >= ${eventDate}
+        AND t."transactionDate" <  ${windowEnd}
+        AND t.status = 'V'
       GROUP BY
         DATE_TRUNC('minute', t."transactionDate"),
         mem."spaceElementId", se.name, se.type, se.attributes,
         ti."productId", wpm."menuItemId", mi.name, pt.name, pc.name,
         p."vatRate"
       ORDER BY minute ASC
-    `;
+    `);
 
     return rows.map((r: any) => ({
       minute:           r.minute,

@@ -1,16 +1,12 @@
--- Migration: get_space_shop_details RPC
--- Replaces 8 sequential DB round-trips in NestJS getShopDetails with a single SQL call.
+-- Migration: fix granular revenue + eventId alignment
 --
--- Performance strategy (Option A — split granular):
---   p_include_granular = false (default) → returns shops + events + meta in ~1-2s.
---   p_include_granular = true            → additionally returns shopGranularData
---                                          (heavy join, loaded in background).
---   Pre-compute v_location_ids (small set) so all WeezeventTransaction queries use the
---   indexed (tenantId, locationId) columns instead of joining through the mapping table.
-
--- Drop the old 4-param signature so the 5-param-with-default version below
--- becomes the canonical implementation reachable by all callers.
-DROP FUNCTION IF EXISTS get_space_shop_details(text, text, int, int);
+-- Issues fixed:
+--   1. Granular records had `revenueHt` but no `revenue` alias → all CA metrics were 0
+--   2. Granular records used srma.weezeventEventId (WeezeventEvent CUID) as eventId,
+--      but state.events uses DataFriday Event UUIDs → filter mismatch, events returned
+--      as WeezeventEvents with attendance data are now the primary source
+--   3. menuItemId was wrongly set to shopId — fixed to NULL (shop-level aggregates
+--      have no per-product breakdown, so NULL is correct and avoids bad costMap lookups)
 
 CREATE OR REPLACE FUNCTION get_space_shop_details(
   p_space_id        text,
@@ -28,13 +24,12 @@ DECLARE
   v_config_ids        text[];
   v_shop_ids          text[];
   v_shop_ids_param    text[];
-  v_location_ids      text[];   -- weezevent locationIds mapped to this space's shops
+  v_location_ids      text[];
   v_eff_limit         int;
   v_offset            int;
   v_total_events      bigint;
   v_paginated_ids     text[];
 
-  -- Output fragments
   v_shops_json        jsonb;
   v_granular_json     jsonb;
   v_events_json       jsonb;
@@ -48,7 +43,6 @@ BEGIN
   END IF;
 
   -- ── RTT A: config IDs for this space ─────────────────────────────────────
-  -- Config has no tenantId; ownership is guaranteed via Space (already checked above)
   SELECT ARRAY_AGG(c.id) INTO v_config_ids
   FROM "Config" c
   WHERE c."spaceId" = p_space_id;
@@ -63,7 +57,7 @@ BEGIN
     );
   END IF;
 
-  -- ── RTT B: shop element IDs (floors + forecourts unified) ─────────────────
+  -- ── RTT B: shop element IDs ───────────────────────────────────────────────
   SELECT ARRAY_AGG(se.id) INTO v_shop_ids
   FROM "SpaceElement" se
   WHERE se.type IN ('shop','fnb_food','fnb_beverages','fnb_bar','fnb_snack','fnb_icecream','merchshop')
@@ -79,33 +73,25 @@ BEGIN
       )
     );
 
-  -- Guard against empty spaces
   v_shop_ids_param := COALESCE(v_shop_ids, ARRAY['__no_shops__'::text]);
 
-  -- Pagination params
   v_eff_limit := GREATEST(1, LEAST(200, p_limit));
   v_offset    := GREATEST(0, (p_page - 1) * p_limit);
 
-  -- ── KEY OPTIMISATION: resolve locationIds once (small set) ───────────────
-  -- WeezeventLocationShopMapping has O(shops) rows for this space — typically < 100.
-  -- We compute the locationId set here so all downstream queries filter
-  -- WeezeventTransaction by locationId (indexed) instead of joining the mapping.
+  -- ── KEY OPTIMISATION: resolve locationIds once ───────────────────────────
   SELECT ARRAY_AGG(DISTINCT "weezeventLocationId") INTO v_location_ids
   FROM "WeezeventLocationShopMapping"
   WHERE "tenantId" = p_tenant_id
     AND "spaceElementId" = ANY(v_shop_ids_param);
 
-  -- No Weezevent mappings → return shops only, no transaction data
   IF v_location_ids IS NULL OR array_length(v_location_ids, 1) = 0 THEN
-    -- Still build the shops list below; skip granular + events
     v_total_events  := 0;
     v_paginated_ids := ARRAY[]::text[];
     v_granular_json := '[]'::jsonb;
     v_events_json   := '[]'::jsonb;
     v_cost_map_json := '{}'::jsonb;
   ELSE
-    -- ── RTT E: total event count + paginated event IDs ──────────────────────
-    -- Single scan of WeezeventTransaction filtered by locationId (indexed).
+    -- ── RTT E: paginated WeezeventEvent IDs ─────────────────────────────────
     CREATE TEMP TABLE _space_event_ids ON COMMIT DROP AS
       SELECT DISTINCT we.id, we."startDate"
       FROM "WeezeventTransaction" t
@@ -118,7 +104,6 @@ BEGIN
 
     SELECT COUNT(*) INTO v_total_events FROM _space_event_ids;
 
-    -- Paginated event IDs
     SELECT ARRAY_AGG(id ORDER BY "startDate" DESC NULLS LAST) INTO v_paginated_ids
     FROM (
       SELECT id, "startDate"
@@ -127,26 +112,27 @@ BEGIN
       LIMIT v_eff_limit OFFSET v_offset
     ) sub;
 
-    -- ── RTT F: granular per-event × shop — read from SpaceRevenueMinuteAgg ──
-    -- Fast path: aggregated data already pre-computed by the BullMQ aggregation worker.
-    -- Avoids the 31s raw-transaction scan; falls back to [] if no agg data exists yet.
-    --
-    -- NOTE: SpaceRevenueMinuteAgg.spaceElementId stores MenuItem.id (not SpaceElement.id).
-    -- The real shop (SpaceElement) is resolved via weezeventLocationId →
-    -- WeezeventLocationShopMapping → SpaceElement. Filter uses v_location_ids (indexed).
+    -- ── RTT F: granular per-event × shop ─────────────────────────────────────
+    -- FIX 1: added 'revenue' alias (= revenueHt) so the frontend reads it correctly
+    -- FIX 2: eventId now resolves to the DataFriday Event UUID when available
+    --        (matched by date), falling back to WeezeventEvent CUID
+    -- FIX 3: menuItemId is NULL — these are shop-level aggregates, not per-product
     IF p_include_granular AND v_paginated_ids IS NOT NULL AND array_length(v_paginated_ids, 1) > 0 THEN
       SELECT jsonb_agg(
         jsonb_build_object(
           'elementId',        g."elementId",
-          'eventId',          g."datafridayEventId",
-          'datafridayEventId',g."datafridayEventId",
+          -- FIX 2: prefer DataFriday Event UUID (state.events uses these IDs)
+          'eventId',          COALESCE(g."datafridayEventId", g."weezeventEventId"),
+          'datafridayEventId',COALESCE(g."datafridayEventId", g."weezeventEventId"),
+          'weezeventEventId', g."weezeventEventId",
           'eventName',        g."eventName",
           'eventDate',        g."eventDate",
           'shopId',           g."shopId",
           'shopName',         g."shopName",
           'shopType',         g."shopType",
           'shopArea',         g."shopArea",
-          'menuItemId',       g."shopId",
+          -- FIX 3: NULL — shop-level aggregates have no per-product breakdown
+          'menuItemId',       NULL,
           'menuItemName',     NULL,
           'menuItemPicture',  NULL,
           'menuItemType',     NULL,
@@ -156,6 +142,8 @@ BEGIN
           'weezpaySubnature', NULL,
           'itemCost',         NULL,
           'revenueHt',        g."revenueHt",
+          -- FIX 1: revenue alias so the frontend metric calculator works
+          'revenue',          g."revenueHt",
           'quantity',         g."itemsCount",
           'transactionCount', g."transactionsCount"
         )
@@ -163,7 +151,9 @@ BEGIN
       FROM (
         SELECT
           (COALESCE(lsm."spaceElementId", srma."weezeventLocationId") || '_' || srma."weezeventEventId") AS "elementId",
-          srma."weezeventEventId"                                              AS "datafridayEventId",
+          srma."weezeventEventId"                                              AS "weezeventEventId",
+          -- FIX 2: join DataFriday Event by date to get its UUID
+          ev_df.id                                                             AS "datafridayEventId",
           COALESCE(ev_df.name, we.name, srma."weezeventEventId")              AS "eventName",
           COALESCE(ev_df."eventDate", we."startDate")                         AS "eventDate",
           COALESCE(lsm."spaceElementId", srma."weezeventLocationId")          AS "shopId",
@@ -179,13 +169,14 @@ BEGIN
          AND lsm."tenantId"            = p_tenant_id
         LEFT JOIN "SpaceElement" se
           ON se.id = lsm."spaceElementId"
-        LEFT JOIN "Event" ev_df
-          ON ev_df.id        = srma."weezeventEventId"
-         AND ev_df."tenantId" = p_tenant_id
         LEFT JOIN "WeezeventEvent" we
-          ON we."tenantId"   = p_tenant_id
-         AND we.id            = ANY(v_paginated_ids)
-         AND DATE(we."startDate") = DATE(ev_df."eventDate")
+          ON we.id = srma."weezeventEventId"
+         AND we."tenantId" = p_tenant_id
+        -- FIX 2: match DataFriday Event by date (day granularity) + spaceId
+        LEFT JOIN "Event" ev_df
+          ON DATE(ev_df."eventDate") = DATE(COALESCE(we."startDate", srma.minute))
+         AND ev_df."tenantId" = p_tenant_id
+         AND ev_df."spaceId"  = p_space_id
         WHERE srma."tenantId"             = p_tenant_id
           AND srma."spaceId"              = p_space_id
           AND srma."weezeventLocationId"  = ANY(v_location_ids)
@@ -199,24 +190,27 @@ BEGIN
       v_granular_json := '[]'::jsonb;
     END IF;
 
-    -- ── RTT G+H: attendee counts + event metadata ───────────────────────────
+    -- ── RTT G+H: events with attendance ──────────────────────────────────────
+    -- FIX: include both WeezeventEvent CUID and DataFriday Event UUID so the
+    -- frontend can match whichever ID it has in its events list
     SELECT jsonb_agg(
       jsonb_build_object(
-        'id',             ev.id,
-        'name',           COALESCE(ev.name, ev.id),
-        'eventName',      COALESCE(ev.name, ev.id),
-        'date',           ev."startDate",
-        'ticketsScanned', COALESCE(att."attendeeCount", 0),
-        'attendees',      COALESCE(att."attendeeCount", 0),
-        'isFuture',       (ev."startDate" IS NOT NULL AND ev."startDate" > NOW()),
-        'doorsOpening',   ev.metadata::jsonb->>'doorsOpening',
-        'showTime',       ev.metadata::jsonb->>'showTime',
-        'category',       ev.metadata::jsonb->>'category',
-        'eventType',      ev.metadata::jsonb->>'eventType',
-        'team',           ev.metadata::jsonb->>'team',
-        'visitingTeam',   ev.metadata::jsonb->>'visitingTeam',
-        'hasIntermission',(ev.metadata::jsonb->>'hasIntermission')::boolean
-      ) ORDER BY ev."startDate" DESC NULLS LAST
+        'id',              COALESCE(ev_df.id, ev.id),
+        'weezeventEventId',ev.id,
+        'name',            COALESCE(ev_df.name, ev.name, ev.id),
+        'eventName',       COALESCE(ev_df.name, ev.name, ev.id),
+        'date',            COALESCE(ev_df."eventDate", ev."startDate"),
+        'ticketsScanned',  COALESCE(att."attendeeCount", 0),
+        'attendees',       COALESCE(att."attendeeCount", 0),
+        'isFuture',        (ev."startDate" IS NOT NULL AND ev."startDate" > NOW()),
+        'doorsOpening',    ev.metadata::jsonb->>'doorsOpening',
+        'showTime',        ev.metadata::jsonb->>'showTime',
+        'category',        COALESCE(ev.metadata::jsonb->>'category', ev_df_cat.name),
+        'eventType',       COALESCE(ev.metadata::jsonb->>'eventType', ev_df_type.name),
+        'team',            ev.metadata::jsonb->>'team',
+        'visitingTeam',    ev.metadata::jsonb->>'visitingTeam',
+        'hasIntermission', (ev.metadata::jsonb->>'hasIntermission')::boolean
+      ) ORDER BY COALESCE(ev_df."eventDate", ev."startDate") DESC NULLS LAST
     ) INTO v_events_json
     FROM "WeezeventEvent" ev
     LEFT JOIN (
@@ -226,6 +220,13 @@ BEGIN
         AND "eventId"  = ANY(v_paginated_ids)
       GROUP BY "eventId"
     ) att ON att."eventId" = ev.id
+    -- FIX: join DataFriday Event to get its UUID as the primary id
+    LEFT JOIN "Event" ev_df
+      ON DATE(ev_df."eventDate") = DATE(ev."startDate")
+     AND ev_df."tenantId"  = p_tenant_id
+     AND ev_df."spaceId"   = p_space_id
+    LEFT JOIN "EventCategory" ev_df_cat   ON ev_df_cat.id  = ev_df."eventCategoryId"
+    LEFT JOIN "EventType"     ev_df_type  ON ev_df_type.id = ev_df."eventTypeId"
     WHERE ev.id         = ANY(v_paginated_ids)
       AND ev."tenantId" = p_tenant_id;
 
@@ -245,7 +246,7 @@ BEGIN
         SELECT t.id FROM "WeezeventTransaction" t
         WHERE t."tenantId"   = p_tenant_id
           AND t.status       = 'V'
-          AND t."locationId" = ANY(v_location_ids)   -- indexed
+          AND t."locationId" = ANY(v_location_ids)
           AND t."eventId"    = ANY(v_paginated_ids)
       )
         AND mi."totalCost" IS NOT NULL
@@ -253,9 +254,9 @@ BEGIN
     ) cost_data
     WHERE key IS NOT NULL;
 
-  END IF; -- end of Weezevent branch
+  END IF;
 
-  -- ── Build shops list (per-shop summary) ────────────────────────────────────
+  -- ── Build shops list ───────────────────────────────────────────────────────
   SELECT jsonb_agg(
     jsonb_build_object(
       'shopId',               se.id,
@@ -314,6 +315,5 @@ BEGIN
 END;
 $$;
 
--- Grant execute to the authenticated and service_role roles used by Supabase
 GRANT EXECUTE ON FUNCTION get_space_shop_details(text, text, int, int, boolean)
   TO authenticated, service_role, anon;

@@ -90,6 +90,7 @@ export class QueueService {
     tenantId: string,
     syncType: WeezeventSyncType,
     options?: DataSyncJobData['options'],
+    integrationId?: string,
   ): Promise<Job<DataSyncJobData>> {
     // Priority: events first (FK dependency), then transactions, then rest
     const priorityMap: Record<WeezeventSyncType, number> = {
@@ -108,6 +109,7 @@ export class QueueService {
         tenantId,
         syncType,
         options,
+        integrationId,
       },
       {
         priority: options?.fullSync

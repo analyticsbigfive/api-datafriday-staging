@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { RedisService } from '../../core/redis/redis.service';
 import { CreateMenuComponentDto } from './dto/create-menu-component.dto';
 import { UpdateMenuComponentDto } from './dto/update-menu-component.dto';
 
@@ -7,7 +8,18 @@ import { UpdateMenuComponentDto } from './dto/update-menu-component.dto';
 export class MenuComponentsService {
   private readonly logger = new Logger(MenuComponentsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private redis: RedisService,
+  ) {}
+
+  private cacheKey(tenantId: string, suffix = 'list') {
+    return `menu-components:${tenantId}:${suffix}`;
+  }
+
+  private async invalidateCache(tenantId: string) {
+    await this.redis.deletePattern(`datafriday:menu-components:${tenantId}:*`);
+  }
 
   private toDecimalOrUndefined(value: unknown): any {
     if (value === null || value === undefined || value === '') return undefined;
@@ -278,6 +290,7 @@ export class MenuComponentsService {
       }
 
       this.logger.log(`Menu component created: ${component.id}`);
+      await this.invalidateCache(tenantId);
       return component;
     } catch (error) {
       this.logger.error(`Failed to create menu component: ${error.message}`, error.stack);
@@ -295,22 +308,25 @@ export class MenuComponentsService {
   async findAll(tenantId: string, page = 1, limit = 100) {
     this.logger.log(`Fetching menu components for tenant ${tenantId} (page=${page}, limit=${limit})`);
     try {
-      const skip = (page - 1) * limit;
-      const [components, total] = await Promise.all([
-        this.prisma.menuComponent.findMany({
-          where: { tenantId, deletedAt: null },
-          orderBy: { name: 'asc' },
-          include: this.includeRelations,
-          skip,
-          take: limit,
-        }),
-        this.prisma.menuComponent.count({ where: { tenantId, deletedAt: null } }),
-      ]);
-      this.logger.log(`Found ${components.length}/${total} menu components`);
-      return {
-        data: components,
-        meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
-      };
+      const cacheKey = this.cacheKey(tenantId, `list:${page}:${limit}`);
+      return this.redis.getOrSet(cacheKey, async () => {
+        const skip = (page - 1) * limit;
+        const [components, total] = await Promise.all([
+          this.prisma.menuComponent.findMany({
+            where: { tenantId, deletedAt: null },
+            orderBy: { name: 'asc' },
+            include: this.includeRelations,
+            skip,
+            take: limit,
+          }),
+          this.prisma.menuComponent.count({ where: { tenantId, deletedAt: null } }),
+        ]);
+        this.logger.log(`Found ${components.length}/${total} menu components`);
+        return {
+          data: components,
+          meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+        };
+      }, { ttl: 60 });
     } catch (error) {
       this.logger.error(`Failed to fetch menu components: ${error.message}`, error.stack);
       throw error;
@@ -397,9 +413,11 @@ export class MenuComponentsService {
 
       if (ingredientsLines || childrenLines) {
         await this.refreshCosts(tenantId, { componentIds: [id] });
+        await this.invalidateCache(tenantId);
         return this.findOne(id, tenantId);
       }
 
+      await this.invalidateCache(tenantId);
       return component;
     } catch (error) {
       this.logger.error(`Failed to update menu component ${id}: ${error.message}`, error.stack);
@@ -481,6 +499,7 @@ export class MenuComponentsService {
     try {
       const result = await this.prisma.menuComponent.update({ where: { id }, data: { deletedAt: new Date() } });
       this.logger.log(`Menu component ${id} soft-deleted`);
+      await this.invalidateCache(tenantId);
       return result;
     } catch (error) {
       this.logger.error(`Failed to delete menu component ${id}: ${error.message}`, error.stack);

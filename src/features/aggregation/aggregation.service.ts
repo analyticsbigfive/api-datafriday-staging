@@ -350,6 +350,40 @@ export class AggregationService {
         data: { status: 'completed', completedAt: new Date(), transactionsProcessed: processedCount },
       });
       await job.updateProgress(100);
+
+      // Auto-sync attendees for each successfully processed event.
+      // Finds the matching WeezeventEvent(s) by date and queues an attendees sync
+      // job so that ticketsScanned / perCapita metrics are up to date automatically.
+      if (integrationId) {
+        for (const r of results) {
+          if (r.status !== 'success') continue;
+          try {
+            const eventDate = new Date(r.date);
+            const nextDay = new Date(eventDate);
+            nextDay.setDate(nextDay.getDate() + 1);
+            const weezeventEvents = await this.prisma.weezeventEvent.findMany({
+              where: {
+                tenantId,
+                integrationId,
+                startDate: { gte: eventDate, lt: nextDay },
+              },
+              select: { id: true },
+            });
+            for (const we of weezeventEvents) {
+              await this.queueService.queueWeezeventSyncType(
+                tenantId,
+                'attendees',
+                { eventId: we.id },
+                integrationId,
+              );
+              this.logger.log(`Auto-queued attendees sync for WeezeventEvent ${we.id} (event ${r.eventId})`);
+            }
+          } catch (e) {
+            // Non-blocking — attendees sync failure must not fail the aggregation job
+            this.logger.warn(`Auto-attendees sync skipped for event ${r.eventId}: ${e.message}`);
+          }
+        }
+      }
     } catch (err) {
       await this.prisma.aggregationJobLog.update({
         where: { id: jobLogId },

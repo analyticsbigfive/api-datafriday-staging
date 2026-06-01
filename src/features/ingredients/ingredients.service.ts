@@ -1,16 +1,28 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { RedisService } from '../../core/redis/redis.service';
 
 @Injectable()
 export class IngredientsService {
   private readonly logger = new Logger(IngredientsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private redis: RedisService,
+  ) {}
+
+  private cacheKey(tenantId: string, suffix = 'list') {
+    return `ingredients:${tenantId}:${suffix}`;
+  }
+
+  private async invalidateCache(tenantId: string) {
+    await this.redis.deletePattern(`datafriday:ingredients:${tenantId}:*`);
+  }
 
   async create(dto: any, tenantId: string) {
     this.logger.log(`Creating ingredient "${dto.name}" for tenant ${tenantId}`);
     try {
-      return await this.prisma.ingredient.create({
+      const result = await this.prisma.ingredient.create({
         data: {
           tenantId,
           name: dto.name,
@@ -26,6 +38,8 @@ export class IngredientsService {
           active: dto.active ?? true,
         },
       });
+      await this.invalidateCache(tenantId);
+      return result;
     } catch (error) {
       this.logger.error(`Failed to create ingredient: ${error.message}`, error.stack);
       if (error.code === 'P2003') {
@@ -41,19 +55,22 @@ export class IngredientsService {
   async findAll(tenantId: string, page = 1, limit = 100) {
     this.logger.log(`Fetching ingredients for tenant ${tenantId} (page=${page}, limit=${limit})`);
     try {
-      const skip = (page - 1) * limit;
-      const [data, total] = await Promise.all([
-        this.prisma.ingredient.findMany({
-          where: { tenantId, deletedAt: null },
-          orderBy: { name: 'asc' },
-          include: { marketPrice: true },
-          skip,
-          take: limit,
-        }),
-        this.prisma.ingredient.count({ where: { tenantId, deletedAt: null } }),
-      ]);
-      this.logger.log(`Found ${data.length}/${total} ingredients`);
-      return { data, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
+      const cacheKey = this.cacheKey(tenantId, `list:${page}:${limit}`);
+      return this.redis.getOrSet(cacheKey, async () => {
+        const skip = (page - 1) * limit;
+        const [data, total] = await Promise.all([
+          this.prisma.ingredient.findMany({
+            where: { tenantId, deletedAt: null },
+            orderBy: { name: 'asc' },
+            include: { marketPrice: true },
+            skip,
+            take: limit,
+          }),
+          this.prisma.ingredient.count({ where: { tenantId, deletedAt: null } }),
+        ]);
+        this.logger.log(`Found ${data.length}/${total} ingredients`);
+        return { data, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
+      }, { ttl: 60 });
     } catch (error) {
       this.logger.error(`Failed to fetch ingredients: ${error.message}`, error.stack);
       throw error;
@@ -115,6 +132,7 @@ export class IngredientsService {
         include: { marketPrice: true },
       });
       this.logger.log(`Ingredient ${id} updated`);
+      await this.invalidateCache(tenantId);
       return result;
     } catch (error) {
       this.logger.error(`Failed to update ingredient ${id}: ${error.message}`, error.stack);
@@ -137,6 +155,7 @@ export class IngredientsService {
         data: { deletedAt: new Date() },
       });
       this.logger.log(`Ingredient ${id} soft-deleted`);
+      await this.invalidateCache(tenantId);
       return result;
     } catch (error) {
       this.logger.error(`Failed to delete ingredient ${id}: ${error.message}`, error.stack);

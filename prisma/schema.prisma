@@ -594,6 +594,7 @@ model MarketPrice {
   packingWidth           Float?
   packingHeight          Float?
   packingLength          Float?
+  inventoryPackaging     String?
   tenantId               String
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
@@ -1452,6 +1453,8 @@ model MenuItem {
   comboItem            String?       // "Yes", "No" ou null
   numberOfPiecesRecipe Int?
   componentsData       Json?         // Pour stocker les components JSON de Figma
+  inventoryPackagingType String?     // Type de conditionnement inventaire (ex: Box, Bag)
+  inventoryNumberOfUnits Float?      // Nombre d'unités par conditionnement
   tenantId             String
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt

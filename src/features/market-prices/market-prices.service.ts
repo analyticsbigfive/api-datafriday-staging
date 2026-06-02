@@ -33,6 +33,7 @@ export class MarketPricesService {
           packingWidth: dto.packingWidth,
           packingHeight: dto.packingHeight,
           packingLength: dto.packingLength,
+          inventoryPackaging: dto.inventoryPackaging,
         },
         include: { supplierRel: true },
       });
@@ -253,6 +254,7 @@ export class MarketPricesService {
     if (dto.packingWidth !== undefined) updateData.packingWidth = dto.packingWidth;
     if (dto.packingHeight !== undefined) updateData.packingHeight = dto.packingHeight;
     if (dto.packingLength !== undefined) updateData.packingLength = dto.packingLength;
+    if (dto.inventoryPackaging !== undefined) updateData.inventoryPackaging = dto.inventoryPackaging;
 
     try {
       const price = await this.prisma.marketPrice.update({
@@ -331,6 +333,7 @@ export class MarketPricesService {
             packingWidth: dto.packingWidth,
             packingHeight: dto.packingHeight,
             packingLength: dto.packingLength,
+            inventoryPackaging: dto.inventoryPackaging,
           },
         });
         // Auto-create a corresponding Ingredient for Food/Beverage types

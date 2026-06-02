@@ -147,6 +147,8 @@ export class MenuItemsService {
           comboItem: dto.comboItem,
           numberOfPiecesRecipe: dto.numberOfPiecesRecipe,
           componentsData: dto.componentsData,
+          inventoryPackagingType: (dto as any).inventoryPackagingType ?? null,
+          inventoryNumberOfUnits: (dto as any).inventoryNumberOfUnits ?? null,
 
           ...(componentsLines
             ? {
@@ -234,6 +236,8 @@ export class MenuItemsService {
         comboItem: dto.comboItem,
         numberOfPiecesRecipe: dto.numberOfPiecesRecipe,
         componentsData: dto.componentsData,
+        inventoryPackagingType: (dto as any).inventoryPackagingType ?? null,
+        inventoryNumberOfUnits: (dto as any).inventoryNumberOfUnits ?? null,
       }));
 
       await this.prisma.menuItem.createMany({
@@ -324,6 +328,8 @@ export class MenuItemsService {
     if (dto.comboItem !== undefined) updateData.comboItem = dto.comboItem;
     if (dto.numberOfPiecesRecipe !== undefined) updateData.numberOfPiecesRecipe = dto.numberOfPiecesRecipe;
     if (dto.componentsData !== undefined) updateData.componentsData = dto.componentsData;
+    if ((dto as any).inventoryPackagingType !== undefined) updateData.inventoryPackagingType = (dto as any).inventoryPackagingType;
+    if ((dto as any).inventoryNumberOfUnits !== undefined) updateData.inventoryNumberOfUnits = (dto as any).inventoryNumberOfUnits;
 
     const componentsLines = Array.isArray((dto as any).components) ? (dto as any).components : undefined;
     const ingredientsLines = Array.isArray((dto as any).ingredients) ? (dto as any).ingredients : undefined;

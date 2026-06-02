@@ -149,6 +149,17 @@ export class CreateMenuItemDto {
   @IsOptional()
   componentsData?: any;
 
+  @ApiPropertyOptional({ description: 'Type de conditionnement inventaire (ex: Box, Bag, Pallet)' })
+  @IsOptional()
+  @IsString()
+  inventoryPackagingType?: string;
+
+  @ApiPropertyOptional({ description: "Nombre d'unités par conditionnement inventaire" })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  inventoryNumberOfUnits?: number;
+
   @ApiPropertyOptional({ description: 'Composants (source de vérité)', type: [MenuItemComponentLineDto] })
   @IsOptional()
   @IsArray()

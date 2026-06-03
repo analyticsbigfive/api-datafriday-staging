@@ -800,7 +800,6 @@ export class WeezeventIncrementalSyncService {
                     merchantName: apiTransaction.fundation_name,
                     locationId: resolvedLocationId,
                     locationName: apiTransaction.location_name,
-                    sellerId: apiTransaction.seller_id?.toString(),
                     rawData: apiTransaction as any,
                     syncedAt: new Date(),
                 });

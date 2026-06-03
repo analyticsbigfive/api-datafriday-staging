@@ -875,7 +875,6 @@ model WeezeventTransaction {
   locationName String?
 
   // Seller info
-  sellerId       String?
   sellerWalletId String?
 
   // Metadata

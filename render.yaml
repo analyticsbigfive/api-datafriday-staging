@@ -9,7 +9,7 @@ services:
     region: frankfurt  # ou oregon
     plan: free  # ou starter ($7/mois) pour plus de ressources
     buildCommand: npm install -g pnpm@10 && pnpm install --frozen-lockfile && npx prisma generate && npx @nestjs/cli build
-    startCommand: node dist/main
+    startCommand: npx prisma migrate deploy && node dist/main
     healthCheckPath: /api/v1/health
     envVars:
       - key: NODE_ENV
@@ -46,7 +46,7 @@ services:
     region: frankfurt
     plan: free
     buildCommand: npm install -g pnpm@10 && pnpm install --frozen-lockfile && npx prisma generate && npx @nestjs/cli build
-    startCommand: node dist/worker
+    startCommand: npx prisma migrate deploy && node dist/worker
     envVars:
       - key: NODE_ENV
         value: production

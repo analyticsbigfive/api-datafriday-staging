@@ -388,7 +388,6 @@ export class WeezeventTransactionSyncService {
                 merchantName: apiTransaction.fundation_name,
                 locationName: apiTransaction.location_name,
                 locationId: locationDbId,
-                sellerId: apiTransaction.seller_id?.toString(),
                 sellerWalletId: apiTransaction.seller_wallet_id?.toString(),
                 rawData: apiTransaction as any,
                 syncedAt: new Date(),

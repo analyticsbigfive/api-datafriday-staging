@@ -1789,6 +1789,64 @@ export class SpacesService {
   }
 
   /**
+   * Assign a list of SpaceElements to a given floor level within the same space.
+   * Finds or creates a Floor with the requested level in the element's "Weezevent Import" config.
+   */
+  async assignElementsToFloorLevel(spaceId: string, tenantId: string, elementIds: string[], level: number) {
+    const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId } });
+    if (!space) throw new Error('Space not found or access denied');
+
+    // Resolve floor name from level
+    let floorName: string;
+    if (level === 0) floorName = 'RDC';
+    else if (level < 0) floorName = `Sous-sol ${Math.abs(level)}`;
+    else floorName = `Étage ${level}`;
+
+    // Find or create the "Weezevent Import" config
+    let config = await this.prisma.config.findFirst({
+      where: { spaceId, name: 'Weezevent Import' },
+    });
+    if (!config) {
+      config = await this.prisma.config.create({
+        data: { spaceId, name: 'Weezevent Import', data: {} },
+      });
+    }
+
+    // Find or create the Floor at this level
+    let floor = await this.prisma.floor.findFirst({
+      where: { configId: config.id, level },
+    });
+    if (!floor) {
+      floor = await this.prisma.floor.create({
+        data: { configId: config.id, name: floorName, level, width: 800, height: 600, length: 100 },
+      });
+    }
+
+    // Verify all elements belong to this tenant's space, then move them to the floor
+    const updated: string[] = [];
+    for (const elementId of elementIds) {
+      const element = await this.prisma.spaceElement.findFirst({
+        where: { id: elementId },
+        include: {
+          floor: { include: { config: { include: { space: true } } } },
+          forecourt: { include: { config: { include: { space: true } } } },
+        },
+      });
+      if (!element) continue;
+      const elemSpace = element.floor?.config?.space ?? element.forecourt?.config?.space;
+      if (!elemSpace || elemSpace.tenantId !== tenantId || elemSpace.id !== spaceId) continue;
+
+      await this.prisma.spaceElement.update({
+        where: { id: elementId },
+        data: { floorId: floor.id, forecourtId: null },
+      });
+      updated.push(elementId);
+    }
+
+    return { floorId: floor.id, floorName, level, updatedElementIds: updated };
+  }
+
+  /**
    * Delete a configuration
    */
   async deleteConfiguration(configId: string, tenantId: string) {

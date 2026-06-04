@@ -710,6 +710,24 @@ export class SpacesController {
   ) {
     return this.spacesService.quickCreateElement(spaceId, user.tenantId, body);
   }
+
+  /**
+   * Assign a list of SpaceElements to a floor level (creates the floor if needed)
+   */
+  @Post(':id/assign-floor')
+  @Roles('ADMIN', 'MANAGER')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Assigner des shops à un étage' })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiBody({ schema: { type: 'object', properties: { elementIds: { type: 'array', items: { type: 'string' } }, level: { type: 'integer', example: 1 } }, required: ['elementIds', 'level'] } })
+  @ApiResponse({ status: 200, description: 'Shops assignés à l\'étage' })
+  async assignElementsToFloor(
+    @Param('id') spaceId: string,
+    @CurrentTenant() tenantId: string,
+    @Body() body: { elementIds: string[]; level: number },
+  ) {
+    return this.spacesService.assignElementsToFloorLevel(spaceId, tenantId, body.elementIds, body.level);
+  }
 }
 
 // ==================== CONFIGURATIONS CONTROLLER ====================

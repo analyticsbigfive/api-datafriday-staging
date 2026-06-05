@@ -1695,6 +1695,10 @@ model Event {
   hasOpeningAct    Boolean?
   hasIntermission  Boolean?
 
+  // Attendance
+  ticketsSold    Int?
+  ticketsScanned Int?
+
   // Revenue tracking (calculated)
   revenue          Decimal? @db.Decimal(12, 2)
   transactionCount Int?

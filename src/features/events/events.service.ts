@@ -73,6 +73,8 @@ export class EventsService {
         ...(dto.eventStartDate !== undefined && { eventStartDate: new Date(dto.eventStartDate) }),
         ...(dto.eventEndDate !== undefined && { eventEndDate: new Date(dto.eventEndDate) }),
         ...(dto.eventEndTime !== undefined && { eventEndTime: dto.eventEndTime }),
+        ...(dto.ticketsSold !== undefined && { ticketsSold: dto.ticketsSold }),
+        ...(dto.ticketsScanned !== undefined && { ticketsScanned: dto.ticketsScanned }),
       },
       include: this.includeRelations,
     });
@@ -127,6 +129,8 @@ export class EventsService {
         ...(dto.eventStartDate !== undefined && { eventStartDate: new Date(dto.eventStartDate) }),
         ...(dto.eventEndDate !== undefined && { eventEndDate: new Date(dto.eventEndDate) }),
         ...(dto.eventEndTime !== undefined && { eventEndTime: dto.eventEndTime }),
+        ...(dto.ticketsSold !== undefined && { ticketsSold: dto.ticketsSold }),
+        ...(dto.ticketsScanned !== undefined && { ticketsScanned: dto.ticketsScanned }),
       },
       include: this.includeRelations,
     });

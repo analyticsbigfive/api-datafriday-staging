@@ -19,4 +19,6 @@ export class CreateEventDto {
   @ApiPropertyOptional() @IsOptional() @IsDateString() eventStartDate?: string;
   @ApiPropertyOptional() @IsOptional() @IsDateString() eventEndDate?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() eventEndTime?: string;
+  @ApiPropertyOptional() @IsOptional() @IsInt() ticketsSold?: number;
+  @ApiPropertyOptional() @IsOptional() @IsInt() ticketsScanned?: number;
 }

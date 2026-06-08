@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateEventCategoryDto {
   @ApiProperty({ description: "Nom de la catégorie d'événement", example: 'Musique', maxLength: 100 })
@@ -12,4 +12,9 @@ export class CreateEventCategoryDto {
   @IsString()
   @IsNotEmpty()
   eventTypeId: string;
+
+  @ApiProperty({ description: 'Indique si la catégorie oppose une équipe à domicile', example: false, required: false, default: false })
+  @IsOptional()
+  @IsBoolean()
+  hasHomeTeam?: boolean;
 }

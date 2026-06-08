@@ -177,13 +177,13 @@ export class EventsService {
     });
   }
 
-  async createEventCategory(tenantId: string, data: { name: string; eventTypeId: string }) {
+  async createEventCategory(tenantId: string, data: { name: string; eventTypeId: string; hasHomeTeam?: boolean }) {
     return this.prisma.eventCategory.create({
-      data: { name: data.name, eventTypeId: data.eventTypeId, tenantId },
+      data: { name: data.name, eventTypeId: data.eventTypeId, hasHomeTeam: data.hasHomeTeam ?? false, tenantId },
     });
   }
 
-  async updateEventCategory(tenantId: string, id: string, data: { name?: string; eventTypeId?: string }) {
+  async updateEventCategory(tenantId: string, id: string, data: { name?: string; eventTypeId?: string; hasHomeTeam?: boolean }) {
     await this.findOwnedEventCategoryOrThrow(id, tenantId);
 
     if (data.eventTypeId !== undefined) {
@@ -220,6 +220,7 @@ export class EventsService {
             connect: { id: data.eventTypeId },
           },
         }),
+        ...(data.hasHomeTeam !== undefined && { hasHomeTeam: data.hasHomeTeam }),
       },
     });
   }

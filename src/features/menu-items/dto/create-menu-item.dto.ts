@@ -84,6 +84,18 @@ export class CreateMenuItemDto {
   @Transform(({ value }) => value || undefined)
   categoryId?: string;
 
+  @ApiPropertyOptional({ description: 'ID de la Brand' })
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) => value || undefined)
+  brandId?: string;
+
+  @ApiPropertyOptional({ description: 'ID du DisplayName (pour le reporting)' })
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) => value || undefined)
+  displayNameId?: string;
+
   @ApiProperty({ description: 'Prix de vente de base' })
   @IsNumber()
   @Type(() => Number)

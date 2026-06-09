@@ -46,6 +46,8 @@ export class MenuItemsService {
   private readonly includeRelations = {
     productType: true,
     productCategory: true,
+    brand: true,
+    displayName: true,
     components: {
       include: { component: true },
     },
@@ -135,6 +137,8 @@ export class MenuItemsService {
           name: dto.name,
           typeId: dto.typeId || null,
           categoryId: dto.categoryId || null,
+          brandId: dto.brandId || null,
+          displayNameId: dto.displayNameId || null,
           basePrice: dto.basePrice,
           totalCost: dto.totalCost,
           margin: dto.margin,
@@ -224,6 +228,8 @@ export class MenuItemsService {
         name: dto.name,
         typeId: dto.typeId || null,
         categoryId: dto.categoryId || null,
+        brandId: dto.brandId || null,
+        displayNameId: dto.displayNameId || null,
         basePrice: dto.basePrice,
         totalCost: dto.totalCost,
         margin: dto.margin,
@@ -316,6 +322,8 @@ export class MenuItemsService {
     if (dto.name !== undefined) updateData.name = dto.name;
     if (dto.typeId !== undefined) updateData.typeId = dto.typeId;
     if (dto.categoryId !== undefined) updateData.categoryId = dto.categoryId;
+    if (dto.brandId !== undefined) updateData.brandId = dto.brandId || null;
+    if (dto.displayNameId !== undefined) updateData.displayNameId = dto.displayNameId || null;
     if (dto.basePrice !== undefined) updateData.basePrice = dto.basePrice;
     if (dto.totalCost !== undefined) updateData.totalCost = dto.totalCost;
     if (dto.margin !== undefined) updateData.margin = dto.margin;

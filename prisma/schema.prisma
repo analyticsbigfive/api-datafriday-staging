@@ -1433,6 +1433,32 @@ model ProductCategory {
   @@index([name])
 }
 
+// ==================== BRANDS & DISPLAY NAMES ====================
+
+model Brand {
+  id        String   @id @default(cuid())
+  name      String
+  tenantId  String
+  createdAt DateTime @default(now())
+
+  menuItems MenuItem[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model DisplayName {
+  id        String   @id @default(cuid())
+  name      String
+  tenantId  String
+  createdAt DateTime @default(now())
+
+  menuItems MenuItem[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
 // ==================== MENU ITEMS ====================
 
 model MenuItem {
@@ -1440,6 +1466,8 @@ model MenuItem {
   name                 String
   typeId               String?       // FK to ProductType (optional)
   categoryId           String?       // FK to ProductCategory (optional)
+  brandId              String?       // FK to Brand (optional)
+  displayNameId        String?       // FK to DisplayName (optional)
   diet                 Diet[]
   allergens            String[]
   picture              String?
@@ -1462,6 +1490,8 @@ model MenuItem {
   tenant            Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   productType       ProductType?              @relation(fields: [typeId], references: [id])
   productCategory   ProductCategory?          @relation(fields: [categoryId], references: [id])
+  brand             Brand?                    @relation(fields: [brandId], references: [id])
+  displayName       DisplayName?              @relation(fields: [displayNameId], references: [id])
   components        MenuItemComponent[]
   ingredients       MenuItemIngredient[]
   packagings        MenuItemPackaging[]
@@ -1472,6 +1502,8 @@ model MenuItem {
   @@index([name])
   @@index([typeId])
   @@index([categoryId])
+  @@index([brandId])
+  @@index([displayNameId])
   @@index([readyForSale])
 }
 

@@ -257,8 +257,9 @@ export class SpacesService {
             createdAt: true,
             updatedAt: true,
           },
+          // oldest first so user-created configs precede auto-generated "Weezevent Import"
           orderBy: {
-            createdAt: 'desc',
+            createdAt: 'asc',
           },
         },
         _count: {
@@ -1215,7 +1216,90 @@ export class SpacesService {
         });
       }
 
-      // 2. Delete existing floors and their elements (cascade)
+      // 2a. Safety guard: preserve elements that have Weezevent mappings but are absent from
+      // the incoming JSON (can happen with legacy data created before the JSON-sync fix).
+      // We re-inject them into the floors payload so deleteMany + recreate keeps them intact.
+      if (dto.id) {
+        // Collect all element IDs already present in the incoming JSON payload
+        const incomingElementIds = new Set<string>();
+        for (const f of floors) {
+          for (const el of f.elements || []) {
+            if (el.id) incomingElementIds.add(el.id);
+          }
+        }
+        for (const fce of forecourt?.elements || []) {
+          if (fce.id) incomingElementIds.add(fce.id);
+        }
+
+        // Find existing elements in this config that have Weezevent mappings
+        const existingFloors = await tx.floor.findMany({
+          where: { configId: config.id },
+          include: { elements: true },
+        });
+        const allExistingElements = existingFloors.flatMap((f: any) => f.elements);
+        const existingIds = allExistingElements.map((e: any) => e.id);
+
+        if (existingIds.length > 0) {
+          const mappedElements = await tx.weezeventLocationShopMapping.findMany({
+            where: { spaceElementId: { in: existingIds } },
+            select: { spaceElementId: true },
+          });
+          const mappedIds = new Set(mappedElements.map((m: any) => m.spaceElementId));
+
+          // Elements that have mappings but are not in the incoming JSON
+          const orphaned = allExistingElements.filter(
+            (e: any) => mappedIds.has(e.id) && !incomingElementIds.has(e.id),
+          );
+
+          if (orphaned.length > 0) {
+            // Find or create a "Weezevent Import" floor in the payload to host orphaned elements
+            let orphanFloor = floors.find((f: any) => f.name === 'Import' || f.name === 'Weezevent Import');
+            if (!orphanFloor) {
+              orphanFloor = {
+                name: 'Import',
+                level: 0,
+                width: 800,
+                height: 600,
+                length: 100,
+                elements: [],
+                cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
+                hole: { enabled: false, x: 0.5, y: 0.5, width: 10, length: 10, cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 } },
+              };
+              floors.push(orphanFloor);
+            }
+            if (!Array.isArray(orphanFloor.elements)) orphanFloor.elements = [];
+
+            for (const el of orphaned) {
+              const attrs = el.attributes as any;
+              orphanFloor.elements.push({
+                id: el.id,
+                name: el.name,
+                type: attrs?.originalType ?? 'shop',
+                x: el.x ?? 0,
+                y: el.y ?? 0,
+                width: el.width ?? 80,
+                height: el.height ?? 60,
+                depth: el.depth ?? 60,
+                shopType: el.shopTypes ?? [],
+                storageType: el.storageTypes ?? [],
+                hospitalityType: el.hospitalityTypes ?? [],
+                accessType: el.accessTypes ?? [],
+                entertainmentType: el.entertainmentTypes ?? [],
+                entranceType: el.entranceTypes ?? [],
+                kitchenType: el.kitchenTypes ?? [],
+                attributes: attrs ?? {},
+                cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
+              });
+            }
+
+            console.warn(
+              `[saveConfiguration] Re-injected ${orphaned.length} Weezevent-mapped element(s) absent from JSON payload for config ${config.id}`,
+            );
+          }
+        }
+      }
+
+      // 2b. Delete existing floors and their elements (cascade)
       await tx.floor.deleteMany({
         where: { configId: config.id },
       });
@@ -1579,11 +1663,78 @@ export class SpacesService {
       throw new NotFoundException(`Configuration with ID ${configId} not found`);
     }
 
-    // Use JSON data directly for fast loading
-    // JSON is always kept in sync during save operations
     const jsonData = config.data as any;
+    const jsonFloors: any[] = Array.isArray(jsonData?.floors) ? jsonData.floors : [];
 
-    // Return config with JSON data for frontend
+    // Merge relational Floor/SpaceElement rows into the JSON floors.
+    // This ensures elements created via quickCreateElement (Data Integration step 2)
+    // that pre-date the JSON-sync fix are still visible in the Space Builder.
+    const relationalFloors = await this.prisma.floor.findMany({
+      where: { configId },
+      include: { elements: true },
+    });
+
+    // Build a set of element IDs already present in the JSON (post-fix data)
+    const jsonElementIds = new Set<string>(
+      jsonFloors.flatMap((f: any) => (f.elements || []).map((e: any) => e.id).filter(Boolean)),
+    );
+
+    for (const relFloor of relationalFloors) {
+      // Find the matching JSON floor entry (by id), or create a stub for it
+      let jsonFloor = jsonFloors.find((f: any) => f.id === relFloor.id);
+      if (!jsonFloor) {
+        jsonFloor = {
+          id: relFloor.id,
+          name: relFloor.name,
+          level: relFloor.level ?? 0,
+          width: relFloor.width ?? 800,
+          height: relFloor.height ?? 600,
+          length: relFloor.length ?? 100,
+          elements: [],
+          cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
+          hole: { enabled: false, x: 0.5, y: 0.5, width: 10, length: 10, cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 } },
+        };
+        jsonFloors.push(jsonFloor);
+      }
+      if (!Array.isArray(jsonFloor.elements)) jsonFloor.elements = [];
+
+      // Inject any relational element not yet in the JSON
+      for (const el of relFloor.elements) {
+        if (jsonElementIds.has(el.id)) continue;
+        const attrs = el.attributes as any;
+        jsonFloor.elements.push({
+          id: el.id,
+          name: el.name,
+          type: attrs?.originalType ?? this.reverseMapElementType(el.type),
+          x: el.x ?? 0,
+          y: el.y ?? 0,
+          width: el.width ?? 80,
+          height: el.height ?? 60,
+          depth: el.depth ?? 60,
+          height3d: el.height3d ?? 25,
+          rotation: el.rotation ?? 0,
+          capacity: el.capacity ?? null,
+          image: el.image ?? null,
+          notes: el.notes ?? null,
+          shopType: (el as any).shopTypes ?? [],
+          storageType: (el as any).storageTypes ?? [],
+          hospitalityType: (el as any).hospitalityTypes ?? [],
+          accessType: (el as any).accessTypes ?? [],
+          entertainmentType: (el as any).entertainmentTypes ?? [],
+          entranceType: (el as any).entranceTypes ?? [],
+          kitchenType: (el as any).kitchenTypes ?? [],
+          attributes: attrs ?? {},
+          cornerRadius: {
+            topLeft: el.cornerRadiusTL ?? 0,
+            topRight: el.cornerRadiusTR ?? 0,
+            bottomLeft: el.cornerRadiusBL ?? 0,
+            bottomRight: el.cornerRadiusBR ?? 0,
+          },
+        });
+        jsonElementIds.add(el.id);
+      }
+    }
+
     return {
       id: config.id,
       name: config.name,
@@ -1593,7 +1744,7 @@ export class SpacesService {
       updatedAt: config.updatedAt,
       space: config.space,
       data: {
-        floors: jsonData?.floors || [],
+        floors: jsonFloors,
         forecourt: jsonData?.forecourt || null,
       },
     };
@@ -1779,6 +1930,53 @@ export class SpacesService {
       } as any,
     });
 
+    // Sync config.data JSON so the Space Builder reads the new element without a full re-save.
+    // getConfiguration() reads config.data exclusively — the relational rows are not enough.
+    const currentData = (config.data as any) || {};
+    const jsonFloors: any[] = Array.isArray(currentData.floors) ? [...currentData.floors] : [];
+    let jsonFloor = jsonFloors.find((f: any) => f.id === floor.id);
+    if (!jsonFloor) {
+      jsonFloor = {
+        id: floor.id,
+        name: floor.name,
+        level: floor.level ?? 0,
+        width: floor.width ?? 800,
+        height: floor.height ?? 600,
+        length: floor.length ?? 100,
+        elements: [],
+        cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
+        hole: { enabled: false, x: 0.5, y: 0.5, width: 10, length: 10, cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 } },
+      };
+      jsonFloors.push(jsonFloor);
+    }
+    if (!Array.isArray(jsonFloor.elements)) jsonFloor.elements = [];
+    jsonFloor.elements.push({
+      id: element.id,
+      name: element.name,
+      type: dto.type || 'shop',
+      x: 0,
+      y: 0,
+      width: 80,
+      height: 60,
+      depth: 60,
+      shopType: [],
+      storageType: [],
+      hospitalityType: [],
+      accessType: [],
+      entertainmentType: [],
+      entranceType: [],
+      kitchenType: [],
+      attributes: { originalType: dto.type || 'shop', importedFromWeezevent: true },
+      cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
+    });
+    await this.prisma.config.update({
+      where: { id: config.id },
+      data: { data: { ...currentData, floors: jsonFloors } },
+    });
+
+    // Invalidate Redis cache so Space Builder fetches fresh config list on next load
+    await this.invalidateSpaceCache(space.tenantId, spaceId);
+
     return {
       id: element.id,
       name: element.name,
@@ -1824,6 +2022,9 @@ export class SpacesService {
 
     // Verify all elements belong to this tenant's space, then move them to the floor
     const updated: string[] = [];
+    // Track which source floors lost elements (for JSON sync)
+    const movedElements: Array<{ id: string; sourceFloorId: string | null }> = [];
+
     for (const elementId of elementIds) {
       const element = await this.prisma.spaceElement.findFirst({
         where: { id: elementId },
@@ -1836,11 +2037,97 @@ export class SpacesService {
       const elemSpace = element.floor?.config?.space ?? element.forecourt?.config?.space;
       if (!elemSpace || elemSpace.tenantId !== tenantId || elemSpace.id !== spaceId) continue;
 
+      movedElements.push({ id: element.id, sourceFloorId: element.floorId ?? null });
+
       await this.prisma.spaceElement.update({
         where: { id: elementId },
         data: { floorId: floor.id, forecourtId: null },
       });
       updated.push(elementId);
+    }
+
+    // Sync config.data JSON: move elements from their source floor to the target floor
+    if (updated.length > 0) {
+      const freshConfig = await this.prisma.config.findFirst({ where: { id: config.id } });
+      const currentData = (freshConfig?.data as any) || {};
+      const jsonFloors: any[] = Array.isArray(currentData.floors) ? [...currentData.floors] : [];
+
+      // Remove moved elements from their source floors in the JSON
+      const movedIds = new Set(updated);
+      for (const jsonFloorEntry of jsonFloors) {
+        if (Array.isArray(jsonFloorEntry.elements)) {
+          jsonFloorEntry.elements = jsonFloorEntry.elements.filter((e: any) => !movedIds.has(e.id));
+        }
+      }
+
+      // Ensure the target floor entry exists in JSON
+      let targetJsonFloor = jsonFloors.find((f: any) => f.id === floor.id);
+      if (!targetJsonFloor) {
+        targetJsonFloor = {
+          id: floor.id,
+          name: floor.name,
+          level: floor.level ?? level,
+          width: floor.width ?? 800,
+          height: floor.height ?? 600,
+          length: floor.length ?? 100,
+          elements: [],
+          cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
+          hole: { enabled: false, x: 0.5, y: 0.5, width: 10, length: 10, cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 } },
+        };
+        jsonFloors.push(targetJsonFloor);
+      }
+      if (!Array.isArray(targetJsonFloor.elements)) targetJsonFloor.elements = [];
+
+      // Find element JSON entries from all floors (they were in JSON after quickCreateElement)
+      const allElements: any[] = [];
+      for (const jf of jsonFloors) {
+        if (Array.isArray(jf.elements)) allElements.push(...jf.elements);
+      }
+
+      for (const movedEl of movedElements) {
+        if (!updated.includes(movedEl.id)) continue;
+        // Reuse the existing JSON representation if available, otherwise create a minimal stub
+        const existing = allElements.find((e: any) => e.id === movedEl.id);
+        if (existing && !targetJsonFloor.elements.find((e: any) => e.id === movedEl.id)) {
+          targetJsonFloor.elements.push(existing);
+        } else if (!existing) {
+          const relElement = await this.prisma.spaceElement.findFirst({ where: { id: movedEl.id } });
+          if (relElement) {
+            const attrs = relElement.attributes as any;
+            targetJsonFloor.elements.push({
+              id: relElement.id,
+              name: relElement.name,
+              type: attrs?.originalType ?? 'shop',
+              x: relElement.x ?? 0,
+              y: relElement.y ?? 0,
+              width: relElement.width ?? 80,
+              height: relElement.height ?? 60,
+              depth: relElement.depth ?? 60,
+              shopType: (relElement as any).shopTypes ?? [],
+              storageType: (relElement as any).storageTypes ?? [],
+              hospitalityType: (relElement as any).hospitalityTypes ?? [],
+              accessType: (relElement as any).accessTypes ?? [],
+              entertainmentType: (relElement as any).entertainmentTypes ?? [],
+              entranceType: (relElement as any).entranceTypes ?? [],
+              kitchenType: (relElement as any).kitchenTypes ?? [],
+              attributes: attrs ?? {},
+              cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
+            });
+          }
+        }
+      }
+
+      // Remove empty source floors from JSON to keep it clean
+      const cleanedJsonFloors = jsonFloors.filter(
+        (f: any) => f.id === floor.id || (Array.isArray(f.elements) && f.elements.length > 0),
+      );
+
+      await this.prisma.config.update({
+        where: { id: config.id },
+        data: { data: { ...currentData, floors: cleanedJsonFloors } },
+      });
+
+      await this.invalidateSpaceCache(tenantId, spaceId);
     }
 
     return { floorId: floor.id, floorName, level, updatedElementIds: updated };

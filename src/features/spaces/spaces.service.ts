@@ -739,7 +739,7 @@ export class SpacesService {
     const [shopsFromFloors, shopsFromForecourt]: [any[], any[]] = await Promise.all([
       (this.prisma.spaceElement.findMany as any)({
         where: { floor: { configId: { in: configIds } }, type: { in: shopTypes } },
-        select: { ...commonSelect, floor: { select: { id: true, name: true, config: { select: { id: true, name: true } } } } },
+        select: { ...commonSelect, floor: { select: { id: true, name: true, level: true, config: { select: { id: true, name: true } } } } },
       }),
       (this.prisma.spaceElement.findMany as any)({
         where: { forecourt: { configId: { in: configIds } }, type: { in: shopTypes } },
@@ -769,7 +769,8 @@ export class SpacesService {
     }, {});
 
     const shops = allShops.map(s => {
-      const loc = (s as any).floor ?? (s as any).forecourt;
+      const floor = (s as any).floor;
+      const loc = floor ?? (s as any).forecourt;
       const menuItemsEnabledCount = menuAssignmentCountByShop[s.id] ?? 0;
       return {
         id: s.id,
@@ -783,6 +784,7 @@ export class SpacesService {
         configName: loc?.config?.name ?? null,
         locationId: loc?.id ?? null,
         locationName: loc?.name ?? null,
+        floorLevel: floor ? floor.level : (s as any).forecourt ? 'forecourt' : null,
         weezeventLocationId: mappingByShop.get(s.id) ?? null,
         isMappedToWeezevent: mappingByShop.has(s.id),
         menuItemsCount: menuItemsEnabledCount,
@@ -1258,9 +1260,9 @@ export class SpacesService {
               orphanFloor = {
                 name: 'Import',
                 level: 0,
-                width: 800,
-                height: 600,
-                length: 100,
+                width: 200,
+                height: 4,
+                length: 200,
                 elements: [],
                 cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
                 hole: { enabled: false, x: 0.5, y: 0.5, width: 10, length: 10, cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 } },
@@ -1590,6 +1592,28 @@ export class SpacesService {
   }
 
   /**
+   * Map a frontend F&B sub-type (e.g. 'fnb-beverages') to the shopTypes tags
+   * used by the 3D builder's shop type filter (food/beverages/beer/gppremium/temporary/drinkee).
+   */
+  private mapShopTypeTags(type?: string): string[] {
+    if (!type || !type.startsWith('fnb-')) return [];
+    const subType = type.replace('fnb-', '');
+    const tagMap: Record<string, string> = {
+      food: 'food',
+      beverages: 'beverages',
+      bar: 'beer',
+      snack: 'food',
+      icecream: 'food',
+      beer: 'beer',
+      gppremium: 'gppremium',
+      temporary: 'temporary',
+      drinkee: 'drinkee',
+    };
+    const tag = tagMap[subType];
+    return tag ? [tag] : [];
+  }
+
+  /**
    * Set pinned spaces for a user (replace all)
    */
   async setPinnedSpaces(userId: string, tenantId: string, spaceIds: string[]) {
@@ -1903,11 +1927,12 @@ export class SpacesService {
     let floor = config.floors?.[0];
     if (!floor) {
       floor = await this.prisma.floor.create({
-        data: { configId: config.id, name: 'Import', level: 0, width: 800, height: 600, length: 100 },
+        data: { configId: config.id, name: 'Import', level: 0, width: 200, height: 4, length: 200 },
       });
     }
 
     const elementType = this.mapElementType(dto.type || 'shop');
+    const shopTypeTags = this.mapShopTypeTags(dto.type);
 
     const element = await this.prisma.spaceElement.create({
       data: {
@@ -1916,10 +1941,10 @@ export class SpacesService {
         type: elementType,
         x: 0,
         y: 0,
-        width: 80,
-        height: 60,
-        depth: 60,
-        shopTypes: [],
+        width: 2,
+        height: 2,
+        depth: 2,
+        shopTypes: shopTypeTags,
         storageTypes: [],
         hospitalityTypes: [],
         accessTypes: [],
@@ -1940,9 +1965,9 @@ export class SpacesService {
         id: floor.id,
         name: floor.name,
         level: floor.level ?? 0,
-        width: floor.width ?? 800,
-        height: floor.height ?? 600,
-        length: floor.length ?? 100,
+        width: floor.width ?? 200,
+        height: floor.height ?? 4,
+        length: floor.length ?? 200,
         elements: [],
         cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
         hole: { enabled: false, x: 0.5, y: 0.5, width: 10, length: 10, cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 } },
@@ -1956,10 +1981,10 @@ export class SpacesService {
       type: dto.type || 'shop',
       x: 0,
       y: 0,
-      width: 80,
-      height: 60,
-      depth: 60,
-      shopType: [],
+      width: 2,
+      height: 2,
+      depth: 2,
+      shopType: shopTypeTags,
       storageType: [],
       hospitalityType: [],
       accessType: [],
@@ -1987,10 +2012,14 @@ export class SpacesService {
   }
 
   /**
-   * Assign a list of SpaceElements to a given floor level within the same space.
-   * Finds or creates a Floor with the requested level in the element's "Weezevent Import" config.
+   * Assign a list of SpaceElements to a given floor level (or to the forecourt/"Parvis")
+   * within the same space. Finds or creates a Floor/Forecourt in the "Weezevent Import" config.
    */
-  async assignElementsToFloorLevel(spaceId: string, tenantId: string, elementIds: string[], level: number) {
+  async assignElementsToFloorLevel(spaceId: string, tenantId: string, elementIds: string[], level: number | 'forecourt') {
+    if (level === 'forecourt') {
+      return this.assignElementsToForecourt(spaceId, tenantId, elementIds);
+    }
+
     const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId } });
     if (!space) throw new Error('Space not found or access denied');
 
@@ -2016,7 +2045,7 @@ export class SpacesService {
     });
     if (!floor) {
       floor = await this.prisma.floor.create({
-        data: { configId: config.id, name: floorName, level, width: 800, height: 600, length: 100 },
+        data: { configId: config.id, name: floorName, level, width: 200, height: 4, length: 200 },
       });
     }
 
@@ -2067,9 +2096,9 @@ export class SpacesService {
           id: floor.id,
           name: floor.name,
           level: floor.level ?? level,
-          width: floor.width ?? 800,
-          height: floor.height ?? 600,
-          length: floor.length ?? 100,
+          width: floor.width ?? 200,
+          height: floor.height ?? 4,
+          length: floor.length ?? 200,
           elements: [],
           cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
           hole: { enabled: false, x: 0.5, y: 0.5, width: 10, length: 10, cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 } },
@@ -2100,9 +2129,9 @@ export class SpacesService {
               type: attrs?.originalType ?? 'shop',
               x: relElement.x ?? 0,
               y: relElement.y ?? 0,
-              width: relElement.width ?? 80,
-              height: relElement.height ?? 60,
-              depth: relElement.depth ?? 60,
+              width: relElement.width ?? 2,
+              height: relElement.height ?? 2,
+              depth: relElement.depth ?? 2,
               shopType: (relElement as any).shopTypes ?? [],
               storageType: (relElement as any).storageTypes ?? [],
               hospitalityType: (relElement as any).hospitalityTypes ?? [],
@@ -2131,6 +2160,202 @@ export class SpacesService {
     }
 
     return { floorId: floor.id, floorName, level, updatedElementIds: updated };
+  }
+
+  /**
+   * Assign a list of SpaceElements to the forecourt ("Parvis") of the element's
+   * "Weezevent Import" config. Finds or creates the Forecourt if needed.
+   */
+  private async assignElementsToForecourt(spaceId: string, tenantId: string, elementIds: string[]) {
+    const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId } });
+    if (!space) throw new Error('Space not found or access denied');
+
+    // Find or create the "Weezevent Import" config
+    let config = await this.prisma.config.findFirst({
+      where: { spaceId, name: 'Weezevent Import' },
+    });
+    if (!config) {
+      config = await this.prisma.config.create({
+        data: { spaceId, name: 'Weezevent Import', data: {} },
+      });
+    }
+
+    // Find or create the Forecourt for this config
+    let forecourt = await this.prisma.forecourt.findUnique({
+      where: { configId: config.id },
+    });
+    if (!forecourt) {
+      forecourt = await this.prisma.forecourt.create({
+        data: { configId: config.id, name: 'Parvis', width: 200, length: 200 },
+      });
+    }
+
+    // Verify all elements belong to this tenant's space, then move them to the forecourt
+    const updated: string[] = [];
+    const movedElements: { id: string }[] = [];
+
+    for (const elementId of elementIds) {
+      const element = await this.prisma.spaceElement.findFirst({
+        where: { id: elementId },
+        include: {
+          floor: { include: { config: { include: { space: true } } } },
+          forecourt: { include: { config: { include: { space: true } } } },
+        },
+      });
+      if (!element) continue;
+      const elemSpace = element.floor?.config?.space ?? element.forecourt?.config?.space;
+      if (!elemSpace || elemSpace.tenantId !== tenantId || elemSpace.id !== spaceId) continue;
+
+      movedElements.push({ id: element.id });
+
+      await this.prisma.spaceElement.update({
+        where: { id: elementId },
+        data: { floorId: null, forecourtId: forecourt.id },
+      });
+      updated.push(elementId);
+    }
+
+    // Sync config.data JSON: move elements from their source floor(s) to the forecourt
+    if (updated.length > 0) {
+      const freshConfig = await this.prisma.config.findFirst({ where: { id: config.id } });
+      const currentData = (freshConfig?.data as any) || {};
+      const jsonFloors: any[] = Array.isArray(currentData.floors) ? [...currentData.floors] : [];
+      const movedIds = new Set(updated);
+
+      // Collect existing JSON entries for moved elements (to preserve dimensions/types)
+      const allElements: any[] = [];
+      for (const jf of jsonFloors) {
+        if (Array.isArray(jf.elements)) allElements.push(...jf.elements);
+      }
+
+      // Remove moved elements from their source floors in the JSON
+      for (const jsonFloorEntry of jsonFloors) {
+        if (Array.isArray(jsonFloorEntry.elements)) {
+          jsonFloorEntry.elements = jsonFloorEntry.elements.filter((e: any) => !movedIds.has(e.id));
+        }
+      }
+
+      // Ensure the forecourt entry exists in JSON
+      let jsonForecourt = currentData.forecourt;
+      if (!jsonForecourt) {
+        jsonForecourt = {
+          id: forecourt.id,
+          name: forecourt.name,
+          width: forecourt.width ?? 200,
+          length: forecourt.length ?? 200,
+          elements: [],
+          cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
+        };
+      }
+      if (!Array.isArray(jsonForecourt.elements)) jsonForecourt.elements = [];
+
+      for (const movedEl of movedElements) {
+        if (jsonForecourt.elements.find((e: any) => e.id === movedEl.id)) continue;
+        const existing = allElements.find((e: any) => e.id === movedEl.id);
+        if (existing) {
+          jsonForecourt.elements.push(existing);
+        } else {
+          const relElement = await this.prisma.spaceElement.findFirst({ where: { id: movedEl.id } });
+          if (relElement) {
+            const attrs = relElement.attributes as any;
+            jsonForecourt.elements.push({
+              id: relElement.id,
+              name: relElement.name,
+              type: attrs?.originalType ?? 'shop',
+              x: relElement.x ?? 0,
+              y: relElement.y ?? 0,
+              width: relElement.width ?? 2,
+              height: relElement.height ?? 2,
+              depth: relElement.depth ?? 2,
+              shopType: (relElement as any).shopTypes ?? [],
+              storageType: (relElement as any).storageTypes ?? [],
+              hospitalityType: (relElement as any).hospitalityTypes ?? [],
+              accessType: (relElement as any).accessTypes ?? [],
+              entertainmentType: (relElement as any).entertainmentTypes ?? [],
+              entranceType: (relElement as any).entranceTypes ?? [],
+              kitchenType: (relElement as any).kitchenTypes ?? [],
+              attributes: attrs ?? {},
+              cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
+            });
+          }
+        }
+      }
+
+      // Remove now-empty source floors from JSON to keep it clean
+      const cleanedJsonFloors = jsonFloors.filter(
+        (f: any) => Array.isArray(f.elements) && f.elements.length > 0,
+      );
+
+      await this.prisma.config.update({
+        where: { id: config.id },
+        data: { data: { ...currentData, floors: cleanedJsonFloors, forecourt: jsonForecourt } },
+      });
+
+      await this.invalidateSpaceCache(tenantId, spaceId);
+    }
+
+    return { forecourtId: forecourt.id, forecourtName: forecourt.name, updatedElementIds: updated };
+  }
+
+  /**
+   * Delete a SpaceElement (and its config.data JSON entry) if no
+   * WeezeventLocationShopMapping still references it. Used when a Weezevent
+   * shop mapping is removed in Data Integration so the corresponding 3D
+   * builder element is removed too.
+   */
+  async deleteElementIfUnreferenced(elementId: string, tenantId: string): Promise<boolean> {
+    const remainingMappings = await this.prisma.weezeventLocationShopMapping.count({
+      where: { spaceElementId: elementId },
+    });
+    if (remainingMappings > 0) return false;
+
+    const element = await this.prisma.spaceElement.findFirst({
+      where: { id: elementId },
+      include: {
+        floor: { include: { config: { include: { space: true } } } },
+        forecourt: { include: { config: { include: { space: true } } } },
+      },
+    });
+    if (!element) return false;
+
+    const space = element.floor?.config?.space ?? element.forecourt?.config?.space;
+    if (!space || space.tenantId !== tenantId) return false;
+
+    const config = element.floor?.config ?? element.forecourt?.config;
+    if (!config) return false;
+
+    await this.prisma.spaceElement.delete({ where: { id: elementId } });
+
+    // Remove the element from config.data JSON (floors[].elements / forecourt.elements)
+    const freshConfig = await this.prisma.config.findFirst({ where: { id: config.id } });
+    const currentData = (freshConfig?.data as any) || {};
+    let changed = false;
+
+    const jsonFloors: any[] = Array.isArray(currentData.floors) ? currentData.floors : [];
+    for (const jf of jsonFloors) {
+      if (Array.isArray(jf.elements)) {
+        const before = jf.elements.length;
+        jf.elements = jf.elements.filter((e: any) => e.id !== elementId);
+        if (jf.elements.length !== before) changed = true;
+      }
+    }
+
+    const jsonForecourt = currentData.forecourt;
+    if (jsonForecourt && Array.isArray(jsonForecourt.elements)) {
+      const before = jsonForecourt.elements.length;
+      jsonForecourt.elements = jsonForecourt.elements.filter((e: any) => e.id !== elementId);
+      if (jsonForecourt.elements.length !== before) changed = true;
+    }
+
+    if (changed) {
+      await this.prisma.config.update({
+        where: { id: config.id },
+        data: { data: { ...currentData, floors: jsonFloors, forecourt: jsonForecourt ?? null } },
+      });
+    }
+
+    await this.invalidateSpaceCache(tenantId, space.id);
+    return true;
   }
 
   /**

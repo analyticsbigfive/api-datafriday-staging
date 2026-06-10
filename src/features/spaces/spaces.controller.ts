@@ -717,14 +717,14 @@ export class SpacesController {
   @Post(':id/assign-floor')
   @Roles('ADMIN', 'MANAGER')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Assigner des shops à un étage' })
+  @ApiOperation({ summary: 'Assigner des shops à un étage ou au parvis' })
   @ApiParam({ name: 'id', description: 'ID de l\'espace' })
-  @ApiBody({ schema: { type: 'object', properties: { elementIds: { type: 'array', items: { type: 'string' } }, level: { type: 'integer', example: 1 } }, required: ['elementIds', 'level'] } })
-  @ApiResponse({ status: 200, description: 'Shops assignés à l\'étage' })
+  @ApiBody({ schema: { type: 'object', properties: { elementIds: { type: 'array', items: { type: 'string' } }, level: { oneOf: [{ type: 'integer' }, { type: 'string', enum: ['forecourt'] }], example: 1 } }, required: ['elementIds', 'level'] } })
+  @ApiResponse({ status: 200, description: 'Shops assignés à l\'étage ou au parvis' })
   async assignElementsToFloor(
     @Param('id') spaceId: string,
     @CurrentTenant() tenantId: string,
-    @Body() body: { elementIds: string[]; level: number },
+    @Body() body: { elementIds: string[]; level: number | 'forecourt' },
   ) {
     return this.spacesService.assignElementsToFloorLevel(spaceId, tenantId, body.elementIds, body.level);
   }

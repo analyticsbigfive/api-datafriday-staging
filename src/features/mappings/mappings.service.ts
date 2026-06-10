@@ -3,6 +3,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
+import { SpacesService } from '../spaces/spaces.service';
 import {
   CreateLocationSpaceMappingDto,
   CreateMerchantElementMappingDto,
@@ -19,7 +20,7 @@ export class MappingsService {
   /** Safe chunk size for Prisma $transaction batches (avoids timeouts/OOM at 100k+ items). */
   private readonly BULK_CHUNK_SIZE = 500;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private spacesService: SpacesService) {}
 
   // ─── Location → Space ───────────────────────────────────
 
@@ -247,9 +248,26 @@ export class MappingsService {
   }
 
   async deleteLocationShopMapping(tenantId: string, weezeventLocationId: string) {
-    return this.prisma.weezeventLocationShopMapping.deleteMany({
+    const mapping = await this.prisma.weezeventLocationShopMapping.findUnique({
+      where: { tenantId_weezeventLocationId: { tenantId, weezeventLocationId } },
+      select: { spaceElementId: true },
+    });
+
+    const result = await this.prisma.weezeventLocationShopMapping.deleteMany({
       where: { tenantId, weezeventLocationId },
     });
+
+    // If no other mapping references the space element, remove it from the
+    // 3D builder too (Data Integration deletion ⇒ delete the 3D element).
+    if (mapping?.spaceElementId) {
+      try {
+        await this.spacesService.deleteElementIfUnreferenced(mapping.spaceElementId, tenantId);
+      } catch (err) {
+        this.logger.warn(`Failed to cascade-delete SpaceElement ${mapping.spaceElementId}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    return result;
   }
 
   // ─── Merchant → SpaceElement ─────────────────────────────
@@ -375,9 +393,24 @@ export class MappingsService {
   }
 
   async deleteMerchantElementMapping(tenantId: string, weezeventMerchantId: string) {
-    return this.prisma.weezeventLocationShopMapping.deleteMany({
+    const mappings = await this.prisma.weezeventLocationShopMapping.findMany({
+      where: { tenantId, weezeventLocationId: weezeventMerchantId },
+      select: { spaceElementId: true },
+    });
+
+    const result = await this.prisma.weezeventLocationShopMapping.deleteMany({
       where: { tenantId, weezeventLocationId: weezeventMerchantId },
     });
+
+    for (const { spaceElementId } of mappings) {
+      try {
+        await this.spacesService.deleteElementIfUnreferenced(spaceElementId, tenantId);
+      } catch (err) {
+        this.logger.warn(`Failed to cascade-delete SpaceElement ${spaceElementId}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    return result;
   }
 
   // ─── Product → MenuItem ──────────────────────────────────

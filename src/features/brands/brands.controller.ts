@@ -15,7 +15,7 @@ class UpdateBrandDto extends PartialType(CreateBrandDto) {}
 @ApiTags('Brands')
 @ApiBearerAuth('supabase-jwt')
 @UseGuards(JwtDatabaseGuard)
-@Controller('brands')
+@Controller('brand-names')
 export class BrandsController {
   constructor(private readonly brandsService: BrandsService) {}
 

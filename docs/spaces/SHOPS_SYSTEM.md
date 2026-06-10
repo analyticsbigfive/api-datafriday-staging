@@ -194,3 +194,68 @@ getShopDetails() → Query SpaceElements → Join avec données Weezevent si map
 2. **Synchronisation automatique** : Automatiser l'agrégation des données de vente
 3. **Analytics avancés** : Ajouter des métriques de performance par shop
 4. **Export de données** : Permettre l'export des données de shops pour analyse externe
+
+## Création rapide & affectation d'étage (Data Integration F&B)
+
+Le wizard "Data Integration F&B" (`/data-integration/fb`) crée et organise les shops via 3 endpoints
+de `SpacesController`/`SpacesService`. Toute la donnée est écrite à la fois dans les tables Prisma
+(`SpaceElement`, `Floor`, `Forecourt`) et dans le JSON `Config.data` (lu par le 3D Builder).
+
+### `POST /spaces/:id/quick-element`
+
+Crée un `SpaceElement` (shop) sans passer par l'éditeur de plan, dans la configuration
+**"Weezevent Import"** (créée si nécessaire).
+
+```json
+{ "name": "Dessoiffeur 3", "type": "fnb-beverages" }
+```
+
+- **Floor par défaut** : si la config n'a aucun floor, un floor `level: 0` ("Import") est créé
+  avec les dimensions par défaut **200m × 200m × 4m** (`width`/`length`/`height`).
+- **Dimensions du shop** : chaque élément créé a pour dimensions par défaut **2m × 2m × 2m**
+  (`width`/`depth`/`height`). Aucune saisie utilisateur n'est demandée.
+- **`type`** (ex: `shop`, `fnb-food`, `fnb-beverages`, `fnb-bar`, `fnb-snack`, `fnb-icecream`,
+  `merchshop`) est converti vers l'enum Prisma `ElementType` (`mapElementType`).
+- **`shopTypes`** : pour les types `fnb-*`, le sous-type est automatiquement mappé vers les tags
+  utilisés par le filtre "Shop type" du 3D Builder (`mapShopTypeTags`) :
+
+  | `type` (frontend) | `shopTypes` (builder) |
+  |---|---|
+  | `fnb-food` | `['food']` |
+  | `fnb-beverages` | `['beverages']` |
+  | `fnb-bar` | `['beer']` |
+  | `fnb-snack` | `['food']` |
+  | `fnb-icecream` | `['food']` |
+  | autres (`shop`, `merchshop`, ...) | `[]` |
+
+### `POST /spaces/:id/assign-floor`
+
+Déplace une liste de `SpaceElement` vers un étage (ou le parvis) de la config "Weezevent Import".
+
+```json
+{ "elementIds": ["el_1", "el_2"], "level": 1 }
+```
+
+- `level` est un **entier** (0 = RDC, négatif = sous-sol, positif = étage) **ou** la chaîne
+  `"forecourt"` pour assigner les éléments au **parvis** ("Parvis").
+- Si l'étage/parvis ciblé n'existe pas encore pour cette config, il est créé avec les dimensions
+  par défaut **200m × 200m × 4m** (floor) ou **200m × 200m** (forecourt, pas de hauteur dans le
+  modèle `Forecourt`).
+- Le JSON `Config.data` (`floors[]` / `forecourt`) est synchronisé : les éléments déplacés sont
+  retirés de leur étage source et ajoutés à l'étage/parvis cible, et les étages devenus vides sont
+  supprimés du JSON.
+
+### `GET /spaces/:id/shops`
+
+Chaque shop retourné inclut désormais `floorLevel` : le `level` (entier) du floor courant, la
+valeur `"forecourt"` s'il est sur le parvis, ou `null` s'il n'est rattaché à aucun floor/forecourt.
+Le wizard utilise ce champ pour ré-afficher l'étage assigné après un rafraîchissement de page.
+
+### Suppression en cascade depuis Data Integration
+
+Quand un mapping `weezeventLocationId ↔ spaceElementId` (`WeezeventLocationShopMapping`) est
+supprimé — via `DELETE /mappings/location-shop/:locationId` ou
+`DELETE /mappings/merchant-element/:merchantId` — le `SpaceElement` correspondant est
+automatiquement supprimé (table Prisma + entrée dans `Config.data`) **si plus aucun mapping ne le
+référence** (`SpacesService.deleteElementIfUnreferenced`). Cela évite les éléments "fantômes"
+dans le 3D Builder après suppression d'un shop côté Data Integration.

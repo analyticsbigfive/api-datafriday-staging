@@ -170,7 +170,13 @@ export class MappingsController {
   }
 
   @Delete('location-shop/:locationId')
-  @ApiOperation({ summary: 'Supprimer un mapping location → shop' })
+  @ApiOperation({
+    summary: 'Supprimer un mapping location → shop',
+    description:
+      'Supprime le mapping `WeezeventLocationShopMapping`. Si le `SpaceElement` associé n\'est ' +
+      'référencé par aucun autre mapping, il est également supprimé (table Prisma + ' +
+      '`Config.data`), pour éviter les éléments fantômes dans le 3D Builder.',
+  })
   @ApiResponse({ status: 200, description: 'Mapping supprimé' })
   deleteLocationShopMapping(
     @Param('locationId') locationId: string,
@@ -275,7 +281,14 @@ export class MappingsController {
   }
 
   @Delete('merchant-element/:merchantId')
-  @ApiOperation({ summary: 'Supprimer un mapping merchant → element' })
+  @ApiOperation({
+    summary: 'Supprimer un mapping merchant → element',
+    description:
+      'Supprime le(s) mapping(s) `WeezeventMerchantElementMapping` du merchant. Pour chaque ' +
+      '`SpaceElement` qui n\'est plus référencé par aucun mapping après suppression, l\'élément ' +
+      'est également supprimé (table Prisma + `Config.data`), pour éviter les éléments fantômes ' +
+      'dans le 3D Builder.',
+  })
   @ApiResponse({ status: 200, description: 'Mapping supprimé' })
   @ApiResponse({ status: 404, description: 'Mapping non trouvé' })
   deleteMerchantElementMapping(

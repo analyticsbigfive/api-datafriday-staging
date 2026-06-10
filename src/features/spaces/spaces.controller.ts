@@ -389,6 +389,49 @@ export class SpacesController {
    * Get shops list only — lightweight, no transaction data (used by SpaceMenuView)
    */
   @Get(':id/shops')
+  @ApiOperation({
+    summary: 'Lister les shops (SpaceElements) d\'un espace — version légère',
+    description:
+      'Retourne tous les SpaceElements de type shop (floors + forecourt) de cet espace, sans données de transaction Weezevent agrégées (utiliser /shop-details pour cela).',
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiResponse({
+    status: 200,
+    description: 'Liste des shops',
+    schema: {
+      type: 'object',
+      properties: {
+        shops: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'ID du SpaceElement (shop)' },
+              name: { type: 'string', description: 'Nom du shop' },
+              type: { type: 'string', description: 'Type Prisma (shop, fnb_food, fnb_beverages, fnb_bar, fnb_snack, fnb_icecream, merchshop)' },
+              shopTypes: { type: 'array', items: { type: 'string' }, description: 'Tags de sous-type utilisés par le filtre du 3D Builder (food, beverages, beer, gppremium, temporary, drinkee)' },
+              attributes: { type: 'object', nullable: true },
+              image: { type: 'string', nullable: true },
+              notes: { type: 'string', nullable: true },
+              configId: { type: 'string', nullable: true },
+              configName: { type: 'string', nullable: true },
+              locationId: { type: 'string', nullable: true, description: 'ID du floor ou forecourt' },
+              locationName: { type: 'string', nullable: true, description: 'Nom du floor ou forecourt' },
+              floorLevel: {
+                oneOf: [{ type: 'integer' }, { type: 'string', enum: ['forecourt'] }, { type: 'null' }],
+                description: 'Niveau du floor (0 = RDC, négatif = sous-sol, positif = étage), "forecourt" si l\'élément est sur le parvis ("Parvis"), ou null si non rattaché',
+              },
+              weezeventLocationId: { type: 'string', nullable: true },
+              isMappedToWeezevent: { type: 'boolean' },
+              menuItemsCount: { type: 'number' },
+              isOpen: { type: 'boolean' },
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Espace non trouvé' })
   async getSpaceShops(@Param('id') id: string, @CurrentUser() user: any) {
     return this.spacesService.getSpaceShops(id, user.tenantId);
   }
@@ -699,10 +742,30 @@ export class SpacesController {
   @Post(':id/quick-element')
   @Roles('ADMIN', 'MANAGER')
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Créer rapidement un shop dans un espace (import Weezevent)' })
+  @ApiOperation({
+    summary: 'Créer rapidement un shop dans un espace (import Weezevent)',
+    description:
+      'Crée un SpaceElement dans la configuration "Weezevent Import" (créée si besoin). ' +
+      'Dimensions par défaut : floor 200m × 200m × 4m si aucun floor n\'existe encore, shop 2m × 2m × 2m. ' +
+      'Pour un `type` F&B (fnb-food, fnb-beverages, fnb-bar, fnb-snack, fnb-icecream), `shopTypes` est ' +
+      'automatiquement renseigné (food/beverages/beer) pour le filtre du 3D Builder.',
+  })
   @ApiParam({ name: 'id', description: 'ID de l\'espace' })
-  @ApiBody({ schema: { type: 'object', properties: { name: { type: 'string' }, type: { type: 'string', example: 'shop' } }, required: ['name'] } })
-  @ApiResponse({ status: 201, description: 'Shop créé' })
+  @ApiBody({ schema: { type: 'object', properties: { name: { type: 'string' }, type: { type: 'string', example: 'fnb-beverages', enum: ['shop', 'fnb-food', 'fnb-beverages', 'fnb-bar', 'fnb-snack', 'fnb-icecream', 'merchshop'] } }, required: ['name'] } })
+  @ApiResponse({
+    status: 201,
+    description: 'Shop créé',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        type: { type: 'string' },
+        configName: { type: 'string' },
+        areaName: { type: 'string' },
+      },
+    },
+  })
   async quickCreateElement(
     @Param('id') spaceId: string,
     @CurrentUser() user: any,
@@ -902,10 +965,30 @@ export class ConfigurationsController {
   @Post(':id/quick-element')
   @Roles('ADMIN', 'MANAGER')
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Créer rapidement un shop dans un espace (import Weezevent)' })
+  @ApiOperation({
+    summary: 'Créer rapidement un shop dans un espace (import Weezevent)',
+    description:
+      'Crée un SpaceElement dans la configuration "Weezevent Import" (créée si besoin). ' +
+      'Dimensions par défaut : floor 200m × 200m × 4m si aucun floor n\'existe encore, shop 2m × 2m × 2m. ' +
+      'Pour un `type` F&B (fnb-food, fnb-beverages, fnb-bar, fnb-snack, fnb-icecream), `shopTypes` est ' +
+      'automatiquement renseigné (food/beverages/beer) pour le filtre du 3D Builder.',
+  })
   @ApiParam({ name: 'id', description: 'ID de l\'espace' })
-  @ApiBody({ schema: { type: 'object', properties: { name: { type: 'string' }, type: { type: 'string', example: 'shop' } }, required: ['name'] } })
-  @ApiResponse({ status: 201, description: 'Shop créé' })
+  @ApiBody({ schema: { type: 'object', properties: { name: { type: 'string' }, type: { type: 'string', example: 'fnb-beverages', enum: ['shop', 'fnb-food', 'fnb-beverages', 'fnb-bar', 'fnb-snack', 'fnb-icecream', 'merchshop'] } }, required: ['name'] } })
+  @ApiResponse({
+    status: 201,
+    description: 'Shop créé',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        type: { type: 'string' },
+        configName: { type: 'string' },
+        areaName: { type: 'string' },
+      },
+    },
+  })
   async quickCreateElement(
     @CurrentTenant() tenantId: string,
     @Param('id') spaceId: string,

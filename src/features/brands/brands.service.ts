@@ -25,6 +25,30 @@ export class BrandsService {
     }
   }
 
+  async findOne(id: string, tenantId: string) {
+    const brand = await this.prisma.brand.findFirst({ where: { id, tenantId } });
+    if (!brand) throw new NotFoundException(`Brand ${id} not found`);
+    return brand;
+  }
+
+  async update(id: string, name: string | undefined, tenantId: string) {
+    const brand = await this.prisma.brand.findFirst({ where: { id, tenantId } });
+    if (!brand) throw new NotFoundException(`Brand ${id} not found`);
+    if (name === undefined) return brand;
+
+    try {
+      return await this.prisma.brand.update({
+        where: { id },
+        data: { name: name.trim() },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new BadRequestException(`A brand named "${name}" already exists`);
+      }
+      throw error;
+    }
+  }
+
   async remove(id: string, tenantId: string) {
     const brand = await this.prisma.brand.findFirst({ where: { id, tenantId } });
     if (!brand) throw new NotFoundException(`Brand ${id} not found`);

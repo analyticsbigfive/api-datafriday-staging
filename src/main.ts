@@ -134,6 +134,8 @@ Tous les autres endpoints nécessitent un utilisateur lié à un tenant.
 | Spaces | Espaces/établissements, configurations, éléments (shops) |
 | Market Prices | Prix de marché des ingrédients et packagings |
 | Menu Items | Articles de menu avec ingrédients, packagings et marketPrice |
+| Brands | Référentiel des marques (brands) des articles de menu |
+| Display Names | Référentiel des noms d'affichage des articles de menu |
 | Menu Components | Sous-assemblages de recettes |
 | Ingredients | Ingrédients avec coûts et unités |
 | Packaging | Emballages avec coûts unitaires |
@@ -177,6 +179,8 @@ Tous les autres endpoints nécessitent un utilisateur lié à un tenant.
     .addTag('Event Subcategories', 'Référentiel des sous-catégories d\'événements')
     .addTag('Market Prices', 'Référentiel des prix marché par tenant')
     .addTag('Menu Items', 'Articles de menu avec ingrédients, packagings et marketPrice')
+    .addTag('Brands', 'Référentiel des marques (brands) des articles de menu')
+    .addTag('Display Names', 'Référentiel des noms d\'affichage des articles de menu')
     .addTag('Product Types', 'Types de produits (Food, Beverages, etc.)')
     .addTag('Product Categories', 'Catégories de produits')
     .addTag('Menu Components', 'Sous-assemblages de recettes')

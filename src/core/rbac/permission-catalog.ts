@@ -136,25 +136,39 @@ export async function ensureSystemPermissionCatalog(prisma: RbacClient): Promise
   const permissionIdByCode: Record<string, string> = {};
 
   for (const perm of SYSTEM_PERMISSIONS) {
-    const permission = await prisma.permission.upsert({
-      where: { tenantId_code: { tenantId: null, code: perm.code } },
-      update: {
-        name: perm.name,
-        description: perm.description,
-        category: perm.category,
-      },
-      create: {
-        tenantId: null,
-        code: perm.code,
-        name: perm.name,
-        description: perm.description,
-        category: perm.category,
-        scope: PermissionScope.SYSTEM,
-        isSystem: true,
-      },
+    const existing = await prisma.permission.findFirst({
+      where: { tenantId: null, code: perm.code },
+      select: { id: true },
     });
 
-    permissionIdByCode[perm.code] = permission.id;
+    let permissionId: string;
+
+    if (existing) {
+      await prisma.permission.update({
+        where: { id: existing.id },
+        data: {
+          name: perm.name,
+          description: perm.description,
+          category: perm.category,
+        },
+      });
+      permissionId = existing.id;
+    } else {
+      const created = await prisma.permission.create({
+        data: {
+          tenantId: null,
+          code: perm.code,
+          name: perm.name,
+          description: perm.description,
+          category: perm.category,
+          scope: PermissionScope.SYSTEM,
+          isSystem: true,
+        },
+      });
+      permissionId = created.id;
+    }
+
+    permissionIdByCode[perm.code] = permissionId;
   }
 
   return permissionIdByCode;

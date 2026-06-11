@@ -210,7 +210,7 @@ export class UsersController {
     @CurrentUser() user: any,
     @Body() dto: ChangeRoleDto,
   ) {
-    return this.usersService.changeRole(id, tenantId, dto, user.id, user.role);
+    return this.usersService.changeRole(id, tenantId, dto, user.id, user.role.systemKey);
   }
 
   /**

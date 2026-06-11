@@ -3,9 +3,11 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
+  BadRequestException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { JwtDatabaseStrategy } from '../../core/auth/strategies/jwt-db-lookup.strategy';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { QueryUserDto } from './dto/query-user.dto';
@@ -17,7 +19,10 @@ import { UserRole } from '@prisma/client';
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jwtDatabaseStrategy: JwtDatabaseStrategy,
+  ) {}
 
   /**
    * Create a new user for a tenant
@@ -292,8 +297,35 @@ export class UsersService {
       throw new ForbiddenException('You cannot change your own role');
     }
 
+    if (!dto.roleId && !dto.role) {
+      throw new BadRequestException('Either roleId or role must be provided');
+    }
+
+    // Resolve the dynamic Role row (new `roleId`, or legacy `role` enum mapped via systemKey)
+    let roleRecord: { id: string; name: string; systemKey: UserRole | null } | null = null;
+    let resolvedRole: UserRole;
+
+    if (dto.roleId) {
+      roleRecord = await this.prisma.role.findFirst({
+        where: { id: dto.roleId, tenantId },
+        select: { id: true, name: true, systemKey: true },
+      });
+
+      if (!roleRecord) {
+        throw new NotFoundException(`Role ${dto.roleId} not found`);
+      }
+
+      resolvedRole = roleRecord.systemKey ?? UserRole.VIEWER;
+    } else {
+      resolvedRole = dto.role as UserRole;
+      roleRecord = await this.prisma.role.findFirst({
+        where: { tenantId, systemKey: resolvedRole },
+        select: { id: true, name: true, systemKey: true },
+      });
+    }
+
     // Only ADMIN can promote to ADMIN
-    if (dto.role === UserRole.ADMIN && currentUserRole !== UserRole.ADMIN) {
+    if (resolvedRole === UserRole.ADMIN && currentUserRole !== UserRole.ADMIN) {
       throw new ForbiddenException('Only admins can promote users to admin');
     }
 
@@ -305,28 +337,37 @@ export class UsersService {
       where: { userId: id, tenantId },
     });
 
-    if (userTenant?.isOwner && dto.role !== UserRole.ADMIN) {
+    if (userTenant?.isOwner && resolvedRole !== UserRole.ADMIN) {
       throw new ForbiddenException('Cannot demote the organization owner');
     }
+
+    const data = {
+      role: resolvedRole,
+      roleId: roleRecord?.id,
+    };
 
     // Update role in User table
     await this.prisma.user.update({
       where: { id },
-      data: { role: dto.role },
+      data,
     });
 
     // Update role in UserTenant table
     await this.prisma.userTenant.updateMany({
       where: { userId: id, tenantId },
-      data: { role: dto.role },
+      data,
     });
 
-    this.logger.log(`User ${id} role changed to ${dto.role}`);
+    // Invalidate the JWT-DB auth cache so the new role/permissions apply immediately
+    await this.jwtDatabaseStrategy.invalidateUserCache(id);
+
+    this.logger.log(`User ${id} role changed to ${resolvedRole}`);
 
     return {
       ...user,
-      role: dto.role,
-      message: `Role changed to ${dto.role}`,
+      role: resolvedRole,
+      roleId: roleRecord?.id ?? null,
+      message: `Role changed to ${resolvedRole}`,
     };
   }
 

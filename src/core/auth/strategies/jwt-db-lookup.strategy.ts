@@ -139,23 +139,39 @@ export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
   }
 
   private async lookupAndCacheUser(cacheKey: string, payload: JwtPayload) {
-    // Cache MISS: Lookup dans la DB pour récupérer user + tenant
+    // Cache MISS: Lookup dans la DB pour récupérer user + tenant + rôle/permissions RBAC
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: {
         id: true,
         email: true,
         firstName: true,
+        lastName: true,
         fullName: true,
-        role: true,
+        role: true, // legacy enum, conservé en fallback
         tenantId: true,
         tenant: {
           select: {
             id: true,
             name: true,
             slug: true,
+            plan: true,
             status: true,
           },
+        },
+        roleRef: {
+          select: {
+            id: true,
+            name: true,
+            systemKey: true,
+            isSystem: true,
+            permissions: {
+              select: { permission: { select: { code: true } } },
+            },
+          },
+        },
+        userTenants: {
+          select: { tenantId: true, isOwner: true },
         },
       },
     });
@@ -165,10 +181,18 @@ export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
         id: payload.sub,
         email: payload.email,
         firstName: null,
+        lastName: null,
         fullName: null,
-        role: null,
         tenantId: null,
         tenant: null,
+        role: {
+          id: null,
+          name: null,
+          systemKey: null,
+          isSystem: true,
+          permissions: [],
+        },
+        isOwner: false,
       };
 
       this.setLocalCachedUser(cacheKey, anonymousUser);
@@ -181,19 +205,43 @@ export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
       throw new UnauthorizedException('Organization is suspended');
     }
 
+    const userTenant = user.userTenants.find((ut) => ut.tenantId === user.tenantId);
+
     const userPayload = {
       id: user.id,
       email: user.email,
       firstName: user.firstName,
+      lastName: user.lastName,
       fullName: user.fullName,
-      role: user.role,
       tenantId: user.tenantId,
       tenant: user.tenant,
+      role: {
+        id: user.roleRef?.id ?? null,
+        name: user.roleRef?.name ?? user.role,
+        systemKey: user.roleRef?.systemKey ?? user.role, // fallback legacy
+        isSystem: user.roleRef?.isSystem ?? true,
+        permissions: user.roleRef?.permissions.map((rp) => rp.permission.code) ?? [],
+      },
+      isOwner: userTenant?.isOwner ?? false,
     };
-    
+
     this.setLocalCachedUser(cacheKey, userPayload);
     await this.redis.set(cacheKey, userPayload, { ttl: this.AUTH_CACHE_TTL });
-    
+
     return userPayload;
+  }
+
+  /**
+   * Invalide le cache d'authentification d'un utilisateur (cache local + Redis).
+   * À appeler après toute mutation impactant `request.user` (changement de rôle,
+   * édition des permissions d'un rôle, transfert de propriété, etc.).
+   *
+   * Note : le cache local (15s TTL) est par instance/pod — l'invalidation locale
+   * ne couvre que le pod courant, mais la fenêtre de staleness reste bornée à 15s.
+   */
+  async invalidateUserCache(userId: string): Promise<void> {
+    const cacheKey = `auth:user:${userId}`;
+    this.localCache.delete(cacheKey);
+    await this.redis.delete(cacheKey);
   }
 }

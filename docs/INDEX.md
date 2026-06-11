@@ -36,7 +36,8 @@ docs/
 │
 ├── auth/                                  ← AUTHENTIFICATION
 │   ├── AUTH_TESTING_GUIDE.md              ← Tests auth step-by-step
-│   └── MULTI_TENANT.md                    ← Guards, décorateurs multi-tenant
+│   ├── MULTI_TENANT.md                    ← Guards, décorateurs multi-tenant
+│   └── RBAC_SYSTEM.md                     ← Rôles/permissions dynamiques (super admin, menus)
 │
 ├── events/
 │   └── FRONTEND_HANDOFF_CURL_EVENTS.md    ← Curl/payloads events
@@ -133,6 +134,7 @@ Référence : [architecture/HEOS_ARCHITECTURE_GUIDE.md](architecture/HEOS_ARCHIT
 | Fonctionnalité | Document |
 |----------------|----------|
 | Auth multi-tenant | [auth/MULTI_TENANT.md](auth/MULTI_TENANT.md) |
+| RBAC (rôles/permissions dynamiques) | [auth/RBAC_SYSTEM.md](auth/RBAC_SYSTEM.md) |
 | Weezevent sync | [weezevent/WEEZEVENT_SYNC_OPERATIONS.md](weezevent/WEEZEVENT_SYNC_OPERATIONS.md) |
 | Weezevent analytics | [weezevent/WEEZEVENT_ANALYTICS.md](weezevent/WEEZEVENT_ANALYTICS.md) |
 | API Spaces | [api/SPACES_API_GUIDE.md](api/SPACES_API_GUIDE.md) |

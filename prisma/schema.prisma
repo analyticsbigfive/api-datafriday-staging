@@ -54,7 +54,6 @@ enum Diet {
   Kosher
 }
 
-
 enum ComponentCategory {
   Sauce
   Condiment
@@ -178,6 +177,10 @@ model Tenant {
   spaces      Space[]
   suppliers   Supplier[]
 
+  // RBAC (rôles/permissions dynamiques)
+  roles       Role[]
+  permissions Permission[] // Permissions custom du tenant (scope CUSTOM)
+
   // Menu domain relations (ajoutées pour isolation multi-tenant)
   menuItems      MenuItem[]
   menuComponents MenuComponent[]
@@ -190,21 +193,21 @@ model Tenant {
   webhooks       Webhook[]
 
   // Weezevent Relations
-  weezeventEvents           WeezeventEvent[]
-  weezeventMerchants        WeezeventMerchant[]
-  weezeventLocations        WeezeventLocation[]
-  weezeventProducts         WeezeventProduct[]
-  weezeventUsers            WeezeventUser[]
-  weezeventWallets          WeezeventWallet[]
-  weezeventTransactions     WeezeventTransaction[]
-  weezeventWebhookEvents    WeezeventWebhookEvent[]
-  weezeventProductMappings  WeezeventProductMapping[]
-  weezeventProductVariants  WeezeventProductVariant[]
+  weezeventEvents            WeezeventEvent[]
+  weezeventMerchants         WeezeventMerchant[]
+  weezeventLocations         WeezeventLocation[]
+  weezeventProducts          WeezeventProduct[]
+  weezeventUsers             WeezeventUser[]
+  weezeventWallets           WeezeventWallet[]
+  weezeventTransactions      WeezeventTransaction[]
+  weezeventWebhookEvents     WeezeventWebhookEvent[]
+  weezeventProductMappings   WeezeventProductMapping[]
+  weezeventProductVariants   WeezeventProductVariant[]
   weezeventProductComponents WeezeventProductComponent[]
-  weezeventOrders           WeezeventOrder[]
-  weezeventPrices           WeezeventPrice[]
-  weezeventAttendees        WeezeventAttendee[]
-  weezeventIntegrations     WeezeventIntegration[]
+  weezeventOrders            WeezeventOrder[]
+  weezeventPrices            WeezeventPrice[]
+  weezeventAttendees         WeezeventAttendee[]
+  weezeventIntegrations      WeezeventIntegration[]
 
   @@index([slug])
   @@index([status])
@@ -270,7 +273,8 @@ model User {
   lastName  String
   fullName  String?
 
-  role      UserRole @default(VIEWER)
+  role      UserRole @default(VIEWER) // Legacy - conservé pour compatibilité, voir roleRef
+  roleId    String? // RBAC dynamique - FK vers Role (nullable pendant la transition)
   avatar    String?
   tenantId  String // Keep for backward compatibility
   createdAt DateTime @default(now())
@@ -278,6 +282,7 @@ model User {
 
   // Relations
   tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  roleRef      Role?             @relation(fields: [roleId], references: [id], onDelete: SetNull)
   userTenants  UserTenant[] // New many-to-many relation
   pinnedSpaces UserPinnedSpace[]
   spaceAccess  UserSpaceAccess[]
@@ -285,6 +290,7 @@ model User {
   @@unique([email, tenantId])
   @@index([tenantId])
   @@index([email])
+  @@index([roleId])
 }
 
 // Many-to-many relation between User and Tenant
@@ -292,18 +298,21 @@ model UserTenant {
   id        String   @id @default(cuid())
   userId    String
   tenantId  String
-  role      UserRole @default(ADMIN)
+  role      UserRole @default(ADMIN) // Legacy - conservé pour compatibilité, voir roleRef
+  roleId    String? // RBAC dynamique - FK vers Role (nullable pendant la transition)
   isOwner   Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  roleRef Role?  @relation(fields: [roleId], references: [id], onDelete: SetNull)
 
   @@unique([userId, tenantId])
   @@index([userId])
   @@index([tenantId])
   @@index([isOwner])
+  @@index([roleId])
 }
 
 model UserPinnedSpace {
@@ -332,6 +341,71 @@ model UserSpaceAccess {
   @@unique([userId, spaceId])
   @@index([userId])
   @@index([spaceId])
+}
+
+// ==================== RBAC (Rôles & Permissions dynamiques) ====================
+// Voir docs/auth/RBAC_SYSTEM.md pour le design complet.
+
+// Origine d'une permission :
+// - SYSTEM : fait partie du catalogue système (tenantId = null), non éditable
+// - CUSTOM : créée par un tenant (tenantId = <tenant>), éditable par les admins du tenant
+enum PermissionScope {
+  SYSTEM
+  CUSTOM
+}
+
+model Permission {
+  id          String          @id @default(cuid())
+  tenantId    String? // null = permission système globale (catalogue partagé)
+  code        String // ex: "nav.spaces", "org.roles.manage" (unicité gérée par seed/service, voir doc)
+  name        String
+  description String?
+  category    String? // regroupement pour l'UI (ex: "Navigation", "Organisation")
+  scope       PermissionScope @default(CUSTOM)
+  isSystem    Boolean         @default(false) // true = non modifiable/supprimable via l'UI
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  tenant Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  roles  RolePermission[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([scope])
+}
+
+model Role {
+  id          String    @id @default(cuid())
+  tenantId    String
+  name        String
+  description String?
+  // Référence vers le rôle "système" équivalent (ADMIN/MANAGER/STAFF/VIEWER) pour la
+  // hiérarchie legacy et la règle "ADMIN = toutes les permissions". Null pour les rôles
+  // 100% custom créés par un tenant.
+  systemKey   UserRole?
+  isSystem    Boolean   @default(false) // true = rôle cloné depuis le catalogue système (non supprimable)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  permissions RolePermission[]
+  users       User[]
+  userTenants UserTenant[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([systemKey])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
 }
 
 // ==================== SPACE & CONFIG ====================
@@ -376,9 +450,9 @@ model Space {
   avgTransaction Float?
   perCapita      Float?
   cachedMetrics  Json? // Cache des métriques calculées
-  
+
   // Timezone for dashboard aggregations
-  timezone       String? @default("Europe/Paris")
+  timezone String? @default("Europe/Paris")
 
   // Relations
   tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -434,8 +508,8 @@ model Floor {
 
 model SpaceElement {
   id          String      @id @default(cuid())
-  floorId     String?     // FK to Floor (if element is inside a floor)
-  forecourtId String?     // FK to Forecourt (if element is in forecourt)
+  floorId     String? // FK to Floor (if element is inside a floor)
+  forecourtId String? // FK to Forecourt (if element is in forecourt)
   name        String
   type        ElementType
   x           Float
@@ -443,7 +517,7 @@ model SpaceElement {
   depth       Float?
   width       Float?
   height      Float?
-  height3d    Float?      // Hauteur 3D en mètres
+  height3d    Float? // Hauteur 3D en mètres
   rotation    Float?      @default(0)
   image       String?     @db.Text
   notes       String?
@@ -468,8 +542,8 @@ model SpaceElement {
   tags       String[]
 
   // Relations
-  floor          Floor?               @relation(fields: [floorId], references: [id], onDelete: Cascade)
-  forecourt      Forecourt?           @relation(fields: [forecourtId], references: [id], onDelete: Cascade)
+  floor           Floor?              @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  forecourt       Forecourt?          @relation(fields: [forecourtId], references: [id], onDelete: Cascade)
   performance     ElementPerformance?
   staffPositions  ElementStaff[]
   inventoryItems  ElementInventory[]
@@ -478,8 +552,8 @@ model SpaceElement {
   @@index([floorId])
   @@index([forecourtId])
   @@index([type])
-  @@index([floorId, type])      // Composite: shop queries filter by floor + type
-  @@index([forecourtId, type])  // Composite: shop queries filter by forecourt + type
+  @@index([floorId, type]) // Composite: shop queries filter by floor + type
+  @@index([forecourtId, type]) // Composite: shop queries filter by forecourt + type
 }
 
 // ==================== ELEMENT PERFORMANCE ====================
@@ -504,7 +578,7 @@ model ElementPerformance {
 model ElementStaff {
   id         String   @id @default(cuid())
   elementId  String
-  position   String   // "Cashier", "Cook", "Security", etc.
+  position   String // "Cashier", "Cook", "Security", etc.
   count      Int      @default(1)
   hourlyRate Float?
   createdAt  DateTime @default(now())
@@ -522,11 +596,11 @@ model ElementInventory {
   elementId  String
   name       String
   quantity   Float    @default(0)
-  unit       String?  // "units", "kg", "liters", etc.
-  minStock   Float?   // Niveau minimum d'alerte
-  maxStock   Float?   // Capacité maximum
+  unit       String? // "units", "kg", "liters", etc.
+  minStock   Float? // Niveau minimum d'alerte
+  maxStock   Float? // Capacité maximum
   isCustom   Boolean  @default(true)
-  menuItemId String?  // Référence optionnelle à un item du menu
+  menuItemId String? // Référence optionnelle à un item du menu
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -575,10 +649,10 @@ model Supplier {
 }
 
 model MarketPrice {
-  id                     String   @id @default(cuid())
+  id                     String    @id @default(cuid())
   unit                   String
   image                  String?
-  price                  Decimal  @db.Decimal(10, 2)
+  price                  Decimal   @db.Decimal(10, 2)
   goodType               GoodType
   itemName               String
   category               String?
@@ -587,7 +661,7 @@ model MarketPrice {
   purchaseUnitConversion Float?
   supplier               String? // Nom du fournisseur
   supplierId             String? // ID du fournisseur
-  pricePerUnit           Decimal? @db.Decimal(10, 4)
+  pricePerUnit           Decimal?  @db.Decimal(10, 4)
   packedUnits            Int?
   numberOfUnits          Int?
   unitsPerPurchase       Int?
@@ -596,8 +670,8 @@ model MarketPrice {
   packingLength          Float?
   inventoryPackaging     String?
   tenantId               String
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
   deletedAt              DateTime?
 
   tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -757,13 +831,13 @@ model WeezeventProduct {
   syncedAt  DateTime @default(now())
 
   // Relations
-  tenant           Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  integration      WeezeventIntegration         @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-  transactionItems WeezeventTransactionItem[]
-  mappings         WeezeventProductMapping[]
-  productVariants  WeezeventProductVariant[]
+  tenant            Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  integration       WeezeventIntegration        @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  transactionItems  WeezeventTransactionItem[]
+  mappings          WeezeventProductMapping[]
+  productVariants   WeezeventProductVariant[]
   productComponents WeezeventProductComponent[]
-  prices           WeezeventPrice[]
+  prices            WeezeventPrice[]
 
   @@unique([tenantId, integrationId, weezeventId])
   @@index([tenantId])
@@ -895,6 +969,7 @@ model WeezeventTransaction {
   sellerWallet WeezeventWallet?           @relation("SellerWallet", fields: [sellerWalletId], references: [id])
   items        WeezeventTransactionItem[]
 
+  @@unique([tenantId, integrationId, weezeventId])
   @@index([tenantId])
   @@index([integrationId])
   @@index([weezeventId])
@@ -907,7 +982,6 @@ model WeezeventTransaction {
   @@index([sellerWalletId]) // Added walletId index
   // Composite indexes for analytics
   @@index([tenantId, status, transactionDate])
-  @@unique([tenantId, integrationId, weezeventId])
   @@index([tenantId, eventId, status])
   @@index([eventId, transactionDate])
   @@index([tenantId, locationId, transactionDate]) // Aggregation query: WHERE tenantId + locationId IN (...) + transactionDate range
@@ -1132,22 +1206,22 @@ model WeezeventProductComponent {
 // ==================== WEEZEVENT SYNC JOBS ====================
 
 model WeezeventSyncJob {
-  id              String    @id @default(cuid())
-  tenantId        String
-  integrationId   String
-  fromDate        DateTime
-  toDate          DateTime
-  status          String    @default("PENDING") // PENDING | COLLECTING | COMPLETED | FAILED
+  id            String   @id @default(cuid())
+  tenantId      String
+  integrationId String
+  fromDate      DateTime
+  toDate        DateTime
+  status        String   @default("PENDING") // PENDING | COLLECTING | COMPLETED | FAILED
 
-  totalCollected  Int       @default(0)
-  totalInserted   Int       @default(0)
-  totalChunks     Int       @default(0)
-  processedChunks Int       @default(0)
-  collectDone     Boolean   @default(false)
+  totalCollected  Int     @default(0)
+  totalInserted   Int     @default(0)
+  totalChunks     Int     @default(0)
+  processedChunks Int     @default(0)
+  collectDone     Boolean @default(false)
 
-  errorMessage    String?
-  startedAt       DateTime  @default(now())
-  completedAt     DateTime?
+  errorMessage String?
+  startedAt    DateTime  @default(now())
+  completedAt  DateTime?
 
   integration WeezeventIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
   chunks      WeezeventSyncChunk[]
@@ -1177,13 +1251,13 @@ model WeezeventOrder {
   tenantId      String
   integrationId String
 
-  eventId      String?
-  eventName    String?
-  userId       String?
-  userEmail    String?
-  status       String
-  totalAmount  Decimal  @db.Decimal(10, 2)
-  orderDate    DateTime
+  eventId       String?
+  eventName     String?
+  userId        String?
+  userEmail     String?
+  status        String
+  totalAmount   Decimal  @db.Decimal(10, 2)
+  orderDate     DateTime
   paymentMethod String?
 
   metadata Json?
@@ -1193,9 +1267,9 @@ model WeezeventOrder {
   updatedAt DateTime @updatedAt
   syncedAt  DateTime @default(now())
 
-  tenant Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   integration WeezeventIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-  event  WeezeventEvent? @relation(fields: [eventId], references: [id])
+  event       WeezeventEvent?      @relation(fields: [eventId], references: [id])
 
   @@unique([tenantId, integrationId, weezeventId])
   @@index([tenantId])
@@ -1212,14 +1286,14 @@ model WeezeventPrice {
   tenantId      String
   integrationId String
 
-  eventId     String?
-  productId   String?
-  name        String
-  amount      Decimal  @db.Decimal(10, 2)
-  currency    String
-  validFrom   DateTime?
-  validUntil  DateTime?
-  priceType   String?
+  eventId    String?
+  productId  String?
+  name       String
+  amount     Decimal   @db.Decimal(10, 2)
+  currency   String
+  validFrom  DateTime?
+  validUntil DateTime?
+  priceType  String?
 
   metadata Json?
   rawData  Json
@@ -1228,10 +1302,10 @@ model WeezeventPrice {
   updatedAt DateTime @updatedAt
   syncedAt  DateTime @default(now())
 
-  tenant  Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   integration WeezeventIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-  event   WeezeventEvent?   @relation(fields: [eventId], references: [id])
-  product WeezeventProduct? @relation(fields: [productId], references: [id])
+  event       WeezeventEvent?      @relation(fields: [eventId], references: [id])
+  product     WeezeventProduct?    @relation(fields: [productId], references: [id])
 
   @@unique([tenantId, integrationId, weezeventId])
   @@index([tenantId])
@@ -1247,13 +1321,13 @@ model WeezeventAttendee {
   tenantId      String
   integrationId String
 
-  eventId   String?
-  eventName String?
-  email     String?
-  firstName String?
-  lastName  String?
+  eventId    String?
+  eventName  String?
+  email      String?
+  firstName  String?
+  lastName   String?
   ticketType String?
-  status    String
+  status     String
 
   metadata Json?
   rawData  Json
@@ -1262,9 +1336,9 @@ model WeezeventAttendee {
   updatedAt DateTime @updatedAt
   syncedAt  DateTime @default(now())
 
-  tenant Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   integration WeezeventIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-  event  WeezeventEvent? @relation(fields: [eventId], references: [id])
+  event       WeezeventEvent?      @relation(fields: [eventId], references: [id])
 
   @@unique([tenantId, integrationId, weezeventId])
   @@index([tenantId])
@@ -1351,7 +1425,7 @@ model MenuComponent {
   updatedAt           DateTime     @updatedAt
   deletedAt           DateTime?
 
-  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant      Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   ingredients ComponentIngredient[]
   children    ComponentComponent[]  @relation("ParentToChild")
   parents     ComponentComponent[]  @relation("ChildToParent")
@@ -1462,30 +1536,30 @@ model DisplayName {
 // ==================== MENU ITEMS ====================
 
 model MenuItem {
-  id                   String        @id @default(cuid())
-  name                 String
-  typeId               String?       // FK to ProductType (optional)
-  categoryId           String?       // FK to ProductCategory (optional)
-  brandId              String?       // FK to Brand (optional)
-  displayNameId        String?       // FK to DisplayName (optional)
-  diet                 Diet[]
-  allergens            String[]
-  picture              String?
-  basePrice            Decimal       @db.Decimal(10, 2)
-  totalCost            Decimal?      @db.Decimal(12, 4)
-  margin               Float?
-  description          String?
-  storageType          StorageType[]
-  readyForSale         String?       // "Yes", "No" ou null
-  comboItem            String?       // "Yes", "No" ou null
-  numberOfPiecesRecipe Int?
-  componentsData       Json?         // Pour stocker les components JSON de Figma
-  inventoryPackagingType String?     // Type de conditionnement inventaire (ex: Box, Bag)
-  inventoryNumberOfUnits Float?      // Nombre d'unités par conditionnement
-  tenantId             String
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
-  deletedAt            DateTime?
+  id                     String        @id @default(cuid())
+  name                   String
+  typeId                 String? // FK to ProductType (optional)
+  categoryId             String? // FK to ProductCategory (optional)
+  brandId                String? // FK to Brand (optional)
+  displayNameId          String? // FK to DisplayName (optional)
+  diet                   Diet[]
+  allergens              String[]
+  picture                String?
+  basePrice              Decimal       @db.Decimal(10, 2)
+  totalCost              Decimal?      @db.Decimal(12, 4)
+  margin                 Float?
+  description            String?
+  storageType            StorageType[]
+  readyForSale           String? // "Yes", "No" ou null
+  comboItem              String? // "Yes", "No" ou null
+  numberOfPiecesRecipe   Int?
+  componentsData         Json? // Pour stocker les components JSON de Figma
+  inventoryPackagingType String? // Type de conditionnement inventaire (ex: Box, Bag)
+  inventoryNumberOfUnits Float? // Nombre d'unités par conditionnement
+  tenantId               String
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+  deletedAt              DateTime?
 
   tenant            Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   productType       ProductType?              @relation(fields: [typeId], references: [id])
@@ -1575,8 +1649,8 @@ model Station {
 
 model MenuAssignment {
   id         String   @id @default(cuid())
-  stationId  String?  // Optional: assignment to a station
-  elementId  String?  // Optional: assignment to a space element
+  stationId  String? // Optional: assignment to a station
+  elementId  String? // Optional: assignment to a space element
   menuItemId String
   enabled    Boolean  @default(true)
   createdAt  DateTime @default(now())
@@ -1590,7 +1664,7 @@ model MenuAssignment {
   @@unique([elementId, menuItemId])
   @@index([stationId])
   @@index([elementId])
-  @@index([elementId, enabled])  // Composite: shop menu assignment query filters by elementId + enabled
+  @@index([elementId, enabled]) // Composite: shop menu assignment query filters by elementId + enabled
   @@index([menuItemId])
 }
 
@@ -1599,8 +1673,8 @@ model MenuAssignment {
 model Webhook {
   id        String   @id @default(cuid())
   tenantId  String
-  url       String   // Target URL
-  secret    String?  // HMAC signing secret
+  url       String // Target URL
+  secret    String? // HMAC signing secret
   events    String[] // e.g. ["menu_item.created", "menu_item.updated"]
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -1614,15 +1688,15 @@ model Webhook {
 }
 
 model WebhookLog {
-  id         String   @id @default(cuid())
-  webhookId  String
-  event      String   // e.g. "menu_item.created"
-  payload    Json
-  status     Int      // HTTP status code of the response
-  response   String?  // Response body (truncated)
-  duration   Int?     // Response time in ms
-  success    Boolean
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  webhookId String
+  event     String // e.g. "menu_item.created"
+  payload   Json
+  status    Int // HTTP status code of the response
+  response  String? // Response body (truncated)
+  duration  Int? // Response time in ms
+  success   Boolean
+  createdAt DateTime @default(now())
 
   webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
 
@@ -1716,9 +1790,9 @@ model Event {
   tenantId           String?
 
   // Event date/time details
-  eventStartDate   DateTime?
-  eventEndDate     DateTime?
-  eventEndTime     String?
+  eventStartDate DateTime?
+  eventEndDate   DateTime?
+  eventEndTime   String?
 
   // Event details
   location         String?
@@ -1764,11 +1838,11 @@ model AuditLog {
   id        String   @id @default(cuid())
   tenantId  String
   userId    String
-  action    String   // CREATE, UPDATE, DELETE, RESTORE
-  entity    String   // MenuItem, MenuComponent, etc.
+  action    String // CREATE, UPDATE, DELETE, RESTORE
+  entity    String // MenuItem, MenuComponent, etc.
   entityId  String
-  changes   Json?    // { before: {...}, after: {...} }
-  metadata  Json?    // Extra context (IP, user-agent, etc.)
+  changes   Json? // { before: {...}, after: {...} }
+  metadata  Json? // Extra context (IP, user-agent, etc.)
   createdAt DateTime @default(now())
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1781,19 +1855,19 @@ model AuditLog {
 // ==================== MENU (dédié) ====================
 
 model Menu {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   name        String
   description String?
   spaceId     String
   configId    String
-  isActive    Boolean  @default(true)
+  isActive    Boolean   @default(true)
   tenantId    String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
 
-  space       Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  space  Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([spaceId, configId, name])
   @@index([tenantId])
@@ -1805,12 +1879,12 @@ model Menu {
 
 // Maps Weezevent Location to Space for revenue attribution
 model WeezeventLocationSpaceMapping {
-  id                   String   @id @default(cuid())
-  tenantId             String
-  weezeventLocationId  String
-  spaceId              String
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  tenantId            String
+  weezeventLocationId String
+  spaceId             String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   @@unique([tenantId, weezeventLocationId])
   @@index([tenantId, spaceId])
@@ -1850,11 +1924,11 @@ model TenantVatConfig {
 // Minute-level revenue aggregates — source de vérité unique (remplace SpaceRevenueDailyAgg)
 // Pour agréger à la journée : GROUP BY DATE_TRUNC('day', minute)
 model SpaceRevenueMinuteAgg {
-  id                  String   @id @default(cuid())
-  tenantId            String
-  spaceId             String
-  minute              DateTime // TIMESTAMPTZ tronqué à la minute (ex: 2025-05-10T20:45:00Z)
-  timezone            String   @default("Europe/Paris")
+  id       String   @id @default(cuid())
+  tenantId String
+  spaceId  String
+  minute   DateTime // TIMESTAMPTZ tronqué à la minute (ex: 2025-05-10T20:45:00Z)
+  timezone String   @default("Europe/Paris")
 
   // Optional dimensions for filtering
   weezeventEventId    String?
@@ -1863,12 +1937,12 @@ model SpaceRevenueMinuteAgg {
   spaceElementId      String?
 
   // Aggregated metrics
-  revenueHt           Decimal  @db.Decimal(12, 2)
-  transactionsCount   Int
-  itemsCount          Int
+  revenueHt         Decimal @db.Decimal(12, 2)
+  transactionsCount Int
+  itemsCount        Int
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([tenantId, spaceId, minute, weezeventEventId, weezeventLocationId, weezeventMerchantId, spaceElementId])
   @@index([tenantId, spaceId, minute])
@@ -1884,13 +1958,13 @@ model SpaceProductRevenueDailyAgg {
   spaceId            String
   day                DateTime @db.Date
   weezeventProductId String
-  
+
   // Aggregated metrics
-  revenueHt          Decimal  @db.Decimal(12, 2)
-  quantity           Int
-  
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  revenueHt Decimal @db.Decimal(12, 2)
+  quantity  Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([tenantId, spaceId, day, weezeventProductId])
   @@index([tenantId, spaceId, day])
@@ -1911,22 +1985,22 @@ model SpaceDashboardVersion {
 
 // Tracks aggregation job execution for monitoring and retry
 model AggregationJobLog {
-  id                   String    @id @default(cuid())
-  tenantId             String
-  spaceId              String?
-  jobType              String    // 'full' | 'incremental' | 'rebuild'
-  status               String    // 'pending' | 'running' | 'completed' | 'failed'
-  fromDate             DateTime  @db.Date
-  toDate               DateTime  @db.Date
-  transactionsProcessed Int      @default(0)
-  startedAt            DateTime  @default(now())
-  completedAt          DateTime?
-  error                String?   @db.Text
-  retryCount           Int       @default(0)
-  metadata             Json?
-  
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  id                    String    @id @default(cuid())
+  tenantId              String
+  spaceId               String?
+  jobType               String // 'full' | 'incremental' | 'rebuild'
+  status                String // 'pending' | 'running' | 'completed' | 'failed'
+  fromDate              DateTime  @db.Date
+  toDate                DateTime  @db.Date
+  transactionsProcessed Int       @default(0)
+  startedAt             DateTime  @default(now())
+  completedAt           DateTime?
+  error                 String?   @db.Text
+  retryCount            Int       @default(0)
+  metadata              Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId, status, startedAt])
   @@index([spaceId, status])
@@ -1937,16 +2011,16 @@ model AggregationJobLog {
 model UnmappedDataMetrics {
   id               String   @id @default(cuid())
   tenantId         String
-  entityType       String   // 'location' | 'merchant' | 'product'
+  entityType       String // 'location' | 'merchant' | 'product'
   entityId         String
   entityName       String
   transactionCount Int      @default(0)
   revenueHt        Decimal  @db.Decimal(12, 2)
   firstSeenAt      DateTime @default(now())
   lastSeenAt       DateTime @updatedAt
-  
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([tenantId, entityType, entityId])
   @@index([tenantId, entityType])

@@ -2,17 +2,18 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { MeController } from './me.controller';
 import { PrismaService } from '../../core/database/prisma.service';
+import { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 
 describe('MeController', () => {
   let controller: MeController;
   let prisma: PrismaService;
 
-  const mockUser = {
+  const mockUser: CurrentUserData = {
     id: 'user-123',
     email: 'test@example.com',
     firstName: 'John',
     lastName: 'Doe',
-    role: 'ADMIN',
+    fullName: 'John Doe',
     tenantId: 'tenant-123',
     tenant: {
       id: 'tenant-123',
@@ -21,6 +22,14 @@ describe('MeController', () => {
       plan: 'PRO',
       status: 'ACTIVE',
     },
+    role: {
+      id: 'role-123',
+      name: 'Admin',
+      systemKey: 'ADMIN',
+      isSystem: true,
+      permissions: [],
+    },
+    isOwner: true,
   };
 
   const mockPrismaService = {
@@ -52,31 +61,22 @@ describe('MeController', () => {
 
   describe('getCurrentUser', () => {
     it('should return current user with tenant', async () => {
-      mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
-
-      const result = await controller.getCurrentUser({ id: 'user-123' });
+      const result = await controller.getCurrentUser(mockUser);
 
       expect(result).toEqual(mockUser);
-      expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
-        where: { id: 'user-123' },
-        select: expect.objectContaining({
-          id: true,
-          email: true,
-          firstName: true,
-          lastName: true,
-          role: true,
-          tenantId: true,
-          tenant: expect.any(Object),
-        }),
-      });
+      expect(mockPrismaService.user.findUnique).not.toHaveBeenCalled();
     });
 
-    it('should return null if user not found', async () => {
-      mockPrismaService.user.findUnique.mockResolvedValue(null);
+    it('should throw NotFoundException if user has no tenant (onboarding required)', async () => {
+      const userWithoutTenant: CurrentUserData = {
+        ...mockUser,
+        tenantId: null,
+        tenant: null,
+      };
 
-      const result = await controller.getCurrentUser({ id: 'non-existent' });
-
-      expect(result).toBeNull();
+      await expect(controller.getCurrentUser(userWithoutTenant)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 

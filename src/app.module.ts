@@ -22,6 +22,8 @@ import { MeModule } from './features/me/me.module';
 import { TenantsModule } from './features/tenants/tenants.module';
 import { SpacesModule } from './features/spaces/spaces.module';
 import { UsersModule } from './features/users/users.module';
+import { RolesModule } from './features/roles/roles.module';
+import { PermissionsModule } from './features/permissions/permissions.module';
 import { OrchestratorModule } from './features/orchestrator/orchestrator.module';
 import { SuppliersModule } from './features/suppliers/suppliers.module';
 import { MarketPricesModule } from './features/market-prices/market-prices.module';
@@ -108,6 +110,8 @@ import { RolesGuard } from './core/auth/guards/roles.guard';
     TenantsModule,
     SpacesModule,
     UsersModule,
+    RolesModule,
+    PermissionsModule,
     OrchestratorModule,
     SuppliersModule,
     MarketPricesModule,

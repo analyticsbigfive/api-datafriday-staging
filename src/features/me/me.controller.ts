@@ -1,7 +1,7 @@
 import { Controller, Get, UseGuards, NotFoundException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
-import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
+import { CurrentUser, CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 import { PrismaService } from '../../core/database/prisma.service';
 
 @ApiTags('Me')
@@ -29,8 +29,9 @@ export class MeController {
                 email: { type: 'string' },
                 firstName: { type: 'string' },
                 lastName: { type: 'string' },
-                role: { type: 'string', enum: ['ADMIN', 'MANAGER', 'STAFF'] },
+                fullName: { type: 'string' },
                 tenantId: { type: 'string' },
+                isOwner: { type: 'boolean' },
                 tenant: {
                     type: 'object',
                     properties: {
@@ -41,34 +42,27 @@ export class MeController {
                         status: { type: 'string' },
                     },
                 },
+                role: {
+                    type: 'object',
+                    properties: {
+                        id: { type: 'string', nullable: true },
+                        name: { type: 'string', nullable: true },
+                        systemKey: { type: 'string', enum: ['ADMIN', 'MANAGER', 'STAFF', 'VIEWER'], nullable: true },
+                        isSystem: { type: 'boolean' },
+                        permissions: { type: 'array', items: { type: 'string' } },
+                    },
+                },
             },
         },
     })
     @ApiResponse({ status: 401, description: 'Non authentifié' })
     @ApiResponse({ status: 404, description: 'Utilisateur non trouvé en base (nécessite onboarding)' })
-    async getCurrentUser(@CurrentUser() user: any) {
-        const dbUser = await this.prisma.user.findUnique({
-            where: { id: user.id },
-            select: {
-                id: true,
-                email: true,
-                firstName: true,
-                lastName: true,
-                role: true,
-                tenantId: true,
-                tenant: {
-                    select: {
-                        id: true,
-                        name: true,
-                        slug: true,
-                        plan: true,
-                        status: true,
-                    },
-                },
-            },
-        });
+    async getCurrentUser(@CurrentUser() user: CurrentUserData) {
+        if (!user.tenantId) {
+            throw new NotFoundException('Utilisateur non trouvé en base (nécessite onboarding)');
+        }
 
-        return dbUser;
+        return user;
     }
 
     /**

@@ -95,5 +95,23 @@ describe('RolesGuard', () => {
 
       expect(result).toBe(true);
     });
+
+    it('should allow access when user.role is an object with a matching systemKey', () => {
+      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue([UserRole.ADMIN]);
+      mockRequest.user.role = { systemKey: UserRole.ADMIN, permissions: [] };
+
+      const result = guard.canActivate(mockContext);
+
+      expect(result).toBe(true);
+    });
+
+    it('should deny access when user.role is an object without a matching systemKey', () => {
+      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue([UserRole.ADMIN]);
+      mockRequest.user.role = { systemKey: UserRole.VIEWER, permissions: [] };
+
+      const result = guard.canActivate(mockContext);
+
+      expect(result).toBe(false);
+    });
   });
 });

@@ -8,6 +8,8 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { UpdateWeezeventConfigDto } from './dto/update-weezevent-config.dto';
 import { EncryptionService } from '../../core/encryption/encryption.service';
+import { cloneSystemRolesForTenant } from '../../core/rbac/permission-catalog';
+import { UserRole } from '@prisma/client';
 import { randomBytes } from 'crypto';
 
 @Injectable()
@@ -122,6 +124,8 @@ export class OnboardingService {
 
     // Create user and link to tenant
     return this.prisma.$transaction(async (tx) => {
+      const roleIdBySystemKey = await cloneSystemRolesForTenant(tx, tenant.id);
+
       const user = await tx.user.create({
         data: {
           id: supabaseUserId,
@@ -131,6 +135,7 @@ export class OnboardingService {
           fullName: firstName && lastName ? `${firstName} ${lastName}` : email.split('@')[0],
           tenantId: tenant.id,
           role: 'STAFF', // Default role when joining existing tenant
+          roleId: roleIdBySystemKey[UserRole.STAFF],
         },
       });
 
@@ -140,6 +145,7 @@ export class OnboardingService {
           userId: user.id,
           tenantId: tenant.id,
           role: 'STAFF',
+          roleId: roleIdBySystemKey[UserRole.STAFF],
           isOwner: false,
         },
       });
@@ -203,6 +209,8 @@ export class OnboardingService {
 
     // Create user and link to tenant
     return this.prisma.$transaction(async (tx) => {
+      const roleIdBySystemKey = await cloneSystemRolesForTenant(tx, tenant.id);
+
       const user = await tx.user.create({
         data: {
           id: supabaseUserId,
@@ -212,6 +220,7 @@ export class OnboardingService {
           fullName: firstName && lastName ? `${firstName} ${lastName}` : email.split('@')[0],
           tenantId: tenant.id,
           role: 'STAFF', // Default role when joining via invitation
+          roleId: roleIdBySystemKey[UserRole.STAFF],
         },
       });
 
@@ -221,6 +230,7 @@ export class OnboardingService {
           userId: user.id,
           tenantId: tenant.id,
           role: 'STAFF',
+          roleId: roleIdBySystemKey[UserRole.STAFF],
           isOwner: false,
         },
       });
@@ -286,6 +296,9 @@ export class OnboardingService {
         },
       });
 
+      // Clone the 4 system roles (ADMIN/MANAGER/STAFF/VIEWER) for this tenant
+      const roleIdBySystemKey = await cloneSystemRolesForTenant(tx, tenant.id);
+
       // Check if user already exists
       let user = await tx.user.findUnique({
         where: { id: supabaseUserId },
@@ -302,7 +315,13 @@ export class OnboardingService {
             fullName: `${dto.firstName} ${dto.lastName}`,
             tenantId: tenant.id,
             role: 'ADMIN',
+            roleId: roleIdBySystemKey[UserRole.ADMIN],
           },
+        });
+      } else {
+        user = await tx.user.update({
+          where: { id: user.id },
+          data: { roleId: roleIdBySystemKey[UserRole.ADMIN] },
         });
       }
 
@@ -312,6 +331,7 @@ export class OnboardingService {
           userId: user.id,
           tenantId: tenant.id,
           role: 'ADMIN',
+          roleId: roleIdBySystemKey[UserRole.ADMIN],
           isOwner: true,
         },
       });

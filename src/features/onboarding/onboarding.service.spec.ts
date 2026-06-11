@@ -88,11 +88,18 @@ describe('OnboardingService', () => {
       mockPrismaService.$transaction.mockImplementation(async (callback) => {
         const tx = {
           tenant: { create: jest.fn().mockResolvedValue(mockTenant) },
-          user: { 
+          user: {
             findUnique: jest.fn().mockResolvedValue(null),
-            create: jest.fn().mockResolvedValue(mockUser) 
+            create: jest.fn().mockResolvedValue(mockUser),
+            update: jest.fn(),
           },
           userTenant: { create: jest.fn().mockResolvedValue({}) },
+          permission: { upsert: jest.fn().mockResolvedValue({ id: 'perm-id' }) },
+          role: {
+            findFirst: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockResolvedValue({ id: 'role-id' }),
+            update: jest.fn(),
+          },
         };
         return callback(tx);
       });
@@ -143,11 +150,18 @@ describe('OnboardingService', () => {
               status: 'TRIAL',
             }),
           },
-          user: { 
+          user: {
             findUnique: jest.fn().mockResolvedValue(existingUser),
-            create: jest.fn().mockResolvedValue({}) 
+            create: jest.fn().mockResolvedValue({}),
+            update: jest.fn().mockResolvedValue({ ...existingUser, role: 'ADMIN', roleId: 'role-id' }),
           },
           userTenant: { create: jest.fn().mockResolvedValue({}) },
+          permission: { upsert: jest.fn().mockResolvedValue({ id: 'perm-id' }) },
+          role: {
+            findFirst: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockResolvedValue({ id: 'role-id' }),
+            update: jest.fn(),
+          },
         };
         return callback(tx);
       });
@@ -173,11 +187,18 @@ describe('OnboardingService', () => {
               slug: 'my-company-1',
             }),
           },
-          user: { 
+          user: {
             findUnique: jest.fn().mockResolvedValue(null),
-            create: jest.fn().mockResolvedValue({}) 
+            create: jest.fn().mockResolvedValue({}),
+            update: jest.fn(),
           },
           userTenant: { create: jest.fn().mockResolvedValue({}) },
+          permission: { upsert: jest.fn().mockResolvedValue({ id: 'perm-id' }) },
+          role: {
+            findFirst: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockResolvedValue({ id: 'role-id' }),
+            update: jest.fn(),
+          },
         };
         return callback(tx);
       });

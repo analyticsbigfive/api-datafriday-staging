@@ -1,10 +1,15 @@
 /// <reference types="node" />
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, UserRole } from '@prisma/client';
+import { ensureSystemPermissionCatalog, cloneSystemRolesForTenant } from '../src/core/rbac/permission-catalog';
 
 const prisma = new PrismaClient();
 
 async function main() {
   console.log('🌱 Starting database seeding for multi-tenant SaaS...');
+
+  // ===== RBAC: catalogue de permissions système =====
+  await ensureSystemPermissionCatalog(prisma);
+  console.log('✅ System permission catalog seeded');
 
   // ===== TENANT 1: Demo Company =====
   const tenant1 = await prisma.tenant.upsert({
@@ -24,20 +29,25 @@ async function main() {
   });
   console.log('✅ Tenant 1 created:', tenant1.name);
 
+  // RBAC: clone des rôles système (ADMIN/MANAGER/STAFF/VIEWER) pour tenant 1
+  const roles1 = await cloneSystemRolesForTenant(prisma, tenant1.id);
+  console.log('✅ System roles cloned for tenant 1');
+
   // Admin user pour tenant 1
   const admin1 = await prisma.user.upsert({
-    where: { 
+    where: {
       email_tenantId: {
         email: 'admin@demo-company.com',
         tenantId: tenant1.id,
       }
     },
-    update: {},
+    update: { roleId: roles1[UserRole.ADMIN] },
     create: {
       email: 'admin@demo-company.com',
       firstName: 'Admin',
       lastName: 'Demo',
       role: 'ADMIN',
+      roleId: roles1[UserRole.ADMIN],
       tenantId: tenant1.id,
     },
   });
@@ -89,6 +99,10 @@ async function main() {
   });
   console.log('✅ Tenant 2 created:', tenant2.name);
 
+  // RBAC: clone des rôles système (ADMIN/MANAGER/STAFF/VIEWER) pour tenant 2
+  const roles2 = await cloneSystemRolesForTenant(prisma, tenant2.id);
+  console.log('✅ System roles cloned for tenant 2');
+
   // Admin user pour tenant 2
   const admin2 = await prisma.user.upsert({
     where: {
@@ -97,12 +111,13 @@ async function main() {
         tenantId: tenant2.id,
       }
     },
-    update: {},
+    update: { roleId: roles2[UserRole.ADMIN] },
     create: {
       email: 'admin@test-corp.com',
       firstName: 'Admin',
       lastName: 'Test',
       role: 'ADMIN',
+      roleId: roles2[UserRole.ADMIN],
       tenantId: tenant2.id,
     },
   });
@@ -177,6 +192,7 @@ async function main() {
   console.log(`  - 2 spaces (1 per tenant)`);
   console.log(`  - 1 supplier (tenant 1)`);
   console.log(`  - 3 global product types + ${globalCategories.length} global categories`);
+  console.log(`  - RBAC: system permission catalog + 4 roles (ADMIN/MANAGER/STAFF/VIEWER) per tenant`);
 }
 
 main()

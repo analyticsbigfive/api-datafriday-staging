@@ -1,7 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UsersService } from './users.service';
 import { PrismaService } from '../../core/database/prisma.service';
-import { ConflictException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { JwtDatabaseStrategy } from '../../core/auth/strategies/jwt-db-lookup.strategy';
+import { ConflictException, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 
 describe('UsersService', () => {
@@ -32,6 +33,13 @@ describe('UsersService', () => {
     space: {
       findFirst: jest.fn(),
     },
+    role: {
+      findFirst: jest.fn(),
+    },
+  };
+
+  const mockJwtDatabaseStrategy = {
+    invalidateUserCache: jest.fn(),
   };
 
   const mockTenantId = 'tenant-123';
@@ -55,6 +63,10 @@ describe('UsersService', () => {
         {
           provide: PrismaService,
           useValue: mockPrismaService,
+        },
+        {
+          provide: JwtDatabaseStrategy,
+          useValue: mockJwtDatabaseStrategy,
         },
       ],
     }).compile();
@@ -209,7 +221,8 @@ describe('UsersService', () => {
   });
 
   describe('changeRole', () => {
-    it('should change user role', async () => {
+    it('should change user role (legacy `role` enum)', async () => {
+      mockPrismaService.role.findFirst.mockResolvedValue(null);
       mockPrismaService.user.findFirst.mockResolvedValue(mockUser);
       mockPrismaService.userTenant.findFirst.mockResolvedValue({ isOwner: false });
       mockPrismaService.user.update.mockResolvedValue({ ...mockUser, role: UserRole.MANAGER });
@@ -224,12 +237,54 @@ describe('UsersService', () => {
       );
 
       expect(result.role).toBe(UserRole.MANAGER);
+      expect(mockJwtDatabaseStrategy.invalidateUserCache).toHaveBeenCalledWith(mockUserId);
+    });
+
+    it('should change user role via roleId (dynamic RBAC role)', async () => {
+      mockPrismaService.role.findFirst.mockResolvedValue({
+        id: 'role-manager',
+        name: 'MANAGER',
+        systemKey: UserRole.MANAGER,
+      });
+      mockPrismaService.user.findFirst.mockResolvedValue(mockUser);
+      mockPrismaService.userTenant.findFirst.mockResolvedValue({ isOwner: false });
+      mockPrismaService.user.update.mockResolvedValue({ ...mockUser, role: UserRole.MANAGER });
+      mockPrismaService.userTenant.updateMany.mockResolvedValue({});
+
+      const result = await service.changeRole(
+        mockUserId,
+        mockTenantId,
+        { roleId: 'role-manager' },
+        'other-user',
+        UserRole.ADMIN,
+      );
+
+      expect(result.role).toBe(UserRole.MANAGER);
+      expect(result.roleId).toBe('role-manager');
+      expect(mockPrismaService.user.update).toHaveBeenCalledWith({
+        where: { id: mockUserId },
+        data: { role: UserRole.MANAGER, roleId: 'role-manager' },
+      });
+    });
+
+    it('should throw NotFoundException when roleId does not belong to the tenant', async () => {
+      mockPrismaService.role.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.changeRole(mockUserId, mockTenantId, { roleId: 'unknown-role' }, 'other-user', UserRole.ADMIN),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('should not allow changing own role', async () => {
       await expect(
         service.changeRole(mockUserId, mockTenantId, { role: UserRole.ADMIN }, mockUserId, UserRole.ADMIN),
       ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should require either roleId or role', async () => {
+      await expect(
+        service.changeRole(mockUserId, mockTenantId, {}, 'other-user', UserRole.ADMIN),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 

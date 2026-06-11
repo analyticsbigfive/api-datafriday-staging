@@ -29,6 +29,10 @@ export class RolesGuard implements CanActivate {
       return false;
     }
 
-    return requiredRoles.some((role) => user.role === role);
+    // user.role peut être un objet { systemKey, ... } (rôle dynamique résolu via JWT-DB)
+    // ou, par compatibilité, directement la valeur de l'enum UserRole.
+    const systemKey = user.role?.systemKey ?? user.role;
+
+    return requiredRoles.some((role) => systemKey === role);
   }
 }

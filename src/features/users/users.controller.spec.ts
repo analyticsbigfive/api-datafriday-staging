@@ -11,7 +11,7 @@ describe('UsersController', () => {
   const mockCurrentUser = {
     id: 'user-123',
     email: 'admin@test.com',
-    role: 'ADMIN',
+    role: { id: 'role-admin', name: 'ADMIN', systemKey: UserRole.ADMIN, isSystem: true, permissions: [] },
   };
 
   const mockUser = {
@@ -213,7 +213,7 @@ describe('UsersController', () => {
         mockTenantId,
         changeRoleDto,
         mockCurrentUser.id,
-        mockCurrentUser.role,
+        mockCurrentUser.role.systemKey,
       );
     });
   });

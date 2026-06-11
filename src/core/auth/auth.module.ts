@@ -25,6 +25,6 @@ import { PrismaModule } from '../database/prisma.module';
     JwtOnboardingStrategy, // Pour onboarding
     JwtDatabaseStrategy,   // ✅ Stratégie recommandée (DB lookup + cache Redis)
   ],
-  exports: [PassportModule, JwtModule],
+  exports: [PassportModule, JwtModule, JwtDatabaseStrategy],
 })
 export class AuthModule { }

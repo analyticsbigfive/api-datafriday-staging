@@ -67,17 +67,24 @@ export class MenuItemsService {
   };
 
   private serializeItem(item: any) {
-    const spaceIds: string[] = [];
+    // Collect spaceIds from direct field first, then enrich with menuAssignments-derived ones
+    const directSpaceIds: string[] = Array.isArray(item.spaceIds) ? item.spaceIds : [];
+    const assignmentSpaceIds: string[] = [];
     if (item.menuAssignments?.length) {
       for (const assignment of item.menuAssignments) {
         const spaceId = assignment.station?.config?.spaceId;
-        if (spaceId && !spaceIds.includes(spaceId)) {
-          spaceIds.push(spaceId);
+        if (spaceId && !assignmentSpaceIds.includes(spaceId)) {
+          assignmentSpaceIds.push(spaceId);
         }
       }
     }
+    // Merge: direct field is source of truth, assignment-derived ones are added if missing
+    const mergedSpaceIds = [...directSpaceIds];
+    for (const sid of assignmentSpaceIds) {
+      if (!mergedSpaceIds.includes(sid)) mergedSpaceIds.push(sid);
+    }
     const { menuAssignments, ...rest } = item;
-    return { ...rest, spaceIds };
+    return { ...rest, spaceIds: mergedSpaceIds };
   }
 
   private toNumber(value: unknown, fallback = 0) {
@@ -153,6 +160,8 @@ export class MenuItemsService {
           componentsData: dto.componentsData,
           inventoryPackagingType: (dto as any).inventoryPackagingType ?? null,
           inventoryNumberOfUnits: (dto as any).inventoryNumberOfUnits ?? null,
+          spaceIds: Array.isArray((dto as any).spaceIds) ? (dto as any).spaceIds : [],
+          spacePrices: (dto as any).spacePrices ?? null,
 
           ...(componentsLines
             ? {
@@ -338,6 +347,8 @@ export class MenuItemsService {
     if (dto.componentsData !== undefined) updateData.componentsData = dto.componentsData;
     if ((dto as any).inventoryPackagingType !== undefined) updateData.inventoryPackagingType = (dto as any).inventoryPackagingType;
     if ((dto as any).inventoryNumberOfUnits !== undefined) updateData.inventoryNumberOfUnits = (dto as any).inventoryNumberOfUnits;
+    if ((dto as any).spaceIds !== undefined) updateData.spaceIds = Array.isArray((dto as any).spaceIds) ? (dto as any).spaceIds : [];
+    if ((dto as any).spacePrices !== undefined) updateData.spacePrices = (dto as any).spacePrices ?? null;
 
     const componentsLines = Array.isArray((dto as any).components) ? (dto as any).components : undefined;
     const ingredientsLines = Array.isArray((dto as any).ingredients) ? (dto as any).ingredients : undefined;

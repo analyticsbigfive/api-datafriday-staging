@@ -172,6 +172,16 @@ export class CreateMenuItemDto {
   @Type(() => Number)
   inventoryNumberOfUnits?: number;
 
+  @ApiPropertyOptional({ description: 'IDs des espaces associés', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  spaceIds?: string[];
+
+  @ApiPropertyOptional({ description: 'Prix par espace { [spaceId]: price }' })
+  @IsOptional()
+  spacePrices?: Record<string, number>;
+
   @ApiPropertyOptional({ description: 'Composants (source de vérité)', type: [MenuItemComponentLineDto] })
   @IsOptional()
   @IsArray()

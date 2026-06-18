@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
@@ -11,85 +11,168 @@ export class InventoryService {
 
   async getBySpaceAndEvent(spaceId: string, eventId: string, tenantId: string) {
     this.logger.log(`GET inventory spaceId=${spaceId} eventId=${eventId} tenant=${tenantId}`);
-    const inventory = await this.prisma.inventory.findFirst({
+    const snapshot = await this.prisma.inventorySnapshot.findFirst({
       where: { tenantId, spaceId, eventId },
-      include: { counts: { orderBy: { countedAt: 'desc' } } },
+      orderBy: { createdAt: 'desc' },
     });
-    if (!inventory) {
-      throw new NotFoundException(`Inventory not found for space ${spaceId} / event ${eventId}`);
+    if (!snapshot) {
+      throw new NotFoundException(`No inventory snapshot for space ${spaceId} / event ${eventId}`);
     }
-    return inventory;
+    return snapshot;
   }
 
   async getLatestBySpace(spaceId: string, tenantId: string) {
     this.logger.log(`GET latest inventory spaceId=${spaceId} tenant=${tenantId}`);
-    const inventory = await this.prisma.inventory.findFirst({
+    const snapshot = await this.prisma.inventorySnapshot.findFirst({
       where: { tenantId, spaceId },
-      include: { counts: { orderBy: { countedAt: 'desc' } } },
-      orderBy: { updatedAt: 'desc' },
+      orderBy: { createdAt: 'desc' },
     });
-    if (!inventory) {
-      throw new NotFoundException(`No inventory found for space ${spaceId}`);
+    if (!snapshot) {
+      throw new NotFoundException(`No inventory snapshot for space ${spaceId}`);
     }
-    return inventory;
+    return snapshot;
   }
 
-  async upsertInventory(dto: CreateInventoryDto, tenantId: string) {
-    this.logger.log(`UPSERT inventory spaceId=${dto.spaceId} eventId=${dto.eventId ?? 'null'} tenant=${tenantId}`);
-    return this.prisma.inventory.upsert({
+  async upsertInventory(dto: CreateInventoryDto, tenantId: string, userId?: string) {
+    this.logger.log(`POST /inventory spaceId=${dto.spaceId} eventId=${dto.eventId ?? 'null'} tenant=${tenantId}`);
+    return this.prisma.inventorySnapshot.create({
+      data: {
+        tenantId,
+        spaceId: dto.spaceId,
+        eventId: dto.eventId ?? null,
+        inventoryCounts: dto.inventoryCounts as any,
+        createdBy: userId ?? null,
+      },
+    });
+  }
+
+  async saveInventoryCounts(dto: CreateInventoryCountDto, tenantId: string, userId?: string) {
+    this.logger.log(
+      `POST /inventory-counts spaceId=${dto.spaceId} shopId=${dto.shopId ?? 'null'} itemId=${dto.itemId} tenant=${tenantId}`,
+    );
+
+    return this.prisma.inventoryCount.upsert({
       where: {
-        tenantId_spaceId_eventId: {
+        uniq_inventory_count: {
           tenantId,
           spaceId: dto.spaceId,
           eventId: dto.eventId ?? null,
+          shopId: dto.shopId ?? null,
+          itemId: dto.itemId,
         },
       },
-      create: { tenantId, spaceId: dto.spaceId, eventId: dto.eventId ?? null },
-      update: { updatedAt: new Date() },
-      include: { counts: true },
+      create: {
+        tenantId,
+        spaceId: dto.spaceId,
+        eventId: dto.eventId ?? null,
+        shopId: dto.shopId ?? null,
+        itemId: dto.itemId,
+        packedUnits: dto.packedUnits,
+        looseUnits: dto.looseUnits,
+        isCounted: dto.isCounted,
+        storageLocation: dto.storageLocation ?? null,
+        countingStatus: dto.countingStatus ?? 'pending',
+        countedBy: userId ?? null,
+      },
+      update: {
+        packedUnits: dto.packedUnits,
+        looseUnits: dto.looseUnits,
+        isCounted: dto.isCounted,
+        storageLocation: dto.storageLocation ?? null,
+        countingStatus: dto.countingStatus ?? 'pending',
+        countedBy: userId ?? null,
+      },
     });
   }
 
-  async saveInventoryCounts(dto: CreateInventoryCountDto, tenantId: string) {
-    let inventoryId = dto.inventoryId;
+  // ─── Canonical routes (P2) ───────────────────────────────────────────────────
 
-    if (!inventoryId) {
-      if (!dto.spaceId) {
-        throw new BadRequestException('inventoryId or spaceId is required');
-      }
-      const inventory = await this.prisma.inventory.upsert({
-        where: {
-          tenantId_spaceId_eventId: {
-            tenantId,
-            spaceId: dto.spaceId,
-            eventId: dto.eventId ?? null,
-          },
-        },
-        create: { tenantId, spaceId: dto.spaceId, eventId: dto.eventId ?? null },
-        update: { updatedAt: new Date() },
-      });
-      inventoryId = inventory.id;
-    } else {
-      const exists = await this.prisma.inventory.findFirst({
-        where: { id: inventoryId, tenantId },
-      });
-      if (!exists) {
-        throw new NotFoundException(`Inventory ${inventoryId} not found`);
-      }
+  async getCountsBySpace(spaceId: string, tenantId: string, eventId?: string) {
+    return this.prisma.inventoryCount.findMany({
+      where: {
+        tenantId,
+        spaceId,
+        ...(eventId ? { eventId } : {}),
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+  }
+
+  async createCount(spaceId: string, tenantId: string, dto: CreateInventoryCountDto, userId?: string) {
+    return this.prisma.inventoryCount.create({
+      data: {
+        tenantId,
+        spaceId,
+        eventId: dto.eventId ?? null,
+        shopId: dto.shopId ?? null,
+        itemId: dto.itemId,
+        packedUnits: dto.packedUnits,
+        looseUnits: dto.looseUnits,
+        isCounted: dto.isCounted,
+        storageLocation: dto.storageLocation ?? null,
+        countingStatus: dto.countingStatus ?? 'pending',
+        countedBy: userId ?? null,
+      },
+    });
+  }
+
+  async patchCount(
+    countId: string,
+    tenantId: string,
+    patch: Partial<Pick<CreateInventoryCountDto, 'packedUnits' | 'looseUnits' | 'isCounted' | 'storageLocation' | 'countingStatus'>>,
+  ) {
+    const existing = await this.prisma.inventoryCount.findFirst({ where: { id: countId, tenantId } });
+    if (!existing) throw new NotFoundException(`InventoryCount ${countId} not found`);
+    return this.prisma.inventoryCount.update({ where: { id: countId }, data: patch });
+  }
+
+  async deleteCount(countId: string, tenantId: string) {
+    const existing = await this.prisma.inventoryCount.findFirst({ where: { id: countId, tenantId } });
+    if (!existing) throw new NotFoundException(`InventoryCount ${countId} not found`);
+    await this.prisma.inventoryCount.delete({ where: { id: countId } });
+  }
+
+  async getSummary(spaceId: string, tenantId: string, eventId?: string) {
+    const counts = await this.prisma.inventoryCount.findMany({
+      where: { tenantId, spaceId, ...(eventId ? { eventId } : {}) },
+    });
+
+    const totalItems = counts.length;
+    const countedItems = counts.filter((c) => c.isCounted).length;
+    const pendingItems = counts.filter((c) => c.countingStatus === 'pending').length;
+    const discardedItems = counts.filter((c) => c.discardedQuantity > 0).length;
+
+    const byShopMap = new Map<string, { totalItems: number; countedItems: number }>();
+    for (const c of counts) {
+      const key = c.shopId ?? '__no_shop__';
+      const entry = byShopMap.get(key) ?? { totalItems: 0, countedItems: 0 };
+      entry.totalItems++;
+      if (c.isCounted) entry.countedItems++;
+      byShopMap.set(key, entry);
     }
 
-    const data = dto.counts.map((line) => ({
-      inventoryId,
-      packagingId: line.packagingId,
-      quantity: line.quantity,
-      shopId: line.shopId ?? null,
-    }));
+    const byStorageMap = new Map<string, { totalItems: number; countedItems: number }>();
+    for (const c of counts) {
+      const key = c.storageLocation ?? '__null__';
+      const entry = byStorageMap.get(key) ?? { totalItems: 0, countedItems: 0 };
+      entry.totalItems++;
+      if (c.isCounted) entry.countedItems++;
+      byStorageMap.set(key, entry);
+    }
 
-    await this.prisma.inventoryCount.createMany({ data });
-
-    return this.prisma.inventory.findUnique({
-      where: { id: inventoryId },
-      include: { counts: { orderBy: { countedAt: 'desc' } } },
-    });
+    return {
+      totalItems,
+      countedItems,
+      pendingItems,
+      discardedItems,
+      byShop: [...byShopMap.entries()].map(([shopId, v]) => ({
+        shopId: shopId === '__no_shop__' ? null : shopId,
+        ...v,
+      })),
+      byStorage: [...byStorageMap.entries()].map(([loc, v]) => ({
+        storageLocation: loc === '__null__' ? null : loc,
+        ...v,
+      })),
+    };
   }
 }

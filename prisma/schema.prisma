@@ -2014,35 +2014,86 @@ model AggregationJobLog {
 
 // ==================== INVENTORY ====================
 
-// Event-level inventory snapshot (spaceId + optional eventId as upsert key)
-model Inventory {
-  id        String   @id @default(cuid())
-  tenantId  String
-  spaceId   String
-  eventId   String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+// Horodated snapshot of the full inventoryCounts JSON (one per POST /inventory call)
+model InventorySnapshot {
+  id              String   @id @default(cuid())
+  tenantId        String
+  spaceId         String
+  eventId         String?
+  inventoryCounts Json
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  counts InventoryCount[]
-
-  @@unique([tenantId, spaceId, eventId])
   @@index([tenantId])
-  @@index([tenantId, spaceId])
+  @@index([spaceId, eventId])
+  @@index([spaceId, createdAt])
 }
 
-// Per-packaging count lines linked to an Inventory
+// Per-item count upserted by POST /inventory-counts (one row per space+event+shop+item)
 model InventoryCount {
-  id          String   @id @default(cuid())
-  inventoryId String
-  packagingId String
-  quantity    Float
-  shopId      String?
-  countedAt   DateTime @default(now())
+  id                String   @id @default(cuid())
+  tenantId          String
+  spaceId           String
+  eventId           String?
+  shopId            String?
+  itemId            String
+  packedUnits       Int      @default(0)
+  looseUnits        Int      @default(0)
+  isCounted         Boolean  @default(false)
+  storageLocation   String?
+  countingStatus    String   @default("pending")
+  discardedQuantity Int      @default(0)
+  discardedReason   String?
+  countedBy         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  inventory Inventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  @@unique([tenantId, spaceId, eventId, shopId, itemId], name: "uniq_inventory_count")
+  @@index([tenantId])
+  @@index([spaceId, eventId])
+  @@index([shopId])
+  @@index([itemId])
+}
 
-  @@index([inventoryId])
-  @@index([packagingId])
+// ==================== KV STORE ====================
+
+// Generic key-value store (Event Predict versions, etc.)
+model KvStore {
+  id        String   @id @default(cuid())
+  key       String
+  tenantId  String?
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, key], name: "uniq_kv_store")
+  @@index([tenantId])
+}
+
+// ==================== EVENT PREDICT VERSIONS ====================
+
+model EventPredictVersion {
+  id                         String   @id @default(cuid())
+  tenantId                   String?
+  eventId                    String
+  spaceId                    String?
+  name                       String
+  isDefault                  Boolean  @default(false)
+  eventSnapshot              Json
+  totalRevenue               Float    @default(0)
+  adjustedTotalRevenue       Float    @default(0)
+  perCapita                  Float    @default(0)
+  adjustedPerCapita          Float    @default(0)
+  menuConfig                 Json
+  quantityAdjustments        Json
+  selectedPredictionEventIds String[]
+  createdBy                  String?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([eventId])
+  @@index([spaceId])
 }
 
 // Tracks unmapped Weezevent entities for data quality monitoring

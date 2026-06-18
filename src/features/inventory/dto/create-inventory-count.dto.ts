@@ -1,48 +1,58 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  IsArray,
-  IsNumber,
+  IsBoolean,
+  IsInt,
   IsOptional,
   IsString,
-  ValidateNested,
+  Min,
 } from 'class-validator';
 
-export class InventoryCountLineDto {
-  @ApiProperty({ description: 'ID du packaging' })
-  @IsString()
-  packagingId: string;
-
-  @ApiProperty({ description: 'Quantité comptée', type: Number })
-  @IsNumber()
-  @Type(() => Number)
-  quantity: number;
-
-  @ApiPropertyOptional({ description: 'ID du shop (point de vente)' })
-  @IsOptional()
-  @IsString()
-  shopId?: string;
-}
-
 export class CreateInventoryCountDto {
-  @ApiPropertyOptional({ description: 'ID d\'un inventaire existant (prioritaire sur spaceId+eventId)' })
-  @IsOptional()
+  @ApiProperty({ description: 'ID de l\'espace' })
   @IsString()
-  inventoryId?: string;
+  spaceId: string;
 
-  @ApiPropertyOptional({ description: 'ID de l\'espace (utilisé si inventoryId absent)' })
-  @IsOptional()
-  @IsString()
-  spaceId?: string;
-
-  @ApiPropertyOptional({ description: 'ID de l\'événement (utilisé si inventoryId absent)' })
+  @ApiPropertyOptional({ description: 'ID de l\'événement' })
   @IsOptional()
   @IsString()
   eventId?: string;
 
-  @ApiProperty({ description: 'Lignes de comptage', type: [InventoryCountLineDto] })
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => InventoryCountLineDto)
-  counts: InventoryCountLineDto[];
+  @ApiPropertyOptional({ description: 'ID du shop (SpaceElement)' })
+  @IsOptional()
+  @IsString()
+  shopId?: string;
+
+  @ApiProperty({ description: 'ID de l\'article (MenuItem ou itemId interne)' })
+  @IsString()
+  itemId: string;
+
+  @ApiProperty({ description: 'Unités en carton (emballé)', type: Number })
+  @IsInt()
+  @Min(0)
+  @Type(() => Number)
+  packedUnits: number;
+
+  @ApiProperty({ description: 'Unités à l\'unité (en vrac)', type: Number })
+  @IsInt()
+  @Min(0)
+  @Type(() => Number)
+  looseUnits: number;
+
+  @ApiProperty({ description: 'Article coché comme compté', type: Boolean })
+  @IsBoolean()
+  isCounted: boolean;
+
+  @ApiPropertyOptional({ description: 'Emplacement de stockage' })
+  @IsOptional()
+  @IsString()
+  storageLocation?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Statut du comptage : pending | counted | skipped',
+    default: 'pending',
+  })
+  @IsOptional()
+  @IsString()
+  countingStatus?: string;
 }

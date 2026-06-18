@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 
 @Injectable()
@@ -100,6 +101,94 @@ export class AnalyseService {
       upcoming,
       completed,
     };
+  }
+
+  async getTimeline(
+    eventId: string,
+    tenantId: string,
+    opts: {
+      startTime?: string;
+      endTime?: string;
+      shopId?: string;
+      menuItemId?: string;
+      limit?: number;
+    } = {},
+  ) {
+    this.logger.log(`GET /analyse/timeline eventId=${eventId} tenant=${tenantId}`);
+
+    const limit = Math.min(opts.limit ?? 1000, 5000);
+
+    const shopFilter = opts.shopId
+      ? Prisma.sql`AND t."merchantId" = ${opts.shopId}`
+      : Prisma.sql``;
+
+    const menuItemFilter = opts.menuItemId
+      ? Prisma.sql`AND wpm."menuItemId" = ${opts.menuItemId}`
+      : Prisma.sql``;
+
+    // HH:MM filters applied against the minute dimension
+    const startTimeFilter = opts.startTime
+      ? Prisma.sql`AND TO_CHAR(DATE_TRUNC('minute', t."transactionDate"), 'HH24:MI') >= ${opts.startTime}`
+      : Prisma.sql``;
+
+    const endTimeFilter = opts.endTime
+      ? Prisma.sql`AND TO_CHAR(DATE_TRUNC('minute', t."transactionDate"), 'HH24:MI') <= ${opts.endTime}`
+      : Prisma.sql``;
+
+    const rows: any[] = await this.prisma.$queryRaw(Prisma.sql`
+      SELECT
+        ${eventId}::text                                                              AS "eventId",
+        TO_CHAR(DATE_TRUNC('minute', t."transactionDate"), 'HH24:MI')               AS minute,
+        EXTRACT(HOUR FROM t."transactionDate")::integer                              AS hour,
+        t."merchantId"                                                               AS "shopId",
+        COALESCE(m.name, t."merchantName")                                          AS "shopName",
+        ti."productId"                                                               AS "weezeventProductId",
+        wpm."menuItemId",
+        COALESCE(mi.name, ti."productName")                                         AS "menuItemName",
+        SUM(ti.quantity)::integer                                                    AS quantity,
+        COUNT(DISTINCT t.id)::integer                                               AS "transactionCount",
+        SUM(ti."unitPrice" * ti.quantity / (1 + COALESCE(p."vatRate", 20) / 100))::numeric(12,2) AS revenue
+      FROM "WeezeventTransaction" t
+      INNER JOIN "WeezeventTransactionItem" ti
+        ON ti."transactionId" = t.id
+      LEFT JOIN "WeezeventMerchant" m
+        ON m.id = t."merchantId" AND m."tenantId" = ${tenantId}
+      LEFT JOIN "WeezeventProduct" p
+        ON p.id = ti."productId"
+      LEFT JOIN "WeezeventProductMapping" wpm
+        ON wpm."weezeventProductId" = ti."productId"
+       AND wpm."tenantId" = ${tenantId}
+      LEFT JOIN "MenuItem" mi
+        ON mi.id = wpm."menuItemId"
+      WHERE t."tenantId" = ${tenantId}
+        AND t."eventId"  = ${eventId}
+        AND t.status = 'V'
+        ${shopFilter}
+        ${menuItemFilter}
+        ${startTimeFilter}
+        ${endTimeFilter}
+      GROUP BY
+        DATE_TRUNC('minute', t."transactionDate"),
+        t."merchantId", m.name, t."merchantName",
+        ti."productId", wpm."menuItemId", mi.name, ti."productName",
+        p."vatRate"
+      ORDER BY minute ASC
+      LIMIT ${limit}
+    `);
+
+    return rows.map((r: any) => ({
+      eventId: r.eventId,
+      shopId: r.shopId ?? null,
+      shopName: r.shopName ?? null,
+      weezeventProductId: r.weezeventProductId ?? null,
+      menuItemId: r.menuItemId ?? null,
+      menuItemName: r.menuItemName ?? null,
+      hour: Number(r.hour ?? 0),
+      minute: r.minute ?? null,
+      quantity: Number(r.quantity ?? 0),
+      transactionCount: Number(r.transactionCount ?? 0),
+      revenue: Number(r.revenue ?? 0),
+    }));
   }
 
   async getCostBreakdown(tenantId: string) {

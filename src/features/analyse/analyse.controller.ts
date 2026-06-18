@@ -1,5 +1,5 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { AnalyseService } from './analyse.service';
 
@@ -98,6 +98,60 @@ export class AnalyseController {
   @ApiResponse({ status: 401, description: 'Non authentifié' })
   getEventKpis(@Req() req) {
     return this.analyseService.getEventKpis(req.user.tenantId);
+  }
+
+  @Get('timeline/:eventId')
+  @ApiOperation({
+    summary: 'Timeline minute par minute d\'un événement (via WeezeventEvent.id)',
+    description:
+      'Agrège les ventes par minute × merchant × article. eventId = WeezeventEvent.id. ' +
+      'Paramètres optionnels : startTime/endTime (HH:MM), shopId (merchantId), menuItemId, limit (défaut 1000, max 5000).',
+  })
+  @ApiParam({ name: 'eventId', description: 'WeezeventEvent.id' })
+  @ApiQuery({ name: 'startTime', required: false, description: 'Heure de début HH:MM' })
+  @ApiQuery({ name: 'endTime', required: false, description: 'Heure de fin HH:MM' })
+  @ApiQuery({ name: 'shopId', required: false, description: 'Filtrer par merchantId Weezevent' })
+  @ApiQuery({ name: 'menuItemId', required: false, description: 'Filtrer par menuItemId mappé' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Nombre max de lignes (défaut 1000, max 5000)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Enregistrements timeline',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          eventId: { type: 'string' },
+          shopId: { type: 'string', nullable: true },
+          shopName: { type: 'string', nullable: true },
+          menuItemId: { type: 'string', nullable: true },
+          menuItemName: { type: 'string', nullable: true },
+          hour: { type: 'number' },
+          minute: { type: 'string', example: '19:42' },
+          quantity: { type: 'integer' },
+          transactionCount: { type: 'integer' },
+          revenue: { type: 'number' },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Non authentifié' })
+  getTimeline(
+    @Param('eventId') eventId: string,
+    @Query('startTime') startTime?: string,
+    @Query('endTime') endTime?: string,
+    @Query('shopId') shopId?: string,
+    @Query('menuItemId') menuItemId?: string,
+    @Query('limit') limit?: string,
+    @Req() req?: any,
+  ) {
+    return this.analyseService.getTimeline(eventId, req.user.tenantId, {
+      startTime,
+      endTime,
+      shopId,
+      menuItemId,
+      limit: limit ? Math.min(parseInt(limit, 10), 5000) : undefined,
+    });
   }
 
   @Get('cost-breakdown')

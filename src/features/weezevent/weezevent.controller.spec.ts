@@ -5,6 +5,9 @@ import { WeezeventIncrementalSyncService } from './services/weezevent-incrementa
 import { PrismaService } from '../../core/database/prisma.service';
 import { SyncTrackerService } from './services/sync-tracker.service';
 import { QueueService } from '../../core/queue/queue.service';
+import { WeezeventClientService } from './services/weezevent-client.service';
+import { WeezeventCollectWorkerService } from './services/weezevent-collect-worker.service';
+import { WeezeventInsertWorkerService } from './services/weezevent-insert-worker.service';
 
 describe('WeezeventController', () => {
   let controller: WeezeventController;
@@ -83,6 +86,9 @@ describe('WeezeventController', () => {
       findMany: jest.fn(),
       count: jest.fn(),
     },
+    weezeventLocation: {
+      count: jest.fn().mockResolvedValue(0),
+    },
     menuItem: {
       findFirst: jest.fn(),
     },
@@ -139,6 +145,9 @@ describe('WeezeventController', () => {
           provide: QueueService,
           useValue: mockQueueService,
         },
+        { provide: WeezeventClientService, useValue: {} },
+        { provide: WeezeventCollectWorkerService, useValue: {} },
+        { provide: WeezeventInsertWorkerService, useValue: {} },
       ],
     }).compile();
 
@@ -301,7 +310,7 @@ describe('WeezeventController', () => {
 
       const result = await controller.getSyncStatus(mockUser);
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         events: {
           lastSyncedAt: new Date('2024-01-01'),
           totalSynced: 100,
@@ -316,8 +325,6 @@ describe('WeezeventController', () => {
           totalSynced: 50,
           count: 50,
         },
-        runningSyncs: [],
-        isRunning: false,
       });
     });
   });

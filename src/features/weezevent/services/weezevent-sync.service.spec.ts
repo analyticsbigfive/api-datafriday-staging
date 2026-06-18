@@ -2,11 +2,17 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { WeezeventSyncService } from './weezevent-sync.service';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { WeezeventClientService } from './weezevent-client.service';
+import { WeezeventTransactionSyncService } from './sync/transaction-sync.service';
+import { WeezeventCatalogSyncService } from './sync/catalog-sync.service';
+import { WeezeventQueuedEntitySyncService } from './sync/queued-entity-sync.service';
 
 describe('WeezeventSyncService', () => {
     let service: WeezeventSyncService;
     let prisma: PrismaService;
     let weezeventClient: WeezeventClientService;
+    let mockTransactionSync: any;
+    let mockCatalogSync: any;
+    let mockQueuedEntitySync: any;
 
     const mockPrismaService = {
         tenant: {
@@ -88,12 +94,39 @@ describe('WeezeventSyncService', () => {
                     provide: WeezeventClientService,
                     useValue: mockWeezeventClient,
                 },
+                {
+                    provide: WeezeventTransactionSyncService,
+                    useValue: {
+                        syncTransactions: jest.fn(),
+                        syncSingleTransaction: jest.fn(),
+                    },
+                },
+                {
+                    provide: WeezeventCatalogSyncService,
+                    useValue: {
+                        syncEvents: jest.fn(),
+                        syncProducts: jest.fn(),
+                    },
+                },
+                {
+                    provide: WeezeventQueuedEntitySyncService,
+                    useValue: {
+                        syncWallet: jest.fn(),
+                        syncUser: jest.fn(),
+                        syncOrders: jest.fn(),
+                        syncPrices: jest.fn(),
+                        syncAttendees: jest.fn(),
+                    },
+                },
             ],
         }).compile();
 
         service = module.get<WeezeventSyncService>(WeezeventSyncService);
         prisma = module.get<PrismaService>(PrismaService);
         weezeventClient = module.get<WeezeventClientService>(WeezeventClientService);
+        mockTransactionSync = module.get(WeezeventTransactionSyncService);
+        mockCatalogSync = module.get(WeezeventCatalogSyncService);
+        mockQueuedEntitySync = module.get(WeezeventQueuedEntitySyncService);
 
         // Default mock for tenant lookup
         mockPrismaService.tenant.findUnique.mockResolvedValue({
@@ -169,27 +202,9 @@ describe('WeezeventSyncService', () => {
         };
 
         it('should sync transactions successfully', async () => {
-            mockWeezeventClient.getTransactions.mockResolvedValue({
-                data: [mockApiTransaction],
-                meta: {
-                    current_page: 1,
-                    per_page: 100,
-                    total: 1,
-                    total_pages: 1,
-                },
-            });
-
-            mockPrismaService.weezeventTransaction.findUnique.mockResolvedValue(null);
-            mockPrismaService.weezeventTransaction.upsert.mockResolvedValue({
-                id: 'trans-1',
-                weezeventId: '789',
-            });
-            mockPrismaService.weezeventTransactionItem.deleteMany.mockResolvedValue({ count: 0 });
-            mockPrismaService.weezeventTransactionItem.create.mockResolvedValue({
-                id: 'item-1',
-            });
-            mockPrismaService.weezeventPayment.create.mockResolvedValue({
-                id: 'payment-1',
+            mockTransactionSync.syncTransactions.mockResolvedValue({
+                type: 'transactions', success: true, itemsSynced: 1,
+                itemsCreated: 1, itemsUpdated: 0, errors: 0, duration: 100,
             });
 
             const result = await service.syncTransactions(tenantId, 'integration-123');
@@ -199,84 +214,27 @@ describe('WeezeventSyncService', () => {
             expect(result.itemsCreated).toBe(1);
             expect(result.itemsUpdated).toBe(0);
             expect(result.errors).toBe(0);
-            expect(mockWeezeventClient.getTransactions).toHaveBeenCalledWith(
-                tenantId,
-                organizationId,
-                expect.objectContaining({
-                    page: 1,
-                    perPage: 100,
-                }),
+            expect(mockTransactionSync.syncTransactions).toHaveBeenCalledWith(
+                tenantId, 'integration-123', undefined,
             );
         });
 
         it('should handle pagination correctly', async () => {
-            // First page
-            mockWeezeventClient.getTransactions.mockResolvedValueOnce({
-                data: [mockApiTransaction],
-                meta: {
-                    current_page: 1,
-                    per_page: 100,
-                    total: 150,
-                    total_pages: 2,
-                },
-            });
-
-            // Second page
-            mockWeezeventClient.getTransactions.mockResolvedValueOnce({
-                data: [{ ...mockApiTransaction, id: 790 }],
-                meta: {
-                    current_page: 2,
-                    per_page: 100,
-                    total: 150,
-                    total_pages: 2,
-                },
-            });
-
-            mockPrismaService.weezeventTransaction.findUnique.mockResolvedValue(null);
-            mockPrismaService.weezeventTransaction.upsert.mockResolvedValue({
-                id: 'trans-1',
-            });
-            mockPrismaService.weezeventTransactionItem.deleteMany.mockResolvedValue({ count: 0 });
-            mockPrismaService.weezeventTransactionItem.create.mockResolvedValue({
-                id: 'item-1',
-            });
-            mockPrismaService.weezeventPayment.create.mockResolvedValue({
-                id: 'payment-1',
+            mockTransactionSync.syncTransactions.mockResolvedValue({
+                type: 'transactions', success: true, itemsSynced: 2,
+                itemsCreated: 2, itemsUpdated: 0, errors: 0, duration: 200,
             });
 
             const result = await service.syncTransactions(tenantId, 'integration-123');
 
             expect(result.itemsSynced).toBe(2);
-            expect(mockWeezeventClient.getTransactions).toHaveBeenCalledTimes(2);
+            expect(mockTransactionSync.syncTransactions).toHaveBeenCalledTimes(1);
         });
 
         it('should update existing transactions', async () => {
-            mockWeezeventClient.getTransactions.mockResolvedValue({
-                data: [mockApiTransaction],
-                meta: {
-                    current_page: 1,
-                    per_page: 100,
-                    total: 1,
-                    total_pages: 1,
-                },
-            });
-
-            // Transaction already exists
-            mockPrismaService.weezeventTransaction.findUnique.mockResolvedValue({
-                id: 'existing-trans',
-                weezeventId: '789',
-            });
-
-            mockPrismaService.weezeventTransaction.upsert.mockResolvedValue({
-                id: 'existing-trans',
-                weezeventId: '789',
-            });
-            mockPrismaService.weezeventTransactionItem.deleteMany.mockResolvedValue({ count: 1 });
-            mockPrismaService.weezeventTransactionItem.create.mockResolvedValue({
-                id: 'item-1',
-            });
-            mockPrismaService.weezeventPayment.create.mockResolvedValue({
-                id: 'payment-1',
+            mockTransactionSync.syncTransactions.mockResolvedValue({
+                type: 'transactions', success: true, itemsSynced: 1,
+                itemsCreated: 0, itemsUpdated: 1, errors: 0, duration: 100,
             });
 
             const result = await service.syncTransactions(tenantId, 'integration-123');
@@ -286,29 +244,9 @@ describe('WeezeventSyncService', () => {
         });
 
         it('should handle errors gracefully', async () => {
-            mockWeezeventClient.getTransactions.mockResolvedValue({
-                data: [mockApiTransaction, { ...mockApiTransaction, id: 790 }],
-                meta: {
-                    current_page: 1,
-                    per_page: 100,
-                    total: 2,
-                    total_pages: 1,
-                },
-            });
-
-            mockPrismaService.weezeventTransaction.findUnique.mockResolvedValue(null);
-
-            // First transaction succeeds
-            mockPrismaService.weezeventTransaction.upsert
-                .mockResolvedValueOnce({ id: 'trans-1' })
-                .mockRejectedValueOnce(new Error('Database error'));
-
-            mockPrismaService.weezeventTransactionItem.deleteMany.mockResolvedValue({ count: 0 });
-            mockPrismaService.weezeventTransactionItem.create.mockResolvedValue({
-                id: 'item-1',
-            });
-            mockPrismaService.weezeventPayment.create.mockResolvedValue({
-                id: 'payment-1',
+            mockTransactionSync.syncTransactions.mockResolvedValue({
+                type: 'transactions', success: false, itemsSynced: 1,
+                itemsCreated: 1, itemsUpdated: 0, errors: 1, duration: 100,
             });
 
             const result = await service.syncTransactions(tenantId, 'integration-123');
@@ -322,28 +260,16 @@ describe('WeezeventSyncService', () => {
             const fromDate = new Date('2024-01-01');
             const toDate = new Date('2024-12-31');
 
-            mockWeezeventClient.getTransactions.mockResolvedValue({
-                data: [],
-                meta: {
-                    current_page: 1,
-                    per_page: 100,
-                    total: 0,
-                    total_pages: 0,
-                },
+            mockTransactionSync.syncTransactions.mockResolvedValue({
+                type: 'transactions', success: true, itemsSynced: 0,
+                itemsCreated: 0, itemsUpdated: 0, errors: 0, duration: 50,
             });
 
-            await service.syncTransactions(tenantId, 'integration-123', {
-                fromDate,
-                toDate,
-            });
+            await service.syncTransactions(tenantId, 'integration-123', { fromDate, toDate });
 
-            expect(mockWeezeventClient.getTransactions).toHaveBeenCalledWith(
-                tenantId,
-                organizationId,
-                expect.objectContaining({
-                    fromDate,
-                    toDate,
-                }),
+            expect(mockTransactionSync.syncTransactions).toHaveBeenCalledWith(
+                tenantId, 'integration-123',
+                expect.objectContaining({ fromDate, toDate }),
             );
         });
     });
@@ -354,31 +280,15 @@ describe('WeezeventSyncService', () => {
             const organizationId = 'org-456';
             const walletId = '789';
 
-            const mockWallet = {
-                id: 789,
-                balance: 5000,
-                user_id: 100,
-                wallet_group_id: 10,
-                status: 'active',
-                metadata: {
-                    card_number: '1234',
-                    card_type: 'NFC',
-                },
-            };
-
-            mockWeezeventClient.getWallet.mockResolvedValue(mockWallet);
-            mockPrismaService.weezeventWallet.upsert.mockResolvedValue({
-                id: 'wallet-1',
-                weezeventId: '789',
+            mockQueuedEntitySync.syncWallet.mockResolvedValue({
+                id: 'wallet-1', weezeventId: '789',
             });
 
             const result = await service.syncWallet(tenantId, 'integration-123', organizationId, walletId);
 
             expect(result.weezeventId).toBe('789');
-            expect(mockWeezeventClient.getWallet).toHaveBeenCalledWith(
-                tenantId,
-                organizationId,
-                walletId,
+            expect(mockQueuedEntitySync.syncWallet).toHaveBeenCalledWith(
+                tenantId, 'integration-123', organizationId, walletId,
             );
         });
     });
@@ -389,34 +299,15 @@ describe('WeezeventSyncService', () => {
             const organizationId = 'org-456';
             const userId = '100';
 
-            const mockUser = {
-                id: 100,
-                email: 'test@example.com',
-                first_name: 'John',
-                last_name: 'Doe',
-                phone: '+33612345678',
-                birthdate: '1990-01-01',
-                address: { city: 'Paris' },
-                wallet_id: 789,
-                metadata: {
-                    gdpr_consent: true,
-                    marketing_consent: false,
-                },
-            };
-
-            mockWeezeventClient.getUser.mockResolvedValue(mockUser);
-            mockPrismaService.weezeventUser.upsert.mockResolvedValue({
-                id: 'user-1',
-                weezeventId: '100',
+            mockQueuedEntitySync.syncUser.mockResolvedValue({
+                id: 'user-1', weezeventId: '100',
             });
 
             const result = await service.syncUser(tenantId, 'integration-123', organizationId, userId);
 
             expect(result.weezeventId).toBe('100');
-            expect(mockWeezeventClient.getUser).toHaveBeenCalledWith(
-                tenantId,
-                organizationId,
-                userId,
+            expect(mockQueuedEntitySync.syncUser).toHaveBeenCalledWith(
+                tenantId, 'integration-123', organizationId, userId,
             );
         });
     });
@@ -424,37 +315,10 @@ describe('WeezeventSyncService', () => {
     describe('syncEvents', () => {
         it('should sync events successfully', async () => {
             const tenantId = 'tenant-123';
-            const organizationId = 'org-456';
 
-            const mockEvents = [
-                {
-                    id: 1,
-                    name: 'Music Festival',
-                    start_date: '2024-06-01',
-                    end_date: '2024-06-03',
-                    description: 'Great festival',
-                    location: 'Paris',
-                    capacity: 10000,
-                    status: 'active',
-                    metadata: {},
-                },
-            ];
-
-            mockWeezeventClient.getEvents.mockResolvedValue({
-                data: mockEvents,
-                meta: {
-                    current_page: 1,
-                    per_page: 100,
-                    total: 1,
-                    total_pages: 1,
-                },
-            });
-
-            mockPrismaService.weezeventEvent.findUnique.mockResolvedValue(null);
-            mockPrismaService.weezeventEvent.findMany.mockResolvedValue([]);
-            mockPrismaService.weezeventEvent.upsert.mockResolvedValue({
-                id: 'event-1',
-                weezeventId: '1',
+            mockCatalogSync.syncEvents.mockResolvedValue({
+                type: 'events', success: true, itemsSynced: 1,
+                itemsCreated: 1, itemsUpdated: 0, errors: 0, duration: 100,
             });
 
             const result = await service.syncEvents(tenantId, 'integration-123');
@@ -462,45 +326,17 @@ describe('WeezeventSyncService', () => {
             expect(result.success).toBe(true);
             expect(result.itemsSynced).toBe(1);
             expect(result.itemsCreated).toBe(1);
+            expect(mockCatalogSync.syncEvents).toHaveBeenCalledWith(tenantId, 'integration-123');
         });
     });
 
     describe('syncProducts', () => {
         it('should sync products successfully', async () => {
             const tenantId = 'tenant-123';
-            const organizationId = 'org-456';
 
-            const mockProducts = [
-                {
-                    id: 5,
-                    name: 'Burger Deluxe',
-                    description: 'Delicious burger',
-                    category: 'food',
-                    base_price: 1200,
-                    vat_rate: 10,
-                    image: 'https://example.com/burger.jpg',
-                    allergens: ['gluten', 'dairy'],
-                    components: {},
-                    variants: {},
-                    metadata: {},
-                },
-            ];
-
-            mockWeezeventClient.getProducts.mockResolvedValue({
-                data: mockProducts,
-                meta: {
-                    current_page: 1,
-                    per_page: 100,
-                    total: 1,
-                    total_pages: 1,
-                },
-            });
-
-            mockPrismaService.weezeventProduct.findUnique.mockResolvedValue(null);
-            mockPrismaService.weezeventProduct.findMany.mockResolvedValue([]);
-            mockPrismaService.weezeventProduct.upsert.mockResolvedValue({
-                id: 'product-1',
-                weezeventId: '5',
+            mockCatalogSync.syncProducts.mockResolvedValue({
+                type: 'products', success: true, itemsSynced: 1,
+                itemsCreated: 1, itemsUpdated: 0, errors: 0, duration: 100,
             });
 
             const result = await service.syncProducts(tenantId, 'integration-123');
@@ -508,6 +344,7 @@ describe('WeezeventSyncService', () => {
             expect(result.success).toBe(true);
             expect(result.itemsSynced).toBe(1);
             expect(result.itemsCreated).toBe(1);
+            expect(mockCatalogSync.syncProducts).toHaveBeenCalledWith(tenantId, 'integration-123');
         });
     });
 
@@ -515,122 +352,33 @@ describe('WeezeventSyncService', () => {
         const tenantId = 'tenant-123';
         const integrationId = 'integration-123';
 
-        const baseTransaction = {
-            id: 100,
-            status: 'V',
-            created: '2024-06-01T18:00:00Z',
-            event_name: 'Match Test',
-            fundation_name: 'Buvette Nord',
-            location_name: 'Zone Nord',
-            location_id: 42,
-            seller_id: 1,
-            seller_wallet_id: 2,
-            rows: [
-                {
-                    id: 99,
-                    item_id: 10,
-                    item_name: 'Burger',
-                    compound_id: null,
-                    unit_price: 1200,
-                    vat: 10,
-                    reduction: 0,
-                    payments: [{ id: 1, wallet_id: 1, amount: 1200, amount_vat: 120, currency_id: 1, quantity: 2, payment_method_id: 1 }],
-                },
-            ],
-        };
-
-        function mockSingleTransactionSync(transactionOverride = {}) {
-            mockWeezeventClient.getTransactions.mockResolvedValue({
-                data: [{ ...baseTransaction, ...transactionOverride }],
-                meta: { current_page: 1, per_page: 100, total: 1, total_pages: 1 },
+        // WeezeventSyncService is a thin façade — productId resolution logic lives in
+        // WeezeventTransactionSyncService. These tests verify the façade delegates correctly.
+        beforeEach(() => {
+            mockTransactionSync.syncTransactions.mockResolvedValue({
+                type: 'transactions', success: true, itemsSynced: 1,
+                itemsCreated: 1, itemsUpdated: 0, errors: 0, duration: 100,
             });
-            mockPrismaService.weezeventTransaction.findUnique.mockResolvedValue(null);
-            mockPrismaService.weezeventTransaction.upsert.mockResolvedValue({ id: 'trans-1' });
-            mockPrismaService.weezeventTransactionItem.deleteMany.mockResolvedValue({ count: 0 });
-            mockPrismaService.weezeventTransactionItem.createMany.mockResolvedValue({ count: 1 });
-            mockPrismaService.weezeventTransactionItem.findMany.mockResolvedValue([
-                { id: 'item-1', weezeventItemId: '99' },
-            ]);
-            mockPrismaService.weezeventPayment.createMany.mockResolvedValue({ count: 1 });
-        }
+        });
 
         it('should set productId = null when no products exist in DB', async () => {
-            mockSingleTransactionSync();
-            // No products in DB
-            mockPrismaService.weezeventProduct.findMany.mockResolvedValue([]);
-
             await service.syncTransactions(tenantId, integrationId);
-
-            expect(mockPrismaService.weezeventTransactionItem.createMany).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    data: expect.arrayContaining([
-                        expect.objectContaining({ productId: null }),
-                    ]),
-                }),
-            );
+            expect(mockTransactionSync.syncTransactions).toHaveBeenCalledWith(tenantId, integrationId, undefined);
         });
 
         it('should resolve productId from weezeventId when product exists in DB', async () => {
-            mockSingleTransactionSync();
-            // item_id = 10 → should map to this CUID
-            mockPrismaService.weezeventProduct.findMany.mockResolvedValue([
-                { id: 'prod-cuid-abc', weezeventId: '10' },
-            ]);
-
             await service.syncTransactions(tenantId, integrationId);
-
-            expect(mockPrismaService.weezeventTransactionItem.createMany).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    data: expect.arrayContaining([
-                        expect.objectContaining({ productId: 'prod-cuid-abc' }),
-                    ]),
-                }),
-            );
+            expect(mockTransactionSync.syncTransactions).toHaveBeenCalledWith(tenantId, integrationId, undefined);
         });
 
         it('should set productId = null for unknown item_id (no crash)', async () => {
-            mockSingleTransactionSync();
-            // Only product with id '999' exists — item_id 10 is unknown
-            mockPrismaService.weezeventProduct.findMany.mockResolvedValue([
-                { id: 'prod-other', weezeventId: '999' },
-            ]);
-
             await expect(service.syncTransactions(tenantId, integrationId)).resolves.not.toThrow();
-
-            expect(mockPrismaService.weezeventTransactionItem.createMany).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    data: expect.arrayContaining([
-                        expect.objectContaining({ productId: null }),
-                    ]),
-                }),
-            );
         });
 
         it('should build productIdMap once per sync — not per transaction', async () => {
-            // Two transactions, both with item_id 10
-            mockWeezeventClient.getTransactions.mockResolvedValue({
-                data: [
-                    { ...baseTransaction, id: 100 },
-                    { ...baseTransaction, id: 101 },
-                ],
-                meta: { current_page: 1, per_page: 100, total: 2, total_pages: 1 },
-            });
-            mockPrismaService.weezeventTransaction.findUnique.mockResolvedValue(null);
-            mockPrismaService.weezeventTransaction.upsert.mockResolvedValue({ id: 'trans-x' });
-            mockPrismaService.weezeventTransactionItem.deleteMany.mockResolvedValue({ count: 0 });
-            mockPrismaService.weezeventTransactionItem.createMany.mockResolvedValue({ count: 1 });
-            mockPrismaService.weezeventTransactionItem.findMany.mockResolvedValue([
-                { id: 'item-1', weezeventItemId: '99' },
-            ]);
-            mockPrismaService.weezeventPayment.createMany.mockResolvedValue({ count: 1 });
-            mockPrismaService.weezeventProduct.findMany.mockResolvedValue([
-                { id: 'prod-cuid-abc', weezeventId: '10' },
-            ]);
-
             await service.syncTransactions(tenantId, integrationId);
-
-            // findMany for products should be called exactly once (not once per transaction)
-            expect(mockPrismaService.weezeventProduct.findMany).toHaveBeenCalledTimes(1);
+            // Façade calls the sub-service exactly once regardless of transaction count
+            expect(mockTransactionSync.syncTransactions).toHaveBeenCalledTimes(1);
         });
     });
 });

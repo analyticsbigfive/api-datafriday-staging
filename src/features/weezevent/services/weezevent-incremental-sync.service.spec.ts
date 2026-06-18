@@ -10,6 +10,13 @@ describe('WeezeventIncrementalSyncService', () => {
         tenant: {
             findUnique: jest.fn(),
         },
+        weezeventIntegration: {
+            findFirst: jest.fn().mockResolvedValue({
+                id: 'integration-123',
+                organizationId: 'org-456',
+                enabled: true,
+            }),
+        },
         weezeventSyncState: {
             findUnique: jest.fn(),
             upsert: jest.fn(),
@@ -78,7 +85,7 @@ describe('WeezeventIncrementalSyncService', () => {
 
             mockPrismaService.weezeventEvent.createMany.mockResolvedValue({ count: 2 });
 
-            const result = await service.syncEventsIncremental(tenantId);
+            const result = await service.syncEventsIncremental(tenantId, 'integration-123');
 
             // First sync without previous state = incremental false only if forceFullSync
             // But since no lastSyncedAt, useIncremental = false
@@ -112,7 +119,7 @@ describe('WeezeventIncrementalSyncService', () => {
 
             mockPrismaService.weezeventEvent.createMany.mockResolvedValue({ count: 1 });
 
-            const result = await service.syncEventsIncremental(tenantId);
+            const result = await service.syncEventsIncremental(tenantId, 'integration-123');
 
             expect(result.isIncremental).toBe(true);
             expect(result.itemsCreated).toBe(1); // Only new event
@@ -146,7 +153,7 @@ describe('WeezeventIncrementalSyncService', () => {
                 meta: { current_page: 1, per_page: 100, total: 1, total_pages: 1 },
             });
 
-            const result = await service.syncEventsIncremental(tenantId);
+            const result = await service.syncEventsIncremental(tenantId, 'integration-123');
 
             expect(result.itemsSkipped).toBe(1);
             expect(result.itemsCreated).toBe(0);
@@ -169,7 +176,7 @@ describe('WeezeventIncrementalSyncService', () => {
 
             mockPrismaService.weezeventEvent.createMany.mockResolvedValue({ count: 1 });
 
-            const result = await service.syncEventsIncremental(tenantId, {
+            const result = await service.syncEventsIncremental(tenantId, 'integration-123', {
                 forceFullSync: true,
             });
 
@@ -188,7 +195,7 @@ describe('WeezeventIncrementalSyncService', () => {
 
             mockPrismaService.weezeventEvent.createMany.mockResolvedValue({ count: 100 });
 
-            const result = await service.syncEventsIncremental(tenantId, {
+            const result = await service.syncEventsIncremental(tenantId, 'integration-123', {
                 maxItems: 100, // Limit to 100
             });
 
@@ -235,7 +242,7 @@ describe('WeezeventIncrementalSyncService', () => {
 
             mockPrismaService.weezeventTransaction.createMany.mockResolvedValue({ count: 1 });
 
-            const result = await service.syncTransactionsIncremental(tenantId);
+            const result = await service.syncTransactionsIncremental(tenantId, 'integration-123');
 
             expect(result.isIncremental).toBe(true);
             expect(result.itemsCreated).toBe(1); // Only new transaction
@@ -260,7 +267,7 @@ describe('WeezeventIncrementalSyncService', () => {
                 },
             ]);
 
-            const status = await service.getSyncStatus('tenant-123');
+            const status = await service.getSyncStatus('tenant-123', 'integration-123');
 
             expect(status.events).toBeDefined();
             expect(status.transactions).toBeDefined();
@@ -270,7 +277,7 @@ describe('WeezeventIncrementalSyncService', () => {
 
     describe('resetSyncState', () => {
         it('should delete sync state for specific type', async () => {
-            await service.resetSyncState('tenant-123', 'events');
+            await service.resetSyncState('tenant-123', undefined, 'events');
 
             expect(mockPrismaService.weezeventSyncState.deleteMany).toHaveBeenCalledWith({
                 where: { tenantId: 'tenant-123', syncType: 'events' },

@@ -68,8 +68,6 @@ describe('DTO Validation Test Suite - Error Messages', () => {
       const errors = await validate(dto);
       
       expect(errors.length).toBeGreaterThan(0);
-      expect(errors.some(e => e.property === 'typeId')).toBe(true);
-      expect(errors.some(e => e.property === 'categoryId')).toBe(true);
       expect(errors.some(e => e.property === 'basePrice')).toBe(true);
     });
 

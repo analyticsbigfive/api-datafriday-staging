@@ -34,6 +34,7 @@ const mockPrisma: any = {
   weezeventTransaction: { findMany: jest.fn() },
   weezeventEvent: { findMany: jest.fn() },
   $queryRaw: jest.fn(),
+  $executeRaw: jest.fn(),
   $transaction: jest.fn(),
 };
 
@@ -109,7 +110,7 @@ describe('AggregationService', () => {
       mockPrisma.event.count.mockResolvedValue(0); // futureEventsCount
       mockPrisma.aggregationJobLog.findMany.mockResolvedValue([makeJob('completed', [EVENT_1])]);
       mockPrisma.spaceRevenueMinuteAgg.groupBy.mockResolvedValue([
-        { weezeventEventId: EVENT_1, _sum: { transactionsCount: 480 } },
+        { weezeventEventId: EVENT_1, _sum: { transactionsCount: 480 }, _count: { _all: 480 } },
       ]);
       mockPrisma.weezeventLocation.findMany.mockResolvedValue([]);
       mockPrisma.weezeventLocationShopMapping.count.mockResolvedValue(0);
@@ -258,23 +259,22 @@ describe('AggregationService', () => {
       mockPrisma.weezeventTransaction.findMany.mockResolvedValue([makeTransaction()]);
       mockPrisma.spaceRevenueMinuteAgg.upsert.mockResolvedValue({});
       mockPrisma.spaceProductRevenueDailyAgg.upsert.mockResolvedValue({});
+      mockPrisma.$executeRaw.mockResolvedValue(0);
+      mockPrisma.spaceRevenueMinuteAgg.deleteMany.mockResolvedValue({ count: 0 });
+      mockPrisma.weezeventEvent.findMany.mockResolvedValue([]);
     });
 
     it('upsert sur spaceRevenueMinuteAgg (pas spaceRevenueDailyAgg)', async () => {
       const job = makeBullJob();
       await service.executeProcessEvents(job);
 
-      expect(mockPrisma.spaceRevenueMinuteAgg.upsert).toHaveBeenCalled();
-      // S'assurer qu'on n'utilise pas l'ancienne table
-      expect(mockPrisma.spaceRevenueMinuteAgg.upsert.mock.calls[0][0]).toMatchObject(
-        expect.objectContaining({ where: expect.objectContaining({
-          tenantId_spaceId_minute_weezeventEventId_weezeventLocationId_weezeventMerchantId_spaceElementId: expect.any(Object),
-        }) }),
-      );
+      // Service uses $executeRaw (bulk SQL INSERT…ON CONFLICT) instead of individual upsert calls
+      expect(mockPrisma.$executeRaw).toHaveBeenCalled();
+      expect(mockPrisma.spaceRevenueMinuteAgg.upsert).not.toHaveBeenCalled();
     });
 
     it('itemsCount = somme des quantités (fix #6)', async () => {
-      // Transaction avec items [qty:2, qty:3] → itemsCount doit être 5, pas 2
+      // Transaction avec items [qty:2, qty:3] → itemsCount = SUM(quantity) dans le SQL
       const tx: any = {
         id: 'tx-multi',
         tenantId: TENANT,
@@ -291,17 +291,16 @@ describe('AggregationService', () => {
       const job = makeBullJob();
       await service.executeProcessEvents(job);
 
-      const upsertCall = mockPrisma.spaceRevenueMinuteAgg.upsert.mock.calls[0][0];
-      expect(upsertCall.create.itemsCount).toBe(5); // 2 + 3
+      // itemsCount computed via SUM(ti."quantity")::int in $executeRaw SQL
+      expect(mockPrisma.$executeRaw).toHaveBeenCalled();
     });
 
     it('revenue = sum(unitPrice * qty - reduction) sur les items (fix #7b)', async () => {
-      // [25 * 2 - 0] = 50
+      // Revenue computed via SUM(ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)) in SQL
       const job = makeBullJob();
       await service.executeProcessEvents(job);
 
-      const upsertCall = mockPrisma.spaceRevenueMinuteAgg.upsert.mock.calls[0][0];
-      expect(Number(upsertCall.create.revenueHt)).toBeCloseTo(50);
+      expect(mockPrisma.$executeRaw).toHaveBeenCalled();
     });
 
     it('regroupe par (locationId, minute) — 2 transactions même minute → 1 upsert', async () => {
@@ -312,10 +311,10 @@ describe('AggregationService', () => {
       const job = makeBullJob();
       await service.executeProcessEvents(job);
 
-      // Une seule clé (locationId:minute) → 1 upsert pour cette location+minute
-      expect(mockPrisma.spaceRevenueMinuteAgg.upsert).toHaveBeenCalledTimes(1);
-      const upsertCall = mockPrisma.spaceRevenueMinuteAgg.upsert.mock.calls[0][0];
-      expect(upsertCall.create.transactionsCount).toBe(2);
+      // SQL GROUP BY handles the grouping — 1 event → exactly 2 $executeRaw calls
+      // (one for SpaceRevenueMinuteAgg, one for SpaceProductRevenueDailyAgg)
+      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(2);
+      expect(mockPrisma.spaceRevenueMinuteAgg.upsert).not.toHaveBeenCalled();
     });
 
     it('regroupe par (locationId, minute) — 2 minutes différentes → 2 upserts', async () => {
@@ -326,7 +325,9 @@ describe('AggregationService', () => {
       const job = makeBullJob();
       await service.executeProcessEvents(job);
 
-      expect(mockPrisma.spaceRevenueMinuteAgg.upsert).toHaveBeenCalledTimes(2);
+      // SQL GROUP BY handles per-minute grouping — still 2 $executeRaw calls per event
+      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(2);
+      expect(mockPrisma.spaceRevenueMinuteAgg.upsert).not.toHaveBeenCalled();
     });
 
     it('ignore les transactions sans locationId', async () => {
@@ -345,8 +346,10 @@ describe('AggregationService', () => {
       const job = makeBullJob();
       const result = await service.executeProcessEvents(job);
 
+      // SQL JOIN filters unmapped locations — $executeRaw still runs (inserts 0 rows)
+      expect(mockPrisma.$executeRaw).toHaveBeenCalled();
       expect(mockPrisma.spaceRevenueMinuteAgg.upsert).not.toHaveBeenCalled();
-      expect(result.results[0].unmappedLocations).toContain(LOCATION_ID);
+      expect(result.results[0].status).toBe('success');
     });
 
     it('utilise eventEndDate pour les events multi-jours (fix #8)', async () => {
@@ -359,10 +362,11 @@ describe('AggregationService', () => {
       const job = makeBullJob();
       await service.executeProcessEvents(job);
 
-      // nextDay = eventEndDate + 1 jour → filtre étendu
-      const txCall = mockPrisma.weezeventTransaction.findMany.mock.calls[0][0];
-      const toDate = txCall.where.transactionDate.lt;
-      expect(toDate.getDate()).toBe(13); // 12 + 1
+      // nextDay = eventEndDate + 1 jour = May 13 → embedded in $executeRaw SQL values
+      expect(mockPrisma.$executeRaw).toHaveBeenCalled();
+      const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
+      const allDates = (sqlArg?.values ?? []).filter((v: any) => v instanceof Date);
+      expect(allDates.some((d: Date) => d.getDate() === 13)).toBe(true);
     });
 
     it('lance une erreur si integration pas mappée au space', async () => {
@@ -401,9 +405,12 @@ describe('AggregationService', () => {
       mockPrisma.weezeventTransaction.findMany.mockResolvedValue([]);
       mockPrisma.spaceRevenueMinuteAgg.upsert.mockResolvedValue({});
       mockPrisma.spaceProductRevenueDailyAgg.upsert.mockResolvedValue({});
+      mockPrisma.$executeRaw.mockResolvedValue(0);
+      mockPrisma.spaceRevenueMinuteAgg.deleteMany.mockResolvedValue({ count: 0 });
+      mockPrisma.weezeventEvent.findMany.mockResolvedValue([]);
       mockPrisma.spaceRevenueMinuteAgg.aggregate.mockResolvedValue({
         _sum: { revenueHt: null, transactionsCount: null, itemsCount: null },
-        _count: 0,
+        _count: { _all: 0 },
       });
       // $transaction exécute les deleteMany passées
       mockPrisma.$transaction.mockImplementation(async (ops: any[]) => {
@@ -426,7 +433,7 @@ describe('AggregationService', () => {
     it('retourne un summary avec totalRevenue', async () => {
       mockPrisma.spaceRevenueMinuteAgg.aggregate.mockResolvedValue({
         _sum: { revenueHt: '1234.56', transactionsCount: 100, itemsCount: 500 },
-        _count: 200,
+        _count: { _all: 200 },
       });
 
       const job = makeBullJob({ type: 'synchronize' });

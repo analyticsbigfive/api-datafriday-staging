@@ -76,12 +76,12 @@ describe('OrchestratorController', () => {
 
   describe('getStrategy', () => {
     it('should return processing strategy', () => {
-      const result = controller.getStrategy(
-        'tenant-123',
-        'sync',
-        '500',
-        'normal',
-      );
+      const result = controller.getStrategy({
+        tenantId: 'tenant-123',
+        operation: 'sync',
+        estimatedItems: 500,
+        priority: 'normal',
+      } as any);
 
       expect(result).toEqual({
         strategy: 'sync',
@@ -97,7 +97,10 @@ describe('OrchestratorController', () => {
     });
 
     it('should handle missing optional params', () => {
-      controller.getStrategy('tenant-123', 'analytics');
+      controller.getStrategy({
+        tenantId: 'tenant-123',
+        operation: 'analytics',
+      } as any);
 
       expect(service.decideStrategy).toHaveBeenCalledWith({
         tenantId: 'tenant-123',

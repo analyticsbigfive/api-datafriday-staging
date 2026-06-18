@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { IntegrationsController } from './integrations.controller';
 import { WeezeventIntegrationService } from './services/weezevent-integration.service';
 import { WebhookIntegrationService } from './services/webhook-integration.service';
+import { WeezeventAuthService } from '../weezevent/services/weezevent-auth.service';
 import { WeezeventConfigDto } from './dto/weezevent-config.dto';
 import { WebhookConfigDto } from './dto/webhook-config.dto';
 
@@ -9,6 +10,8 @@ describe('IntegrationsController', () => {
   let controller: IntegrationsController;
   let weezeventService: WeezeventIntegrationService;
   let webhookService: WebhookIntegrationService;
+
+  const mockUser = { id: 'user-123', tenantId: 'org-123', email: 'test@example.com' };
 
   const mockWeezeventConfig = {
     clientId: 'client-123',
@@ -44,6 +47,10 @@ describe('IntegrationsController', () => {
           provide: WebhookIntegrationService,
           useValue: mockWebhookIntegrationService,
         },
+        {
+          provide: WeezeventAuthService,
+          useValue: { testCredentials: jest.fn().mockResolvedValue({ valid: true }) },
+        },
       ],
     }).compile();
 
@@ -63,7 +70,7 @@ describe('IntegrationsController', () => {
       mockWeezeventIntegrationService.getConfig.mockResolvedValue(mockWeezeventConfig);
       mockWebhookIntegrationService.getConfig.mockResolvedValue(mockWebhookConfig);
 
-      const result = await controller.listIntegrations('org-123');
+      const result = await controller.listIntegrations('org-123', mockUser);
 
       expect(result).toEqual({
         weezevent: mockWeezeventConfig,
@@ -89,7 +96,7 @@ describe('IntegrationsController', () => {
       };
       mockWeezeventIntegrationService.updateConfig.mockResolvedValue(updatedConfig);
 
-      const result = await controller.updateWeezeventConfig('org-123', dto);
+      const result = await controller.updateWeezeventConfig('org-123', mockUser, dto);
 
       expect(result).toEqual(updatedConfig);
       expect(mockWeezeventIntegrationService.updateConfig).toHaveBeenCalledWith(
@@ -103,7 +110,7 @@ describe('IntegrationsController', () => {
     it('should return Weezevent configuration', async () => {
       mockWeezeventIntegrationService.getConfig.mockResolvedValue(mockWeezeventConfig);
 
-      const result = await controller.getWeezeventConfig('org-123');
+      const result = await controller.getWeezeventConfig('org-123', mockUser);
 
       expect(result).toEqual(mockWeezeventConfig);
       expect(mockWeezeventIntegrationService.getConfig).toHaveBeenCalledWith('org-123');
@@ -124,7 +131,7 @@ describe('IntegrationsController', () => {
       };
       mockWebhookIntegrationService.updateConfig.mockResolvedValue(updatedConfig);
 
-      const result = await controller.updateWebhookConfig('org-123', dto);
+      const result = await controller.updateWebhookConfig('org-123', mockUser, dto);
 
       expect(result).toEqual(updatedConfig);
       expect(mockWebhookIntegrationService.updateConfig).toHaveBeenCalledWith(
@@ -138,7 +145,7 @@ describe('IntegrationsController', () => {
     it('should return webhook configuration', async () => {
       mockWebhookIntegrationService.getConfig.mockResolvedValue(mockWebhookConfig);
 
-      const result = await controller.getWebhookConfig('org-123');
+      const result = await controller.getWebhookConfig('org-123', mockUser);
 
       expect(result).toEqual(mockWebhookConfig);
       expect(mockWebhookIntegrationService.getConfig).toHaveBeenCalledWith('org-123');

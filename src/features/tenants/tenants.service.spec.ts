@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { TenantsService } from './tenants.service';
 import { PrismaService } from '../../core/database/prisma.service';
+import { RedisService } from '../../core/redis/redis.service';
 import { NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { TenantPlan, TenantStatus } from '@prisma/client';
 
@@ -48,6 +49,7 @@ describe('TenantsService', () => {
       providers: [
         TenantsService,
         { provide: PrismaService, useValue: mockPrismaService },
+        { provide: RedisService, useValue: { set: jest.fn(), get: jest.fn(), del: jest.fn(), getClient: jest.fn() } },
       ],
     }).compile();
 

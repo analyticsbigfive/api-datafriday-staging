@@ -81,6 +81,7 @@ describe('WeezeventIntegrationService', () => {
                     name: 'X',
                     clientId: 'c',
                     clientSecret: 's',
+                    organizationId: 'weez-1',
                 }),
             ).rejects.toThrow(NotFoundException);
         });

@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { SpacesService } from './spaces.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { WeezeventClientService } from '../weezevent/services/weezevent-client.service';
+import { RedisService } from '../../core/redis/redis.service';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 
 describe('SpacesService', () => {
@@ -41,6 +42,19 @@ describe('SpacesService', () => {
       findFirst: jest.fn(),
       upsert: jest.fn(),
     },
+    floor: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+    },
+    forecourt: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
     $transaction: jest.fn((callback) => callback(mockPrismaService)),
   };
 
@@ -56,6 +70,7 @@ describe('SpacesService', () => {
           provide: WeezeventClientService,
           useValue: {},
         },
+        { provide: RedisService, useValue: { set: jest.fn(), get: jest.fn(), del: jest.fn(), delete: jest.fn(), getClient: jest.fn() } },
       ],
     }).compile();
 

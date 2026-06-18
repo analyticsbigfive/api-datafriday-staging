@@ -71,7 +71,7 @@ describe('OrganizationsService', () => {
         NotFoundException,
       );
       await expect(service.getOrganization('non-existent')).rejects.toThrow(
-        'Organization non-existent not found',
+        'Organization with ID non-existent not found',
       );
     });
   });

@@ -18,6 +18,9 @@ describe('OnboardingService', () => {
       findFirst: jest.fn(),
       create: jest.fn(),
     },
+    permission: {
+      findFirst: jest.fn(),
+    },
     $transaction: jest.fn(),
   };
 
@@ -94,7 +97,7 @@ describe('OnboardingService', () => {
             update: jest.fn(),
           },
           userTenant: { create: jest.fn().mockResolvedValue({}) },
-          permission: { upsert: jest.fn().mockResolvedValue({ id: 'perm-id' }) },
+          permission: { upsert: jest.fn().mockResolvedValue({ id: 'perm-id' }), findFirst: jest.fn().mockResolvedValue(null), update: jest.fn().mockResolvedValue({}), create: jest.fn().mockResolvedValue({ id: 'perm-id' }) },
           role: {
             findFirst: jest.fn().mockResolvedValue(null),
             create: jest.fn().mockResolvedValue({ id: 'role-id' }),
@@ -156,7 +159,7 @@ describe('OnboardingService', () => {
             update: jest.fn().mockResolvedValue({ ...existingUser, role: 'ADMIN', roleId: 'role-id' }),
           },
           userTenant: { create: jest.fn().mockResolvedValue({}) },
-          permission: { upsert: jest.fn().mockResolvedValue({ id: 'perm-id' }) },
+          permission: { upsert: jest.fn().mockResolvedValue({ id: 'perm-id' }), findFirst: jest.fn().mockResolvedValue(null), update: jest.fn().mockResolvedValue({}), create: jest.fn().mockResolvedValue({ id: 'perm-id' }) },
           role: {
             findFirst: jest.fn().mockResolvedValue(null),
             create: jest.fn().mockResolvedValue({ id: 'role-id' }),
@@ -193,7 +196,7 @@ describe('OnboardingService', () => {
             update: jest.fn(),
           },
           userTenant: { create: jest.fn().mockResolvedValue({}) },
-          permission: { upsert: jest.fn().mockResolvedValue({ id: 'perm-id' }) },
+          permission: { upsert: jest.fn().mockResolvedValue({ id: 'perm-id' }), findFirst: jest.fn().mockResolvedValue(null), update: jest.fn().mockResolvedValue({}), create: jest.fn().mockResolvedValue({ id: 'perm-id' }) },
           role: {
             findFirst: jest.fn().mockResolvedValue(null),
             create: jest.fn().mockResolvedValue({ id: 'role-id' }),

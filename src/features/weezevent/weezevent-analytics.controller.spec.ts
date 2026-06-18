@@ -353,7 +353,7 @@ describe('WeezeventAnalyticsController', () => {
                             productName: 'Burger',
                             quantity: 10,
                             unitPrice: 10,
-                            product: { id: 'prod-1', category: 'Food' },
+                            product: { id: 'prod-1', categoryId: 'Food' },
                         },
                         {
                             id: 'item-2',
@@ -361,7 +361,7 @@ describe('WeezeventAnalyticsController', () => {
                             productName: 'Fries',
                             quantity: 5,
                             unitPrice: 5,
-                            product: { id: 'prod-2', category: 'Food' },
+                            product: { id: 'prod-2', categoryId: 'Food' },
                         },
                         {
                             id: 'item-3',
@@ -369,7 +369,7 @@ describe('WeezeventAnalyticsController', () => {
                             productName: 'Soda',
                             quantity: 3,
                             unitPrice: 3,
-                            product: { id: 'prod-3', category: 'Drink' },
+                            product: { id: 'prod-3', categoryId: 'Drink' },
                         },
                     ],
                 },

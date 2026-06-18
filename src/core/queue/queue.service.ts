@@ -315,6 +315,7 @@ export class QueueService {
       [QUEUES.ANALYTICS]: this.analyticsQueue,
       [QUEUES.NOTIFICATIONS]: this.notificationsQueue,
       [QUEUES.EXPORTS]: this.exportsQueue,
+      [QUEUES.AGGREGATION]: this.aggregationQueue,
     };
 
     const queue = queues[queueName];

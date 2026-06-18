@@ -73,8 +73,8 @@ describe('WeezeventClientService', () => {
                     page: 2,
                     per_page: 100,
                     status: 'V',
-                    from_date: '2024-01-01T00:00:00.000Z',
-                    to_date: '2024-12-31T00:00:00.000Z',
+                    created_at__gte: '2024-01-01T00:00:00.000Z',
+                    created_at__lte: '2024-12-31T00:00:00.000Z',
                     event_id: 123,
                 }),
             );

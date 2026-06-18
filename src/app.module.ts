@@ -38,6 +38,7 @@ import { MappingsModule } from './features/mappings/mappings.module';
 import { AggregationModule } from './features/aggregation/aggregation.module';
 import { BrandsModule } from './features/brands/brands.module';
 import { DisplayNamesModule } from './features/display-names/display-names.module';
+import { InventoryModule } from './features/inventory/inventory.module';
 import { AuditModule } from './core/audit/audit.module';
 import { WebhooksModule } from './core/webhooks/webhooks.module';
 import { TenantThrottlerGuard } from './core/throttle/tenant-throttler.guard';
@@ -126,6 +127,7 @@ import { RolesGuard } from './core/auth/guards/roles.guard';
     AggregationModule,
     BrandsModule,
     DisplayNamesModule,
+    InventoryModule,
   ],
   controllers: [AppController],
   providers: [

@@ -704,6 +704,9 @@ model WeezeventEvent {
   capacity       Int?
   status         String?
 
+  // Link to DataFriday Config (set after Step 1 location-space mapping)
+  configurationId String?
+
   // Metadata
   metadata Json?
   rawData  Json
@@ -2007,6 +2010,39 @@ model AggregationJobLog {
   @@index([tenantId, status, startedAt])
   @@index([spaceId, status])
   @@index([status, startedAt])
+}
+
+// ==================== INVENTORY ====================
+
+// Event-level inventory snapshot (spaceId + optional eventId as upsert key)
+model Inventory {
+  id        String   @id @default(cuid())
+  tenantId  String
+  spaceId   String
+  eventId   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  counts InventoryCount[]
+
+  @@unique([tenantId, spaceId, eventId])
+  @@index([tenantId])
+  @@index([tenantId, spaceId])
+}
+
+// Per-packaging count lines linked to an Inventory
+model InventoryCount {
+  id          String   @id @default(cuid())
+  inventoryId String
+  packagingId String
+  quantity    Float
+  shopId      String?
+  countedAt   DateTime @default(now())
+
+  inventory Inventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+
+  @@index([inventoryId])
+  @@index([packagingId])
 }
 
 // Tracks unmapped Weezevent entities for data quality monitoring

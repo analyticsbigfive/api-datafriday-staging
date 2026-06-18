@@ -77,7 +77,7 @@ export class MappingsService {
       throw new NotFoundException(`Space ${dto.spaceId} not found`);
     }
 
-    return this.prisma.weezeventLocationSpaceMapping.upsert({
+    const mapping = await this.prisma.weezeventLocationSpaceMapping.upsert({
       where: {
         tenantId_weezeventLocationId: {
           tenantId,
@@ -93,6 +93,32 @@ export class MappingsService {
         spaceId: dto.spaceId,
       },
     });
+
+    // G7: stamp configurationId on all WeezeventEvents linked to this location.
+    // Find the latest Config for the space and use it as reference.
+    const latestConfig = await this.prisma.config.findFirst({
+      where: { spaceId: dto.spaceId },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true },
+    });
+
+    if (latestConfig) {
+      const location = await this.prisma.weezeventLocation.findFirst({
+        where: { id: dto.weezeventLocationId, tenantId },
+        select: { integrationId: true },
+      });
+      if (location?.integrationId) {
+        await this.prisma.weezeventEvent.updateMany({
+          where: { tenantId, integrationId: location.integrationId },
+          data: { configurationId: latestConfig.id },
+        });
+        this.logger.log(
+          `G7: stamped configurationId=${latestConfig.id} on WeezeventEvents for integration=${location.integrationId}`,
+        );
+      }
+    }
+
+    return mapping;
   }
 
   async deleteLocationSpaceMapping(tenantId: string, weezeventLocationId: string) {

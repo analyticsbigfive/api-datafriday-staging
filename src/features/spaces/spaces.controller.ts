@@ -563,6 +563,9 @@ export class SpacesController {
         team:           { type: 'string', nullable: true, example: 'PSG' },
         visitingTeam:   { type: 'string', nullable: true, example: 'Lyon' },
         hasIntermission:{ type: 'boolean', nullable: true },
+        performer:      { type: 'string', nullable: true, example: 'Coldplay' },
+        openingAct:     { type: 'string', nullable: true, example: 'The xx' },
+        sponsor:        { type: 'string', nullable: true, example: 'Sponsor SA' },
       },
     },
   })
@@ -579,6 +582,9 @@ export class SpacesController {
       team?: string | null;
       visitingTeam?: string | null;
       hasIntermission?: boolean;
+      performer?: string | null;
+      openingAct?: string | null;
+      sponsor?: string | null;
     },
     @CurrentUser() user: any,
   ) {

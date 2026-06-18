@@ -991,6 +991,7 @@ export class SpacesService {
         startDate: true,
         endDate: true,
         status: true,
+        configurationId: true,
         metadata: true,
       },
       orderBy: { startDate: 'asc' },
@@ -1003,13 +1004,17 @@ export class SpacesService {
       startDate: e.startDate,
       endDate: e.endDate,
       status: e.status,
-      doorsOpening:  (e.metadata as any)?.doorsOpening  ?? null,
-      showTime:      (e.metadata as any)?.showTime      ?? null,
-      category:      (e.metadata as any)?.category      ?? null,
-      eventType:     (e.metadata as any)?.eventType     ?? null,
-      team:          (e.metadata as any)?.team          ?? null,
-      visitingTeam:  (e.metadata as any)?.visitingTeam  ?? null,
+      configurationId: e.configurationId ?? null,
+      doorsOpening:    (e.metadata as any)?.doorsOpening    ?? null,
+      showTime:        (e.metadata as any)?.showTime        ?? null,
+      category:        (e.metadata as any)?.category        ?? null,
+      eventType:       (e.metadata as any)?.eventType       ?? null,
+      team:            (e.metadata as any)?.team            ?? null,
+      visitingTeam:    (e.metadata as any)?.visitingTeam    ?? null,
       hasIntermission: (e.metadata as any)?.hasIntermission ?? false,
+      performer:       (e.metadata as any)?.performer       ?? null,
+      openingAct:      (e.metadata as any)?.openingAct      ?? null,
+      sponsor:         (e.metadata as any)?.sponsor         ?? null,
     }));
   }
 
@@ -1028,6 +1033,9 @@ export class SpacesService {
       team?: string | null;
       visitingTeam?: string | null;
       hasIntermission?: boolean;
+      performer?: string | null;
+      openingAct?: string | null;
+      sponsor?: string | null;
     },
     tenantId: string,
   ) {
@@ -1054,6 +1062,7 @@ export class SpacesService {
         weezeventId: true,
         name: true,
         startDate: true,
+        configurationId: true,
         metadata: true,
       },
     });
@@ -1063,13 +1072,17 @@ export class SpacesService {
       weezeventId: updated.weezeventId,
       name: updated.name,
       startDate: updated.startDate,
-      doorsOpening:   (updated.metadata as any)?.doorsOpening   ?? null,
-      showTime:       (updated.metadata as any)?.showTime       ?? null,
-      category:       (updated.metadata as any)?.category       ?? null,
-      eventType:      (updated.metadata as any)?.eventType      ?? null,
-      team:           (updated.metadata as any)?.team           ?? null,
-      visitingTeam:   (updated.metadata as any)?.visitingTeam   ?? null,
+      configurationId: updated.configurationId ?? null,
+      doorsOpening:    (updated.metadata as any)?.doorsOpening    ?? null,
+      showTime:        (updated.metadata as any)?.showTime        ?? null,
+      category:        (updated.metadata as any)?.category        ?? null,
+      eventType:       (updated.metadata as any)?.eventType       ?? null,
+      team:            (updated.metadata as any)?.team            ?? null,
+      visitingTeam:    (updated.metadata as any)?.visitingTeam    ?? null,
       hasIntermission: (updated.metadata as any)?.hasIntermission ?? false,
+      performer:       (updated.metadata as any)?.performer       ?? null,
+      openingAct:      (updated.metadata as any)?.openingAct      ?? null,
+      sponsor:         (updated.metadata as any)?.sponsor         ?? null,
     };
   }
 

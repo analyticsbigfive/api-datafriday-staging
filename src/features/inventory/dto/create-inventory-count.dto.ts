@@ -1,19 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import {
-  IsBoolean,
-  IsInt,
-  IsOptional,
-  IsString,
-  Min,
-} from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateInventoryCountDto {
-  @ApiProperty({ description: 'ID de l\'espace' })
+  @ApiProperty({ description: "ID de l'espace" })
   @IsString()
   spaceId: string;
 
-  @ApiPropertyOptional({ description: 'ID de l\'événement' })
+  @ApiPropertyOptional({ description: "ID de l'événement" })
   @IsOptional()
   @IsString()
   eventId?: string;
@@ -23,7 +17,7 @@ export class CreateInventoryCountDto {
   @IsString()
   shopId?: string;
 
-  @ApiProperty({ description: 'ID de l\'article (MenuItem ou itemId interne)' })
+  @ApiProperty({ description: "ID de l'article (MenuItem ou itemId interne)" })
   @IsString()
   itemId: string;
 
@@ -33,7 +27,7 @@ export class CreateInventoryCountDto {
   @Type(() => Number)
   packedUnits: number;
 
-  @ApiProperty({ description: 'Unités à l\'unité (en vrac)', type: Number })
+  @ApiProperty({ description: "Unités à l'unité (en vrac)", type: Number })
   @IsInt()
   @Min(0)
   @Type(() => Number)

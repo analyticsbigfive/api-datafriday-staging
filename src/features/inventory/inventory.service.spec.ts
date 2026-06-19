@@ -20,10 +20,7 @@ describe('InventoryService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        InventoryService,
-        { provide: PrismaService, useValue: mockPrisma },
-      ],
+      providers: [InventoryService, { provide: PrismaService, useValue: mockPrisma }],
     }).compile();
 
     service = module.get<InventoryService>(InventoryService);
@@ -43,7 +40,9 @@ describe('InventoryService', () => {
 
     it('should throw NotFoundException when not found', async () => {
       mockPrisma.inventory.findFirst.mockResolvedValue(null);
-      await expect(service.getBySpaceAndEvent('s1', 'e1', 'tenant-1')).rejects.toThrow(NotFoundException);
+      await expect(service.getBySpaceAndEvent('s1', 'e1', 'tenant-1')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 

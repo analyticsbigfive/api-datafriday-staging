@@ -10,6 +10,10 @@ import {
   BYPASS_TENANT_KEY,
   TENANT_ID_KEY,
 } from '../tenant/tenant-context.constants';
+import {
+  applyTenantScope,
+  buildTenantScopedModelSet,
+} from './tenant-scope.util';
 
 @Injectable()
 export class PrismaService
@@ -24,18 +28,8 @@ export class PrismaService
    * with the schema. Models with a nullable tenantId (e.g. Permission, whose
    * system catalog rows have tenantId = null) are intentionally excluded.
    */
-  private readonly tenantScopedModels: Set<string> = new Set(
-    Prisma.dmmf.datamodel.models
-      .filter((model) =>
-        model.fields.some(
-          (field) =>
-            field.name === 'tenantId' &&
-            field.isRequired &&
-            !field.isList &&
-            field.kind === 'scalar',
-        ),
-      )
-      .map((model) => model.name),
+  private readonly tenantScopedModels: Set<string> = buildTenantScopedModelSet(
+    Prisma.dmmf.datamodel.models as any,
   );
 
   constructor(private readonly cls: ClsService) {
@@ -108,75 +102,9 @@ export class PrismaService
         return next(params);
       }
 
-      this.applyTenantScope(params, tenantId);
+      applyTenantScope(params, tenantId);
       return next(params);
     });
-  }
-
-  private applyTenantScope(
-    params: Prisma.MiddlewareParams,
-    tenantId: string,
-  ): void {
-    const args = (params.args ?? {}) as Record<string, any>;
-
-    switch (params.action) {
-      case 'findUnique':
-      case 'findUniqueOrThrow':
-      case 'findFirst':
-      case 'findFirstOrThrow':
-      case 'findMany':
-      case 'count':
-      case 'aggregate':
-      case 'groupBy':
-      case 'update':
-      case 'updateMany':
-      case 'delete':
-      case 'deleteMany': {
-        args.where = this.mergeTenantWhere(args.where, tenantId);
-        break;
-      }
-
-      case 'upsert': {
-        args.where = this.mergeTenantWhere(args.where, tenantId);
-        if (args.create && typeof args.create === 'object') {
-          args.create.tenantId = args.create.tenantId ?? tenantId;
-        }
-        break;
-      }
-
-      case 'create': {
-        this.setTenantOnData(args.data, tenantId);
-        break;
-      }
-
-      case 'createMany': {
-        if (Array.isArray(args.data)) {
-          args.data.forEach((row: any) => this.setTenantOnData(row, tenantId));
-        } else {
-          this.setTenantOnData(args.data, tenantId);
-        }
-        break;
-      }
-
-      default:
-        break;
-    }
-
-    params.args = args;
-  }
-
-  /** Merge tenantId into a WHERE clause, never overriding an explicit one. */
-  private mergeTenantWhere(where: any, tenantId: string): any {
-    if (where && typeof where === 'object' && 'tenantId' in where) {
-      return where; // caller already scoped — respect it
-    }
-    return { ...(where ?? {}), tenantId };
-  }
-
-  private setTenantOnData(data: any, tenantId: string): void {
-    if (data && typeof data === 'object' && data.tenantId === undefined) {
-      data.tenantId = tenantId;
-    }
   }
 
   async onModuleInit() {

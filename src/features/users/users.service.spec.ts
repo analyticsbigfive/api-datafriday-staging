@@ -1,7 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { UsersService } from './users.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { JwtDatabaseStrategy } from '../../core/auth/strategies/jwt-db-lookup.strategy';
+import { SupabaseAdminService } from '../../core/supabase/supabase-admin.service';
 import { ConflictException, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 
@@ -25,6 +27,7 @@ describe('UsersService', () => {
       create: jest.fn(),
       updateMany: jest.fn(),
       deleteMany: jest.fn(),
+      count: jest.fn(),
     },
     userSpaceAccess: {
       upsert: jest.fn(),
@@ -40,6 +43,18 @@ describe('UsersService', () => {
 
   const mockJwtDatabaseStrategy = {
     invalidateUserCache: jest.fn(),
+  };
+
+  const mockSupabaseAdmin = {
+    createUser: jest.fn(),
+    inviteUserByEmail: jest.fn(),
+    deleteUser: jest.fn(),
+    getUserById: jest.fn(),
+    isEnabled: jest.fn().mockReturnValue(true),
+  };
+
+  const mockConfigService = {
+    get: jest.fn(),
   };
 
   const mockTenantId = 'tenant-123';
@@ -68,6 +83,14 @@ describe('UsersService', () => {
           provide: JwtDatabaseStrategy,
           useValue: mockJwtDatabaseStrategy,
         },
+        {
+          provide: SupabaseAdminService,
+          useValue: mockSupabaseAdmin,
+        },
+        {
+          provide: ConfigService,
+          useValue: mockConfigService,
+        },
       ],
     }).compile();
 
@@ -83,8 +106,10 @@ describe('UsersService', () => {
   });
 
   describe('create', () => {
-    it('should create a new user', async () => {
+    it('should create a new user (provisioned in Supabase, DB id = Supabase id)', async () => {
       mockPrismaService.user.findFirst.mockResolvedValue(null);
+      mockPrismaService.role.findFirst.mockResolvedValue({ id: 'role-viewer' });
+      mockSupabaseAdmin.createUser.mockResolvedValue({ id: mockUserId, email: 'test@example.com' });
       mockPrismaService.user.create.mockResolvedValue(mockUser);
       mockPrismaService.userTenant.create.mockResolvedValue({});
 
@@ -98,8 +123,26 @@ describe('UsersService', () => {
 
       expect(result).toBeDefined();
       expect(result.email).toBe(dto.email);
-      expect(mockPrismaService.user.create).toHaveBeenCalled();
+      expect(mockSupabaseAdmin.createUser).toHaveBeenCalledWith(
+        expect.objectContaining({ email: dto.email }),
+      );
+      // DB user id must be the Supabase user id
+      expect(mockPrismaService.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ id: mockUserId }) }),
+      );
       expect(mockPrismaService.userTenant.create).toHaveBeenCalled();
+    });
+
+    it('should roll back the Supabase account if DB creation fails', async () => {
+      mockPrismaService.user.findFirst.mockResolvedValue(null);
+      mockPrismaService.role.findFirst.mockResolvedValue(null);
+      mockSupabaseAdmin.createUser.mockResolvedValue({ id: mockUserId, email: 'test@example.com' });
+      mockPrismaService.user.create.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        service.create(mockTenantId, { email: 'test@example.com', firstName: 'John', lastName: 'Doe' }),
+      ).rejects.toThrow('db down');
+      expect(mockSupabaseAdmin.deleteUser).toHaveBeenCalledWith(mockUserId);
     });
 
     it('should throw ConflictException if user exists', async () => {
@@ -192,16 +235,31 @@ describe('UsersService', () => {
   });
 
   describe('remove', () => {
-    it('should delete a user', async () => {
+    it('should delete a user and tear down the Supabase account when no memberships remain', async () => {
       mockPrismaService.user.findFirst.mockResolvedValue(mockUser);
       mockPrismaService.userTenant.findFirst.mockResolvedValue({ isOwner: false });
       mockPrismaService.userTenant.deleteMany.mockResolvedValue({});
+      mockPrismaService.userTenant.count.mockResolvedValue(0);
       mockPrismaService.user.delete.mockResolvedValue(mockUser);
 
       const result = await service.remove(mockUserId, mockTenantId, 'other-user');
 
       expect(result.success).toBe(true);
       expect(mockPrismaService.user.delete).toHaveBeenCalled();
+      expect(mockSupabaseAdmin.deleteUser).toHaveBeenCalledWith(mockUserId);
+      expect(mockJwtDatabaseStrategy.invalidateUserCache).toHaveBeenCalledWith(mockUserId);
+    });
+
+    it('should keep the Supabase account when the user still belongs to another org', async () => {
+      mockPrismaService.user.findFirst.mockResolvedValue(mockUser);
+      mockPrismaService.userTenant.findFirst.mockResolvedValue({ isOwner: false });
+      mockPrismaService.userTenant.deleteMany.mockResolvedValue({});
+      mockPrismaService.userTenant.count.mockResolvedValue(1);
+      mockPrismaService.user.delete.mockResolvedValue(mockUser);
+
+      await service.remove(mockUserId, mockTenantId, 'other-user');
+
+      expect(mockSupabaseAdmin.deleteUser).not.toHaveBeenCalled();
     });
 
     it('should not allow deleting yourself', async () => {

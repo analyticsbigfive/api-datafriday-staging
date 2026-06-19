@@ -1,5 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ClsService } from 'nestjs-cls';
 import { PrismaService } from './prisma.service';
+
+// No-op CLS context: isActive() === false → tenant auto-scoping is bypassed,
+// preserving the raw integration behavior exercised by these tests.
+const mockClsService = {
+  isActive: () => false,
+  get: () => undefined,
+  set: () => undefined,
+};
 
 /**
  * PrismaService Integration Tests
@@ -13,7 +22,10 @@ const hasDatabase = !!process.env.DATABASE_URL;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [PrismaService],
+      providers: [
+        PrismaService,
+        { provide: ClsService, useValue: mockClsService },
+      ],
     }).compile();
 
     service = module.get<PrismaService>(PrismaService);

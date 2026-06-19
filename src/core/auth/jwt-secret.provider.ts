@@ -1,6 +1,5 @@
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { passportJwtSecret } from 'jwks-rsa';
 import { ExtractJwt } from 'passport-jwt';
 
 const logger = new Logger('JwtVerifyOptions');
@@ -61,6 +60,11 @@ export function buildJwtVerifyOptions(config: ConfigService): JwtVerifyOptions {
 
   if (jwksUri) {
     logger.log(`JWT verification: asymmetric (JWKS) via ${jwksUri}`);
+    // Lazy-require: jwks-rsa pulls in `jose` (ESM). Loading it only when JWKS is
+    // actually enabled keeps the default HS256 path (and the test runner) free of
+    // the ESM transform requirement, and avoids the cost when it isn't used.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { passportJwtSecret } = require('jwks-rsa');
     return {
       ...base,
       algorithms: ['RS256', 'ES256'],

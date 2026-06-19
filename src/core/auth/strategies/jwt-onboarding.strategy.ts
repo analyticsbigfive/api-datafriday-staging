@@ -1,8 +1,9 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
-import { ExtractJwt, Strategy } from 'passport-jwt';
+import { Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { JwtPayload } from './jwt-db-lookup.strategy';
+import { buildJwtVerifyOptions } from '../jwt-secret.provider';
 
 /**
  * JWT Strategy specifically for Onboarding
@@ -11,11 +12,7 @@ import { JwtPayload } from './jwt-db-lookup.strategy';
 @Injectable()
 export class JwtOnboardingStrategy extends PassportStrategy(Strategy, 'jwt-onboarding') {
   constructor(private configService: ConfigService) {
-    super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      ignoreExpiration: false,
-      secretOrKey: configService.getOrThrow<string>('JWT_SECRET'),
-    });
+    super(buildJwtVerifyOptions(configService));
   }
 
   /**

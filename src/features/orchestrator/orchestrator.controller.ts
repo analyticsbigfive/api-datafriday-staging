@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body, UseGuards, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiBody, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { OrchestratorService } from './orchestrator.service';
-import { JwtGuard } from '../../core/auth/guards/jwt.guard';
+import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { InvalidateCacheDto } from './dto/invalidate-cache.dto';
 import { GetStrategyQueryDto } from './dto/get-strategy-query.dto';
 
@@ -19,7 +19,7 @@ export class OrchestratorController {
   }
 
   @Post('invalidate-cache')
-  @UseGuards(JwtGuard)
+  @UseGuards(JwtDatabaseGuard)
   @ApiOperation({ summary: 'Invalidate cache for a tenant' })
   @ApiBody({ type: InvalidateCacheDto })
   @ApiResponse({ status: 200, description: 'Cache invalidated successfully' })
@@ -31,7 +31,7 @@ export class OrchestratorController {
   }
 
   @Get('strategy')
-  @UseGuards(JwtGuard)
+  @UseGuards(JwtDatabaseGuard)
   @ApiOperation({ summary: 'Get recommended processing strategy for a context' })
   @ApiQuery({ name: 'tenantId', required: true, type: String })
   @ApiQuery({ name: 'operation', required: true, type: String })

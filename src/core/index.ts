@@ -5,13 +5,16 @@
 
 // Authentication
 export * from './auth/auth.module';
-export * from './auth/guards/jwt.guard';
 export * from './auth/guards/jwt-db.guard';
 export * from './auth/guards/jwt-onboarding.guard';
 export * from './auth/guards/roles.guard';
+export * from './auth/guards/permissions.guard';
+export * from './auth/guards/tenant.guard';
 export * from './auth/decorators/current-user.decorator';
 export * from './auth/decorators/current-tenant.decorator';
 export * from './auth/decorators/roles.decorator';
+export * from './auth/decorators/permissions.decorator';
+export * from './auth/decorators/public.decorator';
 
 // Database
 export * from './database/prisma.module';

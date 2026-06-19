@@ -5,11 +5,11 @@
 export * from './auth.module';
 
 // Guards
-export * from './guards/jwt.guard';
 export * from './guards/jwt-db.guard';
 export * from './guards/jwt-onboarding.guard';
 export * from './guards/roles.guard';
 export * from './guards/permissions.guard';
+export * from './guards/tenant.guard';
 
 // Decorators
 export * from './decorators/current-user.decorator';

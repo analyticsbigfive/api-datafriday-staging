@@ -1,10 +1,11 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
-import { ExtractJwt, Strategy } from 'passport-jwt';
+import { Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { RedisService } from '../../redis/redis.service';
+import { buildJwtVerifyOptions } from '../jwt-secret.provider';
 
 export interface JwtPayload {
   sub: string; // userId Supabase
@@ -33,11 +34,7 @@ export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
     private prisma: PrismaService,
     private redis: RedisService,
   ) {
-    super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      ignoreExpiration: false,
-      secretOrKey: configService.getOrThrow<string>('JWT_SECRET'),
-    });
+    super(buildJwtVerifyOptions(configService));
   }
 
   /**

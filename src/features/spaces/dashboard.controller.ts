@@ -10,7 +10,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { JwtGuard } from '../../core/auth/guards/jwt.guard';
+import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { SpaceDashboardService } from './services/space-dashboard.service';
 import { SpaceAggregationService } from './services/space-aggregation.service';
 import {
@@ -23,7 +23,7 @@ import {
 @ApiTags('Space Dashboard')
 @ApiBearerAuth('supabase-jwt')
 @Controller('api/v1/spaces/:spaceId/dashboard')
-@UseGuards(JwtGuard)
+@UseGuards(JwtDatabaseGuard)
 export class DashboardController {
   constructor(
     private readonly dashboardService: SpaceDashboardService,

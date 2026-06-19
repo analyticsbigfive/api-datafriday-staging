@@ -158,6 +158,51 @@ describe('UsersService', () => {
     });
   });
 
+  describe('invite', () => {
+    it('sends a Supabase invitation, uses the Supabase id, and prefills name + role', async () => {
+      mockPrismaService.user.findFirst.mockResolvedValue(null);
+      mockPrismaService.role.findFirst.mockResolvedValue({ id: 'role-staff', systemKey: UserRole.STAFF });
+      mockSupabaseAdmin.inviteUserByEmail.mockResolvedValue({ id: 'supa-invite-id', email: 'new@x.com' });
+      mockPrismaService.user.create.mockResolvedValue({ id: 'supa-invite-id', email: 'new@x.com' });
+      mockPrismaService.userTenant.create.mockResolvedValue({});
+      mockConfigService.get.mockReturnValue('https://app.test/accept-invite');
+
+      const result = await service.invite(
+        mockTenantId,
+        { email: 'new@x.com', firstName: 'Ada', lastName: 'Lovelace', roleId: 'role-staff' },
+        'admin-1',
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockSupabaseAdmin.inviteUserByEmail).toHaveBeenCalledWith(
+        'new@x.com',
+        expect.objectContaining({ redirectTo: 'https://app.test/accept-invite' }),
+      );
+      expect(mockPrismaService.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            id: 'supa-invite-id',
+            firstName: 'Ada',
+            lastName: 'Lovelace',
+            roleId: 'role-staff',
+          }),
+        }),
+      );
+    });
+
+    it('rolls back the Supabase account if DB creation fails', async () => {
+      mockPrismaService.user.findFirst.mockResolvedValue(null);
+      mockPrismaService.role.findFirst.mockResolvedValue({ id: 'role-staff', systemKey: UserRole.STAFF });
+      mockSupabaseAdmin.inviteUserByEmail.mockResolvedValue({ id: 'supa-invite-id' });
+      mockPrismaService.user.create.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        service.invite(mockTenantId, { email: 'new@x.com', roleId: 'role-staff' }, 'admin-1'),
+      ).rejects.toThrow('db down');
+      expect(mockSupabaseAdmin.deleteUser).toHaveBeenCalledWith('supa-invite-id');
+    });
+  });
+
   describe('findAll', () => {
     it('should return paginated users', async () => {
       mockPrismaService.user.findMany.mockResolvedValue([mockUser]);

@@ -40,7 +40,14 @@ export class CreateUserDto {
   password?: string;
 
   @ApiPropertyOptional({
-    description: 'Rôle de l\'utilisateur',
+    description: 'ID du rôle dynamique à attribuer (prioritaire sur `role`)',
+  })
+  @IsOptional()
+  @IsString()
+  roleId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Rôle système à attribuer (fallback si `roleId` absent)',
     enum: UserRole,
     default: UserRole.VIEWER,
   })

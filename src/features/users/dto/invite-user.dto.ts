@@ -11,7 +11,28 @@ export class InviteUserDto {
   email: string;
 
   @ApiPropertyOptional({
-    description: 'Rôle à attribuer',
+    description: 'Prénom (pré-rempli ; sinon l\'invité le renseignera en acceptant)',
+  })
+  @IsOptional()
+  @IsString()
+  firstName?: string;
+
+  @ApiPropertyOptional({
+    description: 'Nom (pré-rempli ; sinon l\'invité le renseignera en acceptant)',
+  })
+  @IsOptional()
+  @IsString()
+  lastName?: string;
+
+  @ApiPropertyOptional({
+    description: 'ID du rôle dynamique à attribuer (prioritaire sur `role`)',
+  })
+  @IsOptional()
+  @IsString()
+  roleId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Rôle système à attribuer (fallback si `roleId` absent)',
     enum: UserRole,
     default: UserRole.VIEWER,
   })

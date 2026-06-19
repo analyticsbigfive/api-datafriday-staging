@@ -45,6 +45,31 @@ export class UsersService {
   }
 
   /**
+   * Resolve a role from either a dynamic `roleId` (preferred, from the UI) or a
+   * legacy system `role` enum. Returns both the effective systemKey (for the
+   * legacy `User.role` column) and the `roleId` FK.
+   */
+  private async resolveRole(
+    tenantId: string,
+    opts: { roleId?: string; role?: UserRole },
+  ): Promise<{ systemKey: UserRole; roleId: string | null }> {
+    if (opts.roleId) {
+      const role = await this.prisma.role.findFirst({
+        where: { id: opts.roleId, tenantId },
+        select: { id: true, systemKey: true },
+      });
+      if (!role) {
+        throw new NotFoundException(`Role ${opts.roleId} not found`);
+      }
+      return { systemKey: role.systemKey ?? UserRole.VIEWER, roleId: role.id };
+    }
+
+    const systemKey = opts.role ?? UserRole.VIEWER;
+    const roleId = await this.resolveRoleId(tenantId, systemKey);
+    return { systemKey, roleId };
+  }
+
+  /**
    * Create a new user for a tenant
    */
   async create(tenantId: string, dto: CreateUserDto) {
@@ -60,9 +85,11 @@ export class UsersService {
       throw new ConflictException(`User with email ${dto.email} already exists in this organization`);
     }
 
-    const role = dto.role || UserRole.VIEWER;
+    const { systemKey: role, roleId } = await this.resolveRole(tenantId, {
+      roleId: dto.roleId,
+      role: dto.role,
+    });
     const fullName = `${dto.firstName} ${dto.lastName}`;
-    const roleId = await this.resolveRoleId(tenantId, role);
 
     // 1) Provision the real Supabase auth account — its id becomes the DB User id
     //    so the user can actually authenticate (JWT `sub` === User.id).
@@ -434,15 +461,22 @@ export class UsersService {
       throw new ConflictException(`User ${dto.email} is already a member of this organization`);
     }
 
-    const role = dto.role || UserRole.VIEWER;
-    const roleId = await this.resolveRoleId(tenantId, role);
+    const { systemKey: role, roleId } = await this.resolveRole(tenantId, {
+      roleId: dto.roleId,
+      role: dto.role,
+    });
+
+    // Admin may pre-fill the name; otherwise the invitee sets it on acceptance.
+    const firstName = dto.firstName?.trim() || 'Invited';
+    const lastName = dto.lastName?.trim() || 'User';
+    const fullName = `${firstName} ${lastName}`.trim();
 
     // 1) Send the real Supabase invitation email + create the (pending) auth user.
     //    The returned id is reused as the DB User id.
     const redirectTo = this.config.get<string>('INVITE_REDIRECT_URL');
     const supabaseUser = await this.supabaseAdmin.inviteUserByEmail(dto.email, {
       redirectTo,
-      data: { tenantId, invitedBy },
+      data: { tenantId, invitedBy, firstName, lastName },
     });
 
     // 2) Mirror in our DB (pending profile, completed when the invite is accepted).
@@ -451,9 +485,9 @@ export class UsersService {
         data: {
           id: supabaseUser.id,
           email: dto.email,
-          firstName: 'Invited',
-          lastName: 'User',
-          fullName: 'Invited User',
+          firstName,
+          lastName,
+          fullName,
           role,
           roleId,
           tenantId,

@@ -1,9 +1,11 @@
-import { Controller, Get, UseGuards, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Patch, Body, UseGuards, NotFoundException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { AllowNoTenant } from '../../core/auth/decorators/allow-no-tenant.decorator';
 import { CurrentUser, CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 import { PrismaService } from '../../core/database/prisma.service';
+import { JwtDatabaseStrategy } from '../../core/auth/strategies/jwt-db-lookup.strategy';
+import { UpdateMeDto } from './dto/update-me.dto';
 
 @ApiTags('Me')
 @ApiBearerAuth('supabase-jwt')
@@ -11,7 +13,10 @@ import { PrismaService } from '../../core/database/prisma.service';
 @UseGuards(JwtDatabaseGuard)
 @AllowNoTenant() // post-login / pre-onboarding surface — auth required, tenant optional
 export class MeController {
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly jwtDatabaseStrategy: JwtDatabaseStrategy,
+    ) { }
 
     /**
      * Get current user with their organization
@@ -65,6 +70,54 @@ export class MeController {
         }
 
         return user;
+    }
+
+    /**
+     * Update the current user's OWN profile (identity fields only).
+     * Used notably when accepting an invitation (the invited user sets their name).
+     * A user can never change their own role/permissions/tenant here.
+     */
+    @Patch()
+    @ApiOperation({
+        summary: 'Mettre à jour son propre profil',
+        description: 'Met à jour les champs identité (prénom, nom, avatar) de l\'utilisateur connecté.',
+    })
+    @ApiResponse({ status: 200, description: 'Profil mis à jour' })
+    @ApiResponse({ status: 401, description: 'Non authentifié' })
+    async updateMe(@CurrentUser() user: CurrentUserData, @Body() dto: UpdateMeDto) {
+        const data: any = {};
+        if (dto.firstName !== undefined) data.firstName = dto.firstName;
+        if (dto.lastName !== undefined) data.lastName = dto.lastName;
+        if (dto.avatar !== undefined) data.avatar = dto.avatar;
+
+        if (dto.firstName !== undefined || dto.lastName !== undefined) {
+            const current = await this.prisma.user.findUnique({
+                where: { id: user.id },
+                select: { firstName: true, lastName: true },
+            });
+            const firstName = dto.firstName ?? current?.firstName ?? '';
+            const lastName = dto.lastName ?? current?.lastName ?? '';
+            data.fullName = `${firstName} ${lastName}`.trim();
+        }
+
+        const updated = await this.prisma.user.update({
+            where: { id: user.id },
+            data,
+            select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                fullName: true,
+                avatar: true,
+                tenantId: true,
+            },
+        });
+
+        // Identity fields are part of the cached auth payload — refresh it everywhere.
+        await this.jwtDatabaseStrategy.invalidateUserCache(user.id);
+
+        return updated;
     }
 
     /**

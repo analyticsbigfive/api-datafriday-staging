@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { MeController } from './me.controller';
 import { PrismaService } from '../../core/database/prisma.service';
+import { JwtDatabaseStrategy } from '../../core/auth/strategies/jwt-db-lookup.strategy';
 import { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 
 describe('MeController', () => {
@@ -35,7 +36,12 @@ describe('MeController', () => {
   const mockPrismaService = {
     user: {
       findUnique: jest.fn(),
+      update: jest.fn(),
     },
+  };
+
+  const mockJwtDatabaseStrategy = {
+    invalidateUserCache: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -45,6 +51,10 @@ describe('MeController', () => {
         {
           provide: PrismaService,
           useValue: mockPrismaService,
+        },
+        {
+          provide: JwtDatabaseStrategy,
+          useValue: mockJwtDatabaseStrategy,
         },
       ],
     }).compile();
@@ -106,6 +116,29 @@ describe('MeController', () => {
       await expect(
         controller.getCurrentUserTenant({ id: 'non-existent' }),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('updateMe (self profile)', () => {
+    it('updates own identity fields, recomputes fullName, and invalidates cache', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue({ firstName: 'John', lastName: 'Doe' });
+      mockPrismaService.user.update.mockResolvedValue({
+        id: 'user-123',
+        firstName: 'Jane',
+        lastName: 'Roe',
+        fullName: 'Jane Roe',
+      });
+
+      const result = await controller.updateMe(mockUser, { firstName: 'Jane', lastName: 'Roe' });
+
+      expect(mockPrismaService.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'user-123' },
+          data: expect.objectContaining({ firstName: 'Jane', lastName: 'Roe', fullName: 'Jane Roe' }),
+        }),
+      );
+      expect(mockJwtDatabaseStrategy.invalidateUserCache).toHaveBeenCalledWith('user-123');
+      expect(result.fullName).toBe('Jane Roe');
     });
   });
 });

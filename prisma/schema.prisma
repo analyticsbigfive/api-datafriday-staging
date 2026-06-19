@@ -2039,7 +2039,7 @@ model InventoryCount {
   shopId            String?
   itemId            String
   packedUnits       Int      @default(0)
-  looseUnits        Int      @default(0)
+  looseUnits        Float    @default(0)
   isCounted         Boolean  @default(false)
   storageLocation   String?
   countingStatus    String   @default("pending")

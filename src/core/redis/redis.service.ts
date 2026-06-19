@@ -17,6 +17,9 @@ export class RedisService implements OnModuleDestroy {
   private readonly defaultTTL = 300; // 5 minutes
   private readonly keyPrefix = 'datafriday:';
 
+  /** Dedicated connection for Pub/Sub (a subscriber cannot run normal commands). */
+  private subscriber: Redis | null = null;
+
   constructor(
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
@@ -48,8 +51,42 @@ export class RedisService implements OnModuleDestroy {
   }
 
   async onModuleDestroy() {
+    if (this.subscriber) {
+      await this.subscriber.quit();
+    }
     await this.redis.quit();
     this.logger.log('Redis connection closed');
+  }
+
+  /**
+   * Subscribe to a Pub/Sub channel. Lazily creates a dedicated subscriber
+   * connection (duplicated from the main client). The handler receives the raw
+   * message payload as published by {@link publish} (JSON string).
+   */
+  async subscribe(
+    channel: string,
+    handler: (message: string) => void,
+  ): Promise<void> {
+    if (!this.subscriber) {
+      this.subscriber = this.redis.duplicate();
+      this.subscriber.on('error', (err) =>
+        this.logger.error(`Redis subscriber error: ${err.message}`),
+      );
+    }
+
+    await this.subscriber.subscribe(channel);
+    this.subscriber.on('message', (chan: string, message: string) => {
+      if (chan === channel) {
+        try {
+          handler(message);
+        } catch (error) {
+          this.logger.error(
+            `Pub/Sub handler error on ${channel}: ${(error as Error).message}`,
+          );
+        }
+      }
+    });
+    this.logger.log(`Subscribed to channel ${channel}`);
   }
 
   /**

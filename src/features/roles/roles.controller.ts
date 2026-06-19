@@ -16,14 +16,16 @@ import { CreateRoleDto } from './dto/create-role.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RolesGuard } from '../../core/auth/guards/roles.guard';
+import { PermissionsGuard } from '../../core/auth/guards/permissions.guard';
 import { Roles } from '../../core/auth/decorators/roles.decorator';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { UserRole } from '@prisma/client';
 
 @ApiTags('Roles')
 @ApiBearerAuth('supabase-jwt')
 @Controller('roles')
-@UseGuards(JwtDatabaseGuard, RolesGuard)
+@UseGuards(JwtDatabaseGuard, RolesGuard, PermissionsGuard)
 export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
 
@@ -60,6 +62,7 @@ export class RolesController {
    */
   @Post()
   @Roles(UserRole.ADMIN)
+  @RequirePermissions('org.roles.manage')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Créer un rôle',
@@ -76,6 +79,7 @@ export class RolesController {
    */
   @Patch(':id')
   @Roles(UserRole.ADMIN)
+  @RequirePermissions('org.roles.manage')
   @ApiOperation({
     summary: 'Mettre à jour un rôle',
     description:
@@ -98,6 +102,7 @@ export class RolesController {
    */
   @Delete(':id')
   @Roles(UserRole.ADMIN)
+  @RequirePermissions('org.roles.manage')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Supprimer un rôle',

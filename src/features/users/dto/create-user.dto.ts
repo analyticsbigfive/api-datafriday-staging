@@ -29,6 +29,17 @@ export class CreateUserDto {
   lastName: string;
 
   @ApiPropertyOptional({
+    description:
+      "Mot de passe initial. Si omis, le compte est créé sans mot de passe (l'utilisateur devra utiliser « mot de passe oublié » ou le lien d'invitation).",
+    minLength: 8,
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  @MaxLength(72)
+  password?: string;
+
+  @ApiPropertyOptional({
     description: 'Rôle de l\'utilisateur',
     enum: UserRole,
     default: UserRole.VIEWER,

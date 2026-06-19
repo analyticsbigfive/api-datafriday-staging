@@ -1,6 +1,7 @@
 import { Controller, Get, UseGuards, NotFoundException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
+import { AllowNoTenant } from '../../core/auth/decorators/allow-no-tenant.decorator';
 import { CurrentUser, CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 import { PrismaService } from '../../core/database/prisma.service';
 
@@ -8,6 +9,7 @@ import { PrismaService } from '../../core/database/prisma.service';
 @ApiBearerAuth('supabase-jwt')
 @Controller('me')
 @UseGuards(JwtDatabaseGuard)
+@AllowNoTenant() // post-login / pre-onboarding surface — auth required, tenant optional
 export class MeController {
     constructor(private readonly prisma: PrismaService) { }
 

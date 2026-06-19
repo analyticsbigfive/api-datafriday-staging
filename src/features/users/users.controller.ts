@@ -29,7 +29,9 @@ import { ChangeRoleDto } from './dto/change-role.dto';
 import { GrantSpaceAccessDto } from './dto/grant-space-access.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RolesGuard } from '../../core/auth/guards/roles.guard';
+import { PermissionsGuard } from '../../core/auth/guards/permissions.guard';
 import { Roles } from '../../core/auth/decorators/roles.decorator';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { UserRole } from '@prisma/client';
@@ -37,7 +39,7 @@ import { UserRole } from '@prisma/client';
 @ApiTags('Users')
 @ApiBearerAuth('supabase-jwt')
 @Controller('users')
-@UseGuards(JwtDatabaseGuard, RolesGuard)
+@UseGuards(JwtDatabaseGuard, RolesGuard, PermissionsGuard)
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
@@ -46,6 +48,7 @@ export class UsersController {
    */
   @Post()
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @RequirePermissions('org.users.manage')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Créer un nouvel utilisateur',
@@ -65,6 +68,7 @@ export class UsersController {
    */
   @Get()
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @RequirePermissions('org.users.view')
   @ApiOperation({
     summary: 'Lister les utilisateurs',
     description: 'Liste paginée des utilisateurs de l\'organisation.',
@@ -86,6 +90,7 @@ export class UsersController {
    */
   @Get('statistics')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @RequirePermissions('org.users.view')
   @ApiOperation({
     summary: 'Statistiques des utilisateurs',
     description: 'Statistiques sur les utilisateurs de l\'organisation.',
@@ -116,6 +121,7 @@ export class UsersController {
    */
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @RequirePermissions('org.users.view')
   @ApiOperation({
     summary: 'Détail d\'un utilisateur',
     description: 'Retourne les détails d\'un utilisateur.',
@@ -135,6 +141,7 @@ export class UsersController {
    */
   @Patch(':id')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @RequirePermissions('org.users.manage')
   @ApiOperation({
     summary: 'Mettre à jour un utilisateur',
     description: 'Met à jour les informations d\'un utilisateur.',
@@ -155,6 +162,7 @@ export class UsersController {
    */
   @Delete(':id')
   @Roles(UserRole.ADMIN)
+  @RequirePermissions('org.users.manage')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Supprimer un utilisateur',
@@ -177,6 +185,7 @@ export class UsersController {
    */
   @Post('invite')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @RequirePermissions('org.users.manage')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Inviter un utilisateur',
@@ -197,6 +206,7 @@ export class UsersController {
    */
   @Patch(':id/role')
   @Roles(UserRole.ADMIN)
+  @RequirePermissions('org.users.changeRole')
   @ApiOperation({
     summary: 'Changer le rôle d\'un utilisateur',
     description: 'Modifie le rôle d\'un utilisateur. Réservé aux admins.',
@@ -218,6 +228,7 @@ export class UsersController {
    */
   @Post(':id/spaces/:spaceId/access')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @RequirePermissions('org.users.manage')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Accorder l\'accès à un espace',
@@ -241,6 +252,7 @@ export class UsersController {
    */
   @Delete(':id/spaces/:spaceId/access')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @RequirePermissions('org.users.manage')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Révoquer l\'accès à un espace',

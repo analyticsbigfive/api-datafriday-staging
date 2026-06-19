@@ -6,8 +6,10 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../core/database/prisma.service';
 import { JwtDatabaseStrategy } from '../../core/auth/strategies/jwt-db-lookup.strategy';
+import { SupabaseAdminService } from '../../core/supabase/supabase-admin.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { QueryUserDto } from './dto/query-user.dto';
@@ -22,7 +24,25 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtDatabaseStrategy: JwtDatabaseStrategy,
+    private readonly supabaseAdmin: SupabaseAdminService,
+    private readonly config: ConfigService,
   ) {}
+
+  /**
+   * Resolve the tenant's Role row matching a system key (ADMIN/MANAGER/...).
+   * Returns null when the tenant has no cloned roles yet (legacy tenants);
+   * callers fall back to the legacy enum on `User.role`.
+   */
+  private async resolveRoleId(
+    tenantId: string,
+    systemKey: UserRole,
+  ): Promise<string | null> {
+    const role = await this.prisma.role.findFirst({
+      where: { tenantId, systemKey },
+      select: { id: true },
+    });
+    return role?.id ?? null;
+  }
 
   /**
    * Create a new user for a tenant
@@ -40,42 +60,58 @@ export class UsersService {
       throw new ConflictException(`User with email ${dto.email} already exists in this organization`);
     }
 
+    const role = dto.role || UserRole.VIEWER;
     const fullName = `${dto.firstName} ${dto.lastName}`;
+    const roleId = await this.resolveRoleId(tenantId, role);
 
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email,
-        firstName: dto.firstName,
-        lastName: dto.lastName,
-        fullName,
-        role: dto.role || UserRole.VIEWER,
-        avatar: dto.avatar,
-        tenantId,
-      },
-      include: {
-        tenant: {
-          select: {
-            id: true,
-            name: true,
-            slug: true,
-          },
+    // 1) Provision the real Supabase auth account — its id becomes the DB User id
+    //    so the user can actually authenticate (JWT `sub` === User.id).
+    const supabaseUser = await this.supabaseAdmin.createUser({
+      email: dto.email,
+      password: dto.password,
+      emailConfirm: true,
+      userMetadata: { firstName: dto.firstName, lastName: dto.lastName, tenantId },
+    });
+
+    // 2) Mirror in our DB. On failure, roll back the Supabase account to avoid orphans.
+    try {
+      const user = await this.prisma.user.create({
+        data: {
+          id: supabaseUser.id,
+          email: dto.email,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          fullName,
+          role,
+          roleId,
+          avatar: dto.avatar,
+          tenantId,
         },
-      },
-    });
+        include: {
+          tenant: { select: { id: true, name: true, slug: true } },
+        },
+      });
 
-    // Also create UserTenant relation for multi-tenant support
-    await this.prisma.userTenant.create({
-      data: {
-        userId: user.id,
-        tenantId,
-        role: dto.role || UserRole.VIEWER,
-        isOwner: false,
-      },
-    });
+      await this.prisma.userTenant.create({
+        data: {
+          userId: user.id,
+          tenantId,
+          role,
+          roleId,
+          isOwner: false,
+        },
+      });
 
-    this.logger.log(`User ${user.email} created for tenant ${tenantId}`);
+      this.logger.log(`User ${user.email} (${user.id}) created for tenant ${tenantId}`);
 
-    return this.sanitizeUser(user);
+      return this.sanitizeUser(user);
+    } catch (error) {
+      await this.supabaseAdmin.deleteUser(supabaseUser.id);
+      this.logger.error(
+        `DB user creation failed for ${dto.email}; rolled back Supabase account ${supabaseUser.id}`,
+      );
+      throw error;
+    }
   }
 
   /**
@@ -267,15 +303,29 @@ export class UsersService {
       throw new ForbiddenException('Cannot delete the organization owner');
     }
 
-    // Delete UserTenant relation
+    // Delete UserTenant relation for THIS tenant
     await this.prisma.userTenant.deleteMany({
       where: { userId: id, tenantId },
     });
 
-    // Delete the user
+    // Does the user still belong to any other organization?
+    const remainingMemberships = await this.prisma.userTenant.count({
+      where: { userId: id },
+    });
+
+    // Delete the user row for this tenant
     await this.prisma.user.delete({
       where: { id },
     });
+
+    // Only tear down the Supabase auth account when the user has no remaining
+    // organization (otherwise they'd lose access to their other tenants).
+    if (remainingMemberships === 0) {
+      await this.supabaseAdmin.deleteUser(id);
+    }
+
+    // The user's role/permissions changed — invalidate their auth cache cluster-wide.
+    await this.jwtDatabaseStrategy.invalidateUserCache(id);
 
     this.logger.log(`User ${id} deleted from tenant ${tenantId}`);
 
@@ -384,38 +434,58 @@ export class UsersService {
       throw new ConflictException(`User ${dto.email} is already a member of this organization`);
     }
 
-    // For now, create a placeholder user (in real app, send invitation email)
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email,
-        firstName: 'Invited',
-        lastName: 'User',
-        fullName: 'Invited User',
-        role: dto.role || UserRole.VIEWER,
-        tenantId,
-      },
+    const role = dto.role || UserRole.VIEWER;
+    const roleId = await this.resolveRoleId(tenantId, role);
+
+    // 1) Send the real Supabase invitation email + create the (pending) auth user.
+    //    The returned id is reused as the DB User id.
+    const redirectTo = this.config.get<string>('INVITE_REDIRECT_URL');
+    const supabaseUser = await this.supabaseAdmin.inviteUserByEmail(dto.email, {
+      redirectTo,
+      data: { tenantId, invitedBy },
     });
 
-    // Create UserTenant relation
-    await this.prisma.userTenant.create({
-      data: {
-        userId: user.id,
-        tenantId,
-        role: dto.role || UserRole.VIEWER,
-        isOwner: false,
-      },
-    });
+    // 2) Mirror in our DB (pending profile, completed when the invite is accepted).
+    try {
+      const user = await this.prisma.user.create({
+        data: {
+          id: supabaseUser.id,
+          email: dto.email,
+          firstName: 'Invited',
+          lastName: 'User',
+          fullName: 'Invited User',
+          role,
+          roleId,
+          tenantId,
+        },
+      });
 
-    this.logger.log(`Invitation sent to ${dto.email} for tenant ${tenantId} by ${invitedBy}`);
+      await this.prisma.userTenant.create({
+        data: {
+          userId: user.id,
+          tenantId,
+          role,
+          roleId,
+          isOwner: false,
+        },
+      });
 
-    // TODO: Send invitation email
-    // await this.emailService.sendInvitation(dto.email, tenant, invitedBy, dto.message);
+      this.logger.log(
+        `Invitation sent to ${dto.email} (${user.id}) for tenant ${tenantId} by ${invitedBy}`,
+      );
 
-    return {
-      success: true,
-      message: `Invitation sent to ${dto.email}`,
-      user: this.sanitizeUser(user),
-    };
+      return {
+        success: true,
+        message: `Invitation sent to ${dto.email}`,
+        user: this.sanitizeUser(user),
+      };
+    } catch (error) {
+      await this.supabaseAdmin.deleteUser(supabaseUser.id);
+      this.logger.error(
+        `DB user creation failed for invite ${dto.email}; rolled back Supabase account ${supabaseUser.id}`,
+      );
+      throw error;
+    }
   }
 
   /**

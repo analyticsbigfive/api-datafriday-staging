@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, OnModuleInit, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
@@ -6,6 +6,9 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { buildJwtVerifyOptions } from '../jwt-secret.provider';
+
+/** Pub/Sub channel used to invalidate per-pod local auth caches cluster-wide. */
+export const AUTH_INVALIDATE_CHANNEL = 'auth:invalidate';
 
 export interface JwtPayload {
   sub: string; // userId Supabase
@@ -23,18 +26,48 @@ export interface JwtPayload {
  * ⚠️ 1 requête DB par authentification (mise en cache recommandée)
  */
 @Injectable()
-export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
+export class JwtDatabaseStrategy
+  extends PassportStrategy(Strategy, 'jwt-db')
+  implements OnModuleInit
+{
   private readonly AUTH_CACHE_TTL = 300; // 5 minutes (was 60s — user/tenant data rarely changes)
   private readonly LOCAL_AUTH_CACHE_TTL_MS = 15_000;
   private readonly localCache = new Map<string, { user: any; expiresAt: number }>();
   private readonly pendingLookups = new Map<string, Promise<any>>();
-  
+
   constructor(
     private configService: ConfigService,
     private prisma: PrismaService,
     private redis: RedisService,
   ) {
     super(buildJwtVerifyOptions(configService));
+  }
+
+  /**
+   * Subscribe to cluster-wide cache invalidation so a role/suspension change on
+   * any pod immediately clears this pod's in-process cache (no 15s staleness).
+   */
+  async onModuleInit(): Promise<void> {
+    try {
+      await this.redis.subscribe(AUTH_INVALIDATE_CHANNEL, (message) => {
+        const userId = this.parseInvalidationMessage(message);
+        if (userId === '*') {
+          this.localCache.clear();
+        } else if (userId) {
+          this.localCache.delete(`auth:user:${userId}`);
+        }
+      });
+    } catch {
+      // Redis unavailable (e.g. local dev) — local cache still expires after 15s.
+    }
+  }
+
+  private parseInvalidationMessage(message: string): string | null {
+    try {
+      return JSON.parse(message);
+    } catch {
+      return message || null;
+    }
   }
 
   /**
@@ -240,5 +273,7 @@ export class JwtDatabaseStrategy extends PassportStrategy(Strategy, 'jwt-db') {
     const cacheKey = `auth:user:${userId}`;
     this.localCache.delete(cacheKey);
     await this.redis.delete(cacheKey);
+    // Broadcast so every other pod purges its in-process cache too.
+    await this.redis.publish(AUTH_INVALIDATE_CHANNEL, userId);
   }
 }

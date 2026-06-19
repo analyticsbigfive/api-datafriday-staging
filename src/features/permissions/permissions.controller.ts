@@ -16,14 +16,16 @@ import { CreatePermissionDto } from './dto/create-permission.dto';
 import { UpdatePermissionDto } from './dto/update-permission.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RolesGuard } from '../../core/auth/guards/roles.guard';
+import { PermissionsGuard } from '../../core/auth/guards/permissions.guard';
 import { Roles } from '../../core/auth/decorators/roles.decorator';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { UserRole } from '@prisma/client';
 
 @ApiTags('Permissions')
 @ApiBearerAuth('supabase-jwt')
 @Controller('permissions')
-@UseGuards(JwtDatabaseGuard, RolesGuard)
+@UseGuards(JwtDatabaseGuard, RolesGuard, PermissionsGuard)
 export class PermissionsController {
   constructor(private readonly permissionsService: PermissionsService) {}
 
@@ -46,6 +48,7 @@ export class PermissionsController {
    */
   @Post()
   @Roles(UserRole.ADMIN)
+  @RequirePermissions('org.permissions.manage')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Créer une permission custom',
@@ -62,6 +65,7 @@ export class PermissionsController {
    */
   @Patch(':id')
   @Roles(UserRole.ADMIN)
+  @RequirePermissions('org.permissions.manage')
   @ApiOperation({
     summary: 'Mettre à jour une permission',
     description: 'Met à jour une permission custom du tenant. Le catalogue système est en lecture seule.',
@@ -83,6 +87,7 @@ export class PermissionsController {
    */
   @Delete(':id')
   @Roles(UserRole.ADMIN)
+  @RequirePermissions('org.permissions.manage')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Supprimer une permission',

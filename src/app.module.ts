@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
-import { RouterModule, APP_GUARD, Reflector } from '@nestjs/core';
+import { RouterModule, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
+import { ClsModule } from 'nestjs-cls';
 import * as Joi from 'joi';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -44,6 +45,11 @@ import { WebhooksModule } from './core/webhooks/webhooks.module';
 import { TenantThrottlerGuard } from './core/throttle/tenant-throttler.guard';
 import { JwtDatabaseGuard } from './core/auth/guards/jwt-db.guard';
 import { RolesGuard } from './core/auth/guards/roles.guard';
+import { PermissionsGuard } from './core/auth/guards/permissions.guard';
+import { TenantGuard } from './core/auth/guards/tenant.guard';
+import { SupabaseModule } from './core/supabase/supabase.module';
+import { TenantModule } from './core/tenant/tenant.module';
+import { TenantContextInterceptor } from './core/tenant/tenant-context.interceptor';
 
 @Module({
   imports: [
@@ -94,8 +100,17 @@ import { RolesGuard } from './core/auth/guards/roles.guard';
       },
     }),
     ScheduleModule.forRoot(),
+    // Request-scoped context (AsyncLocalStorage) — carries tenantId for
+    // automatic Prisma tenant scoping. Mounted as middleware so it wraps the
+    // whole request (guards, interceptors, handlers).
+    ClsModule.forRoot({
+      global: true,
+      middleware: { mount: true },
+    }),
     EncryptionModule,
     CacheModule,
+    SupabaseModule,
+    TenantModule,
     RedisModule.forRoot(),
     QueueModule,
     PrismaModule,
@@ -132,12 +147,20 @@ import { RolesGuard } from './core/auth/guards/roles.guard';
   controllers: [AppController],
   providers: [
     AppService,
-    // Rate limiting guard (first — per tenant)
+    // Global interceptor: pushes the authenticated tenantId into CLS so Prisma
+    // auto-scopes queries. Runs after guards (request.user populated).
+    { provide: APP_INTERCEPTOR, useClass: TenantContextInterceptor },
+    // --- Global guards (executed in registration order) ---
+    // 1. Rate limiting (per tenant)
     { provide: APP_GUARD, useClass: TenantThrottlerGuard },
-    // Global authentication guard (second — skips routes marked @Public())
+    // 2. Authentication — populates request.user (skips @Public())
     { provide: APP_GUARD, useClass: JwtDatabaseGuard },
-    // Global RBAC guard (third — enforces @Roles() on every controller)
+    // 3. Tenant context — fail closed if no tenant (skips @Public()/@AllowNoTenant())
+    { provide: APP_GUARD, useClass: TenantGuard },
+    // 4. Coarse RBAC — enforces @Roles()
     { provide: APP_GUARD, useClass: RolesGuard },
+    // 5. Fine-grained RBAC — enforces @RequirePermissions()
+    { provide: APP_GUARD, useClass: PermissionsGuard },
   ],
 })
 export class AppModule { }

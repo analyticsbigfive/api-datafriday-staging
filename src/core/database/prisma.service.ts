@@ -4,7 +4,12 @@ import {
   OnModuleDestroy,
   Logger,
 } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
+import { ClsService } from 'nestjs-cls';
+import {
+  BYPASS_TENANT_KEY,
+  TENANT_ID_KEY,
+} from '../tenant/tenant-context.constants';
 
 @Injectable()
 export class PrismaService
@@ -13,7 +18,27 @@ export class PrismaService
 {
   private readonly logger = new Logger(PrismaService.name);
 
-  constructor() {
+  /**
+   * Models that carry a REQUIRED `tenantId` scalar — the ones eligible for
+   * automatic tenant scoping. Derived from the Prisma DMMF so it stays in sync
+   * with the schema. Models with a nullable tenantId (e.g. Permission, whose
+   * system catalog rows have tenantId = null) are intentionally excluded.
+   */
+  private readonly tenantScopedModels: Set<string> = new Set(
+    Prisma.dmmf.datamodel.models
+      .filter((model) =>
+        model.fields.some(
+          (field) =>
+            field.name === 'tenantId' &&
+            field.isRequired &&
+            !field.isList &&
+            field.kind === 'scalar',
+        ),
+      )
+      .map((model) => model.name),
+  );
+
+  constructor(private readonly cls: ClsService) {
     super({
       log: [
         { emit: 'event', level: 'query' },
@@ -46,6 +71,112 @@ export class PrismaService
     this.$on('error' as never, (e: any) => {
       this.logger.error(`Prisma Error: ${e.message}`, e.target);
     });
+
+    this.registerTenantScopeMiddleware();
+  }
+
+  /**
+   * Automatic multi-tenant isolation.
+   *
+   * Injects `tenantId` into the WHERE clause (reads/updates/deletes) and into
+   * `data` (creates) for every tenant-scoped model, using the tenant resolved
+   * for the current request (CLS).
+   *
+   * No-ops when:
+   *  - there is no active request context (background jobs, seeds, webhooks);
+   *  - scoping is explicitly bypassed (TenantContextService.runWithoutTenantScope);
+   *  - the model is not tenant-scoped;
+   *  - the caller already constrained `tenantId` (we never override it).
+   *
+   * Relies on Prisma 5 "extended where unique": adding a `tenantId` scalar
+   * filter alongside a unique selector is valid for findUnique/update/delete,
+   * so we never need to rewrite the query action.
+   */
+  private registerTenantScopeMiddleware(): void {
+    this.$use(async (params, next) => {
+      const model = params.model;
+
+      const hasContext = this.cls?.isActive?.() ?? false;
+      const bypass = hasContext
+        ? this.cls.get<boolean>(BYPASS_TENANT_KEY) === true
+        : true;
+      const tenantId = hasContext
+        ? this.cls.get<string | undefined>(TENANT_ID_KEY)
+        : undefined;
+
+      if (!model || bypass || !tenantId || !this.tenantScopedModels.has(model)) {
+        return next(params);
+      }
+
+      this.applyTenantScope(params, tenantId);
+      return next(params);
+    });
+  }
+
+  private applyTenantScope(
+    params: Prisma.MiddlewareParams,
+    tenantId: string,
+  ): void {
+    const args = (params.args ?? {}) as Record<string, any>;
+
+    switch (params.action) {
+      case 'findUnique':
+      case 'findUniqueOrThrow':
+      case 'findFirst':
+      case 'findFirstOrThrow':
+      case 'findMany':
+      case 'count':
+      case 'aggregate':
+      case 'groupBy':
+      case 'update':
+      case 'updateMany':
+      case 'delete':
+      case 'deleteMany': {
+        args.where = this.mergeTenantWhere(args.where, tenantId);
+        break;
+      }
+
+      case 'upsert': {
+        args.where = this.mergeTenantWhere(args.where, tenantId);
+        if (args.create && typeof args.create === 'object') {
+          args.create.tenantId = args.create.tenantId ?? tenantId;
+        }
+        break;
+      }
+
+      case 'create': {
+        this.setTenantOnData(args.data, tenantId);
+        break;
+      }
+
+      case 'createMany': {
+        if (Array.isArray(args.data)) {
+          args.data.forEach((row: any) => this.setTenantOnData(row, tenantId));
+        } else {
+          this.setTenantOnData(args.data, tenantId);
+        }
+        break;
+      }
+
+      default:
+        break;
+    }
+
+    params.args = args;
+  }
+
+  /** Merge tenantId into a WHERE clause, never overriding an explicit one. */
+  private mergeTenantWhere(where: any, tenantId: string): any {
+    if (where && typeof where === 'object' && 'tenantId' in where) {
+      return where; // caller already scoped — respect it
+    }
+    return { ...(where ?? {}), tenantId };
+  }
+
+  private setTenantOnData(data: any, tenantId: string): void {
+    if (data && typeof data === 'object' && data.tenantId === undefined) {
+      data.tenantId = tenantId;
+    }
   }
 
   async onModuleInit() {

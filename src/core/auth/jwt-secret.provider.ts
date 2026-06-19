@@ -18,7 +18,7 @@ export interface JwtVerifyOptions {
   secretOrKeyProvider?: (
     request: unknown,
     rawJwtToken: string,
-    done: (err: unknown, secret?: string) => void,
+    done: (err: unknown, secret?: string | Buffer) => void,
   ) => void;
 }
 

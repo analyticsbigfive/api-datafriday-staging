@@ -2097,6 +2097,25 @@ model EventPredictVersion {
   @@index([spaceId])
 }
 
+// ==================== RESTOCK STATE ====================
+
+// Unique restock session state per (tenantId, spaceId) — upsert idempotent.
+// Persists the 9-field UI snapshot from SpaceRestockView so users can resume
+// on another machine without losing their selections, adjustments and confirmations.
+model RestockState {
+  id        String   @id @default(cuid())
+  tenantId  String
+  spaceId   String
+  state     Json
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, spaceId])
+  @@index([tenantId])
+  @@index([spaceId])
+}
+
 // Tracks unmapped Weezevent entities for data quality monitoring
 model UnmappedDataMetrics {
   id               String   @id @default(cuid())

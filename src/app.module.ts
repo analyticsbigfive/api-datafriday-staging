@@ -40,6 +40,7 @@ import { AggregationModule } from './features/aggregation/aggregation.module';
 import { BrandsModule } from './features/brands/brands.module';
 import { DisplayNamesModule } from './features/display-names/display-names.module';
 import { InventoryModule } from './features/inventory/inventory.module';
+import { RestockStateModule } from './features/restock-state/restock-state.module';
 import { AuditModule } from './core/audit/audit.module';
 import { WebhooksModule } from './core/webhooks/webhooks.module';
 import { TenantThrottlerGuard } from './core/throttle/tenant-throttler.guard';
@@ -143,6 +144,7 @@ import { TenantContextInterceptor } from './core/tenant/tenant-context.intercept
     BrandsModule,
     DisplayNamesModule,
     InventoryModule,
+    RestockStateModule,
   ],
   controllers: [AppController],
   providers: [

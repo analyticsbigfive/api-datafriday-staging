@@ -50,6 +50,7 @@ describe('UsersService', () => {
     inviteUserByEmail: jest.fn(),
     deleteUser: jest.fn(),
     getUserById: jest.fn(),
+    getUserByEmail: jest.fn().mockResolvedValue(null),
     isEnabled: jest.fn().mockReturnValue(true),
   };
 
@@ -193,6 +194,7 @@ describe('UsersService', () => {
     it('rolls back the Supabase account if DB creation fails', async () => {
       mockPrismaService.user.findFirst.mockResolvedValue(null);
       mockPrismaService.role.findFirst.mockResolvedValue({ id: 'role-staff', systemKey: UserRole.STAFF });
+      mockSupabaseAdmin.getUserByEmail.mockResolvedValue(null);
       mockSupabaseAdmin.inviteUserByEmail.mockResolvedValue({ id: 'supa-invite-id' });
       mockPrismaService.user.create.mockRejectedValue(new Error('db down'));
 
@@ -200,6 +202,35 @@ describe('UsersService', () => {
         service.invite(mockTenantId, { email: 'new@x.com', roleId: 'role-staff' }, 'admin-1'),
       ).rejects.toThrow('db down');
       expect(mockSupabaseAdmin.deleteUser).toHaveBeenCalledWith('supa-invite-id');
+    });
+
+    it('attaches an existing Supabase account (no DB profile) without sending an email', async () => {
+      mockPrismaService.user.findFirst.mockResolvedValue(null);
+      mockPrismaService.role.findFirst.mockResolvedValue({ id: 'role-staff', systemKey: UserRole.STAFF });
+      mockSupabaseAdmin.getUserByEmail.mockResolvedValue({ id: 'existing-supa-id', email: 'exist@x.com' });
+      mockPrismaService.user.findUnique.mockResolvedValue(null); // no DB profile yet
+      mockPrismaService.user.create.mockResolvedValue({ id: 'existing-supa-id', email: 'exist@x.com' });
+      mockPrismaService.userTenant.create.mockResolvedValue({});
+
+      const result = await service.invite(mockTenantId, { email: 'exist@x.com', roleId: 'role-staff' }, 'admin-1');
+
+      expect(result.success).toBe(true);
+      expect(mockSupabaseAdmin.inviteUserByEmail).not.toHaveBeenCalled(); // no new email
+      expect(mockPrismaService.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ id: 'existing-supa-id' }) }),
+      );
+    });
+
+    it('rejects with a clear 409 when the account belongs to another organization', async () => {
+      mockPrismaService.user.findFirst.mockResolvedValue(null);
+      mockPrismaService.role.findFirst.mockResolvedValue({ id: 'role-staff', systemKey: UserRole.STAFF });
+      mockSupabaseAdmin.getUserByEmail.mockResolvedValue({ id: 'existing-supa-id', email: 'exist@x.com' });
+      mockPrismaService.user.findUnique.mockResolvedValue({ id: 'existing-supa-id', tenantId: 'other-tenant' });
+
+      await expect(
+        service.invite(mockTenantId, { email: 'exist@x.com', roleId: 'role-staff' }, 'admin-1'),
+      ).rejects.toThrow(ConflictException);
+      expect(mockSupabaseAdmin.inviteUserByEmail).not.toHaveBeenCalled();
     });
   });
 

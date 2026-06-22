@@ -129,4 +129,34 @@ export class SupabaseAdminService implements OnModuleInit {
     }
     return data.user;
   }
+
+  /**
+   * Find an auth user by email. The admin API has no direct "get by email", so
+   * we paginate listUsers and match case-insensitively. Returns null if none.
+   */
+  async getUserByEmail(email: string): Promise<User | null> {
+    const target = email.toLowerCase();
+    const perPage = 200;
+    const maxPages = 50; // safety bound (~10k users)
+
+    for (let page = 1; page <= maxPages; page++) {
+      const { data, error } = await this.getClient().auth.admin.listUsers({
+        page,
+        perPage,
+      });
+      if (error) {
+        this.logger.warn(`listUsers failed while searching ${email}: ${error.message}`);
+        return null;
+      }
+      const users = data?.users ?? [];
+      const match = users.find((u) => u.email?.toLowerCase() === target);
+      if (match) {
+        return match;
+      }
+      if (users.length < perPage) {
+        break; // last page reached
+      }
+    }
+    return null;
+  }
 }

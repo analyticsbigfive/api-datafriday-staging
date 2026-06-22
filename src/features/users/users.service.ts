@@ -449,10 +449,17 @@ export class UsersService {
   }
 
   /**
-   * Invite a user to the tenant
+   * Invite a user to the tenant.
+   *
+   * Three cases, handled gracefully:
+   *  - brand-new email → create the Supabase account + send the invitation email;
+   *  - email already has a Supabase account but no DB profile → attach it to this
+   *    tenant (they sign in with their existing password, no email);
+   *  - email already belongs to a DB profile → clear 409 (already member here, or
+   *    rattached to another organization).
    */
   async invite(tenantId: string, dto: InviteUserDto, invitedBy: string) {
-    // Check if user already exists in tenant
+    // Already a member of THIS tenant?
     const existing = await this.prisma.user.findFirst({
       where: { email: dto.email, tenantId },
     });
@@ -470,44 +477,28 @@ export class UsersService {
     const firstName = dto.firstName?.trim() || 'Invited';
     const lastName = dto.lastName?.trim() || 'User';
     const fullName = `${firstName} ${lastName}`.trim();
+    const profile = { email: dto.email, firstName, lastName, fullName, role, roleId };
 
-    // 1) Send the real Supabase invitation email + create the (pending) auth user.
-    //    The returned id is reused as the DB User id.
+    // Does this email already have a Supabase auth account?
+    const existingSupabaseUser = await this.supabaseAdmin.getUserByEmail(dto.email);
+    if (existingSupabaseUser) {
+      return this.attachExistingAccountToTenant(existingSupabaseUser.id, tenantId, profile);
+    }
+
+    // Brand-new person: send the real invitation email + create the (pending) auth
+    // user. The returned id is reused as the DB User id so they can authenticate.
     const redirectTo = this.config.get<string>('INVITE_REDIRECT_URL');
     const supabaseUser = await this.supabaseAdmin.inviteUserByEmail(dto.email, {
       redirectTo,
       data: { tenantId, invitedBy, firstName, lastName },
     });
 
-    // 2) Mirror in our DB (pending profile, completed when the invite is accepted).
+    // Mirror in our DB (pending profile, completed when the invite is accepted).
     try {
-      const user = await this.prisma.user.create({
-        data: {
-          id: supabaseUser.id,
-          email: dto.email,
-          firstName,
-          lastName,
-          fullName,
-          role,
-          roleId,
-          tenantId,
-        },
-      });
-
-      await this.prisma.userTenant.create({
-        data: {
-          userId: user.id,
-          tenantId,
-          role,
-          roleId,
-          isOwner: false,
-        },
-      });
-
+      const user = await this.createMembership(supabaseUser.id, tenantId, profile);
       this.logger.log(
         `Invitation sent to ${dto.email} (${user.id}) for tenant ${tenantId} by ${invitedBy}`,
       );
-
       return {
         success: true,
         message: `Invitation sent to ${dto.email}`,
@@ -520,6 +511,73 @@ export class UsersService {
       );
       throw error;
     }
+  }
+
+  /**
+   * Attach an EXISTING Supabase account to a tenant. Never duplicates the User
+   * row (User.id = Supabase id is the primary key).
+   */
+  private async attachExistingAccountToTenant(
+    supabaseUserId: string,
+    tenantId: string,
+    profile: { email: string; firstName: string; lastName: string; fullName: string; role: UserRole; roleId: string | null },
+  ) {
+    const dbUser = await this.prisma.user.findUnique({ where: { id: supabaseUserId } });
+
+    if (dbUser) {
+      if (dbUser.tenantId === tenantId) {
+        throw new ConflictException(`User ${profile.email} is already a member of this organization`);
+      }
+      // Multi-organization per user isn't exposed in the app yet — fail clearly.
+      throw new ConflictException(
+        `Un compte existe déjà avec l'email ${profile.email} et est rattaché à une autre organisation.`,
+      );
+    }
+
+    // Supabase account exists but no DB profile (e.g. abandoned signup): create
+    // the profile + membership. They already have a password → no email needed.
+    const user = await this.createMembership(supabaseUserId, tenantId, profile);
+    await this.jwtDatabaseStrategy.invalidateUserCache(user.id);
+    this.logger.log(`Linked existing Supabase account ${supabaseUserId} to tenant ${tenantId}`);
+
+    return {
+      success: true,
+      message:
+        "Ce compte existait déjà : il a été rattaché à votre organisation. L'utilisateur peut se connecter avec son mot de passe existant.",
+      user: this.sanitizeUser(user),
+    };
+  }
+
+  /** Create the User row + UserTenant membership for a given Supabase id. */
+  private async createMembership(
+    userId: string,
+    tenantId: string,
+    profile: { email: string; firstName: string; lastName: string; fullName: string; role: UserRole; roleId: string | null },
+  ) {
+    const user = await this.prisma.user.create({
+      data: {
+        id: userId,
+        email: profile.email,
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+        fullName: profile.fullName,
+        role: profile.role,
+        roleId: profile.roleId,
+        tenantId,
+      },
+    });
+
+    await this.prisma.userTenant.create({
+      data: {
+        userId: user.id,
+        tenantId,
+        role: profile.role,
+        roleId: profile.roleId,
+        isOwner: false,
+      },
+    });
+
+    return user;
   }
 
   /**

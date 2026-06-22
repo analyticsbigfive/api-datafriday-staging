@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
-import { CreatePredictVersionDto, UpdatePredictVersionDto } from './dto/predict-version.dto';
+import { CreatePredictVersionDto, PatchPredictVersionDto, UpdatePredictVersionDto } from './dto/predict-version.dto';
 
 @Injectable()
 export class PredictVersionsService {
@@ -19,9 +19,15 @@ export class PredictVersionsService {
     const version = await this.prisma.eventPredictVersion.findFirst({
       where: { id: versionId, eventId, tenantId },
     });
-    if (!version) {
-      throw new NotFoundException(`PredictVersion ${versionId} not found`);
-    }
+    if (!version) throw new NotFoundException(`PredictVersion ${versionId} not found`);
+    return version;
+  }
+
+  async findById(id: string, tenantId: string) {
+    const version = await this.prisma.eventPredictVersion.findFirst({
+      where: { id, tenantId },
+    });
+    if (!version) throw new NotFoundException(`PredictVersion ${id} not found`);
     return version;
   }
 
@@ -32,15 +38,16 @@ export class PredictVersionsService {
         eventId,
         spaceId: dto.spaceId ?? null,
         name: dto.name,
-        isDefault: dto.isDefault ?? false,
+        isDefault: false,
         eventSnapshot: dto.eventSnapshot as any,
         totalRevenue: dto.totalRevenue ?? 0,
         adjustedTotalRevenue: dto.adjustedTotalRevenue ?? 0,
         perCapita: dto.perCapita ?? 0,
         adjustedPerCapita: dto.adjustedPerCapita ?? 0,
-        menuConfig: dto.menuConfig as any,
-        quantityAdjustments: dto.quantityAdjustments as any,
+        menuConfig: (dto.menuConfig ?? {}) as any,
+        quantityAdjustments: (dto.quantityAdjustments ?? {}) as any,
         selectedPredictionEventIds: dto.selectedPredictionEventIds ?? [],
+        selectedTimeRange: (dto.selectedTimeRange ?? null) as any,
         createdBy: userId ?? null,
       },
     });
@@ -59,11 +66,26 @@ export class PredictVersionsService {
         adjustedTotalRevenue: dto.adjustedTotalRevenue ?? 0,
         perCapita: dto.perCapita ?? 0,
         adjustedPerCapita: dto.adjustedPerCapita ?? 0,
-        menuConfig: dto.menuConfig as any,
-        quantityAdjustments: dto.quantityAdjustments as any,
+        menuConfig: (dto.menuConfig ?? {}) as any,
+        quantityAdjustments: (dto.quantityAdjustments ?? {}) as any,
         selectedPredictionEventIds: dto.selectedPredictionEventIds ?? [],
+        selectedTimeRange: (dto.selectedTimeRange ?? null) as any,
       },
     });
+  }
+
+  async patch(id: string, tenantId: string, dto: PatchPredictVersionDto) {
+    await this.findById(id, tenantId);
+    const data: Record<string, any> = {};
+    const scalarFields = [
+      'name', 'spaceId', 'eventSnapshot', 'totalRevenue', 'adjustedTotalRevenue',
+      'perCapita', 'adjustedPerCapita', 'menuConfig', 'quantityAdjustments',
+      'selectedPredictionEventIds', 'selectedTimeRange',
+    ] as const;
+    for (const field of scalarFields) {
+      if (dto[field] !== undefined) data[field] = dto[field];
+    }
+    return this.prisma.eventPredictVersion.update({ where: { id }, data });
   }
 
   async remove(eventId: string, versionId: string, tenantId: string) {
@@ -71,19 +93,27 @@ export class PredictVersionsService {
     await this.prisma.eventPredictVersion.delete({ where: { id: versionId } });
   }
 
-  // Sets one version as default for an event, clearing all others in a transaction
-  async setDefault(eventId: string, versionId: string, tenantId: string) {
-    await this.findOne(eventId, versionId, tenantId);
-    await this.prisma.$transaction([
+  async removeById(id: string, tenantId: string) {
+    await this.findById(id, tenantId);
+    await this.prisma.eventPredictVersion.delete({ where: { id } });
+  }
+
+  async setDefault(eventId: string, versionId: string | null | undefined, tenantId: string) {
+    const ops: any[] = [
       this.prisma.eventPredictVersion.updateMany({
         where: { eventId, tenantId },
         data: { isDefault: false },
       }),
-      this.prisma.eventPredictVersion.update({
-        where: { id: versionId },
-        data: { isDefault: true },
-      }),
-    ]);
-    return this.prisma.eventPredictVersion.findUnique({ where: { id: versionId } });
+    ];
+    if (versionId) {
+      ops.push(
+        this.prisma.eventPredictVersion.update({
+          where: { id: versionId },
+          data: { isDefault: true },
+        }),
+      );
+    }
+    await this.prisma.$transaction(ops);
+    return { defaultVersionId: versionId || null };
   }
 }

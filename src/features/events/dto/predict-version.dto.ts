@@ -7,6 +7,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  ValidateIf,
 } from 'class-validator';
 
 export class CreatePredictVersionDto {
@@ -52,25 +53,97 @@ export class CreatePredictVersionDto {
   @Type(() => Number)
   adjustedPerCapita?: number;
 
-  @ApiProperty({ description: 'Configuration du menu (menuConfig)', type: 'object' })
+  @ApiPropertyOptional({ description: 'Configuration du menu (menuConfig)', type: 'object' })
+  @IsOptional()
   @IsObject()
-  menuConfig: Record<string, any>;
+  menuConfig?: Record<string, any>;
 
-  @ApiProperty({ description: 'Ajustements de quantité', type: 'object' })
+  @ApiPropertyOptional({ description: 'Ajustements de quantité', type: 'object' })
+  @IsOptional()
   @IsObject()
-  quantityAdjustments: Record<string, any>;
+  quantityAdjustments?: Record<string, any>;
 
   @ApiPropertyOptional({ description: 'IDs des événements de prédiction sélectionnés', type: [String] })
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
   selectedPredictionEventIds?: string[];
+
+  @ApiPropertyOptional({ description: 'Plage horaire sélectionnée { start, end } ou null pour effacer' })
+  @IsOptional()
+  @ValidateIf((o) => o.selectedTimeRange !== null)
+  @IsObject()
+  selectedTimeRange?: { start: string | null; end: string | null } | null;
 }
 
 export class UpdatePredictVersionDto extends CreatePredictVersionDto {}
 
-export class SetDefaultVersionDto {
-  @ApiProperty({ description: 'ID de la version à passer en default' })
+export class PatchPredictVersionDto {
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
-  versionId: string;
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  spaceId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  eventSnapshot?: Record<string, any>;
+
+  @ApiPropertyOptional({ type: Number })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  totalRevenue?: number;
+
+  @ApiPropertyOptional({ type: Number })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  adjustedTotalRevenue?: number;
+
+  @ApiPropertyOptional({ type: Number })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  perCapita?: number;
+
+  @ApiPropertyOptional({ type: Number })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  adjustedPerCapita?: number;
+
+  @ApiPropertyOptional({ type: 'object' })
+  @IsOptional()
+  @IsObject()
+  menuConfig?: Record<string, any>;
+
+  @ApiPropertyOptional({ type: 'object' })
+  @IsOptional()
+  @IsObject()
+  quantityAdjustments?: Record<string, any>;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  selectedPredictionEventIds?: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @ValidateIf((o) => o.selectedTimeRange !== null)
+  @IsObject()
+  selectedTimeRange?: { start: string | null; end: string | null } | null;
+}
+
+export class SetDefaultVersionDto {
+  @ApiPropertyOptional({ description: 'ID de la version à passer en default, null pour retirer le défaut', nullable: true })
+  @IsOptional()
+  @IsString()
+  versionId?: string | null;
 }

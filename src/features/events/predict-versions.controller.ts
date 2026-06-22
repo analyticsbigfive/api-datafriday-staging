@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Body,
   Param,
@@ -23,7 +24,7 @@ import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { PredictVersionsService } from './predict-versions.service';
 import {
   CreatePredictVersionDto,
-  UpdatePredictVersionDto,
+  PatchPredictVersionDto,
   SetDefaultVersionDto,
 } from './dto/predict-version.dto';
 
@@ -47,20 +48,6 @@ export class PredictVersionsController {
     return this.service.findAll(eventId, user.tenantId);
   }
 
-  @Get(':versionId')
-  @ApiOperation({ summary: 'Obtenir une version de prédiction' })
-  @ApiParam({ name: 'eventId', description: 'ID de l\'événement' })
-  @ApiParam({ name: 'versionId', description: 'ID de la version' })
-  @ApiResponse({ status: 200, description: 'Version trouvée' })
-  @ApiResponse({ status: 404, description: 'Version introuvable' })
-  async findOne(
-    @Param('eventId') eventId: string,
-    @Param('versionId') versionId: string,
-    @CurrentUser() user: any,
-  ) {
-    return this.service.findOne(eventId, versionId, user.tenantId);
-  }
-
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Créer une version de prédiction' })
@@ -74,56 +61,55 @@ export class PredictVersionsController {
     return this.service.create(eventId, user.tenantId, dto, user.id);
   }
 
-  @Put(':versionId')
-  @ApiOperation({ summary: 'Mettre à jour une version de prédiction' })
-  @ApiParam({ name: 'eventId', description: 'ID de l\'événement' })
-  @ApiParam({ name: 'versionId', description: 'ID de la version' })
-  @ApiResponse({ status: 200, description: 'Version mise à jour' })
-  async update(
-    @Param('eventId') eventId: string,
-    @Param('versionId') versionId: string,
-    @Body() dto: UpdatePredictVersionDto,
-    @CurrentUser() user: any,
-  ) {
-    return this.service.update(eventId, versionId, user.tenantId, dto);
-  }
-
-  @Delete(':versionId')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Supprimer une version de prédiction' })
-  @ApiParam({ name: 'eventId', description: 'ID de l\'événement' })
-  @ApiParam({ name: 'versionId', description: 'ID de la version' })
-  @ApiResponse({ status: 204, description: 'Version supprimée' })
-  async remove(
-    @Param('eventId') eventId: string,
-    @Param('versionId') versionId: string,
-    @CurrentUser() user: any,
-  ) {
-    await this.service.remove(eventId, versionId, user.tenantId);
-  }
-}
-
-@ApiTags('Event Predict Versions')
-@ApiBearerAuth('supabase-jwt')
-@UseGuards(JwtDatabaseGuard)
-@Controller('events/:eventId/predict-default-version')
-export class PredictDefaultVersionController {
-  private readonly logger = new Logger(PredictDefaultVersionController.name);
-
-  constructor(private readonly service: PredictVersionsService) {}
-
-  @Put()
+  // Doit être déclaré AVANT :versionId pour que NestJS le matche en premier
+  @Put('default')
   @ApiOperation({
-    summary: 'Définir la version de prédiction par défaut',
-    description: 'Passe la version ciblée en isDefault=true et remet toutes les autres à false (transaction atomique).',
+    summary: 'Définir la version par défaut (exclusif)',
+    description: 'Met isDefault=true sur versionId et false sur toutes les autres. versionId=null retire le défaut.',
   })
   @ApiParam({ name: 'eventId', description: 'ID de l\'événement' })
-  @ApiResponse({ status: 200, description: 'Version définie comme default' })
+  @ApiResponse({ status: 200, description: 'defaultVersionId retourné' })
   async setDefault(
     @Param('eventId') eventId: string,
     @Body() dto: SetDefaultVersionDto,
     @CurrentUser() user: any,
   ) {
     return this.service.setDefault(eventId, dto.versionId, user.tenantId);
+  }
+}
+
+@ApiTags('Event Predict Versions')
+@ApiBearerAuth('supabase-jwt')
+@UseGuards(JwtDatabaseGuard)
+@Controller('predict-versions')
+export class PredictVersionsStandaloneController {
+  private readonly logger = new Logger(PredictVersionsStandaloneController.name);
+
+  constructor(private readonly service: PredictVersionsService) {}
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Mettre à jour partiellement une version de prédiction' })
+  @ApiParam({ name: 'id', description: 'ID de la version' })
+  @ApiResponse({ status: 200, description: 'Version mise à jour' })
+  @ApiResponse({ status: 404, description: 'Version introuvable' })
+  async patch(
+    @Param('id') id: string,
+    @Body() dto: PatchPredictVersionDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.service.patch(id, user.tenantId, dto);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Supprimer une version de prédiction' })
+  @ApiParam({ name: 'id', description: 'ID de la version' })
+  @ApiResponse({ status: 204, description: 'Version supprimée' })
+  @ApiResponse({ status: 404, description: 'Version introuvable' })
+  async remove(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ) {
+    await this.service.removeById(id, user.tenantId);
   }
 }

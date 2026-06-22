@@ -2087,6 +2087,7 @@ model EventPredictVersion {
   menuConfig                 Json
   quantityAdjustments        Json
   selectedPredictionEventIds String[]
+  selectedTimeRange          Json?
   createdBy                  String?
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt

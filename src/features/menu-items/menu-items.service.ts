@@ -323,6 +323,178 @@ export class MenuItemsService {
     return this.serializeItem(item);
   }
 
+  // ── Recette / réarmement plats composés ──────────────────────────────────
+  // Endpoint DÉDIÉ (GET /menu-items/:id/recipe + POST /menu-items/recipes).
+  // Ne touche PAS au `components` de /menu-items (= MenuItemComponent[]) → aucune
+  // régression éditeur de recettes / /space-menus / DTO create-update / Swagger.
+  // Voir docs/recipe-endpoint.api.md.
+  private readonly recipeInclude = {
+    components: { include: { component: true } },
+    ingredients: { include: { ingredient: { include: { marketPrice: true } } } },
+    packagings: { include: { packaging: { include: { marketPrice: true } } } },
+  };
+
+  /** Normalise vers 'Yes'/'No' (casse/oui-non/booléen). null/'' restent null. */
+  private normYesNo(value: unknown): 'Yes' | 'No' | null {
+    if (value === true) return 'Yes';
+    if (value === false) return 'No';
+    const s = String(value ?? '').trim().toLowerCase();
+    if (s === 'yes' || s === 'true' || s === 'oui' || s === '1') return 'Yes';
+    if (s === 'no' || s === 'false' || s === 'non' || s === '0') return 'No';
+    return null;
+  }
+
+  /** category détectable comme packaging par le front (isPackagingComponent). */
+  private isPackagingCategory(category?: string | null) {
+    const c = String(category ?? '').toLowerCase();
+    return c.includes('packaging') || c.includes('emballage');
+  }
+
+  /** Coût de ligne : totalCost déjà calculé (refreshCosts) sinon unitCost × qty. */
+  private lineCost(line: any) {
+    const total = this.toNumber(line.totalCost, NaN);
+    if (Number.isFinite(total)) return total;
+    return Math.round(this.toNumber(line.unitCost) * this.toNumber(line.numberOfUnits) * 10000) / 10000;
+  }
+
+  /**
+   * Fusionne les 3 relations (MenuItemIngredient + MenuItemComponent +
+   * MenuItemPackaging) en un seul `components[]` dénormalisé au format contrat.
+   * Résout `supplierId` inline via marketPrice (le front court-circuite ainsi le
+   * join marketPrice→supplier). Collecte les supplierIds rencontrés.
+   * NB: les MenuComponent (sous-recettes) sont retournés comme lignes terminales
+   * (`itemType:'Component'`) ; le moteur front `expandMenuItemStock` recurse de
+   * lui-même au niveau menu-items (pas d'aplatissement serveur superflu).
+   */
+  private buildRecipeComponents(item: any): { components: any[]; supplierIds: Set<string> } {
+    const supplierIds = new Set<string>();
+    const components: any[] = [];
+
+    for (const line of item.ingredients || []) {
+      const ing = line.ingredient || {};
+      const mp = ing.marketPrice || null;
+      const supplierId = mp?.supplierId || null;
+      if (supplierId) supplierIds.add(supplierId);
+      components.push({
+        id: line.id,
+        sourceId: line.ingredientId,
+        name: ing.name ?? null,
+        itemType: 'Ingredient',
+        numberOfUnits: this.toNumber(line.numberOfUnits),
+        unit: ing.recipeUnit ?? 'unit',
+        category: ing.ingredientCategory ?? mp?.category ?? null,
+        storageType: line.storageType ?? ing.storageType ?? null,
+        marketPriceId: ing.marketPriceId ?? null,
+        supplierId,
+        cost: this.lineCost(line),
+      });
+    }
+
+    for (const line of item.packagings || []) {
+      const pkg = line.packaging || {};
+      const mp = pkg.marketPrice || null;
+      const supplierId = mp?.supplierId || null;
+      if (supplierId) supplierIds.add(supplierId);
+      // StorageType DB = Cold|Dry|Frozen (jamais 'material') → on s'appuie sur la
+      // `category` pour la détection front, et on force storageType='material'
+      // (contrat) pour fiabiliser isPackagingComponent.
+      const category = this.isPackagingCategory(pkg.ingredientCategory)
+        ? pkg.ingredientCategory
+        : 'packaging';
+      components.push({
+        id: line.id,
+        sourceId: line.packagingId,
+        name: pkg.name ?? null,
+        itemType: 'Packaging',
+        numberOfUnits: this.toNumber(line.numberOfUnits),
+        unit: pkg.recipeUnit ?? 'unit',
+        category,
+        storageType: 'material',
+        marketPriceId: pkg.marketPriceId ?? null,
+        supplierId,
+        cost: this.lineCost(line),
+      });
+    }
+
+    for (const line of item.components || []) {
+      const comp = line.component || {};
+      components.push({
+        id: line.id,
+        sourceId: line.componentId,
+        name: comp.name ?? null,
+        itemType: 'Component',
+        numberOfUnits: this.toNumber(line.numberOfUnits),
+        unit: comp.unit ?? 'unit',
+        category: comp.category ?? null,
+        storageType: line.storageType ?? comp.storageType ?? null,
+        marketPriceId: null,
+        supplierId: null,
+        cost: this.lineCost(line),
+      });
+    }
+
+    return { components, supplierIds };
+  }
+
+  /** Charge le dictionnaire fournisseurs (id, name, email, phone←tel, sites). */
+  private async loadSuppliers(supplierIds: Set<string>, tenantId: string) {
+    if (!supplierIds.size) return [];
+    const suppliers = await this.prisma.supplier.findMany({
+      where: { id: { in: [...supplierIds] }, tenantId },
+      select: { id: true, name: true, email: true, tel: true, sites: true },
+    });
+    return suppliers.map((s) => ({
+      id: s.id,
+      name: s.name,
+      email: s.email ?? null,
+      phone: s.tel ?? null,
+      sites: s.sites ?? [],
+    }));
+  }
+
+  private toRecipeDto(item: any, components: any[]) {
+    return {
+      id: item.id,
+      name: item.name,
+      readyForSale: this.normYesNo(item.readyForSale),
+      comboItem: this.normYesNo(item.comboItem),
+      numberOfPiecesRecipe: this.toNumber(item.numberOfPiecesRecipe, 1) || 1,
+      cost: this.toNumber(item.totalCost, 0),
+      components,
+    };
+  }
+
+  async getRecipe(id: string, tenantId: string) {
+    this.logger.log(`Fetching recipe for menu item ${id} (tenant ${tenantId})`);
+    const item = await this.prisma.menuItem.findFirst({
+      where: { id, tenantId, deletedAt: null },
+      include: this.recipeInclude,
+    });
+    if (!item) throw new NotFoundException(`Menu item with ID ${id} not found`);
+    const { components, supplierIds } = this.buildRecipeComponents(item);
+    const suppliers = await this.loadSuppliers(supplierIds, tenantId);
+    return { ...this.toRecipeDto(item, components), suppliers };
+  }
+
+  async getRecipes(ids: string[], tenantId: string) {
+    const where: any = { tenantId, deletedAt: null };
+    if (Array.isArray(ids) && ids.length) where.id = { in: ids };
+    this.logger.log(`Fetching recipes for ${ids?.length ?? 'all'} menu item(s) (tenant ${tenantId})`);
+    const items = await this.prisma.menuItem.findMany({
+      where,
+      orderBy: { name: 'asc' },
+      include: this.recipeInclude,
+    });
+    const allSupplierIds = new Set<string>();
+    const built = items.map((item) => {
+      const { components, supplierIds } = this.buildRecipeComponents(item);
+      supplierIds.forEach((s) => allSupplierIds.add(s));
+      return this.toRecipeDto(item, components);
+    });
+    const suppliers = await this.loadSuppliers(allSupplierIds, tenantId);
+    return { items: built, suppliers };
+  }
+
   async update(id: string, dto: UpdateMenuItemDto, tenantId: string) {
     this.logger.log(`Updating menu item ${id} for tenant ${tenantId}`);
     await this.findOne(id, tenantId);

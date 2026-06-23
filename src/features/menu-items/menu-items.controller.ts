@@ -15,6 +15,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery, ApiParam }
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { MenuItemsService } from './menu-items.service';
 import { BulkCreateMenuItemsDto, CreateMenuItemDto, ReplaceMenuItemComponentsDto, ReplaceMenuItemIngredientsDto, ReplaceMenuItemPackagingsDto } from './dto/create-menu-item.dto';
+import { RecipeBatchDto } from './dto/recipe-batch.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 import { CreateProductCategoryDto } from './dto/create-product-category.dto';
 import { CreateProductTypeDto } from './dto/create-product-type.dto';
@@ -173,6 +174,32 @@ export class MenuItemsController {
     this.logger.log(`POST /menu-items/${id}/refresh-costs - User: ${user?.id}, Tenant: ${tenantId}`);
     await this.menuItemsService.refreshCosts(tenantId, { itemIds: [id] });
     return this.menuItemsService.findOne(id, tenantId);
+  }
+
+  @Post('recipes')
+  @ApiOperation({
+    summary: 'Recettes de plusieurs menu items (réarmement plats composés)',
+    description:
+      "Renvoie { items: Recipe[], suppliers: Supplier[] }. Chaque item porte readyForSale, comboItem, numberOfPiecesRecipe, cost et components[] (fusion ingrédients + composants + packaging) avec supplierId résolu. Charge tout un space en 1 appel. Body vide/ids absents → tous les items du tenant.",
+  })
+  @ApiResponse({ status: 200, description: 'Recettes + dictionnaire fournisseurs' })
+  getRecipes(@Body() dto: RecipeBatchDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+    this.logger.log(`POST /menu-items/recipes - User: ${user?.id}, Tenant: ${tenantId}, ids: ${dto?.ids?.length ?? 0}`);
+    return this.menuItemsService.getRecipes(dto?.ids ?? [], tenantId);
+  }
+
+  @Get(':id/recipe')
+  @ApiOperation({
+    summary: 'Recette d\'un menu item (réarmement plat composé)',
+    description:
+      "Renvoie l'item avec readyForSale, comboItem, numberOfPiecesRecipe, cost, components[] (fusion ingrédients + composants + packaging, supplierId résolu) et suppliers[]. N'altère pas /menu-items.",
+  })
+  @ApiParam({ name: 'id', description: 'ID du menu item' })
+  @ApiResponse({ status: 200, description: 'Recette + fournisseurs' })
+  @ApiResponse({ status: 404, description: 'Article non trouvé' })
+  getRecipe(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+    this.logger.log(`GET /menu-items/${id}/recipe - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.menuItemsService.getRecipe(id, tenantId);
   }
 
   @Get(':id')

@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'crypto';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -29,9 +30,11 @@ async function bootstrap() {
   // Attach pino structured logger (bufferLogs flushes any early NestJS messages).
   app.useLogger(app.get(Logger));
 
-  // Determine if we are allowed to relax CSP for the embedded Swagger UI in non-prod.
+  // Swagger UI a besoin de scripts/styles inline pour s'afficher. On autorise donc
+  // 'unsafe-inline' dans tous les environnements afin que /docs reste consultable en prod.
+  // (Seule surface HTML du serveur ; toutes les autres routes renvoient du JSON.)
   const isProd = process.env.NODE_ENV === 'production';
-  const swaggerCspExtras = isProd ? [] : ["'unsafe-inline'"];
+  const swaggerCspExtras = ["'unsafe-inline'"];
   const allowedConnectSrc = [
     "'self'",
     process.env.WEEZEVENT_API_URL || 'https://api.weezevent.com',
@@ -43,7 +46,7 @@ async function bootstrap() {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        // En prod: pas de unsafe-inline. En dev: autorisé pour Swagger UI uniquement.
+        // 'unsafe-inline' autorisé (prod incluse) pour le rendu de Swagger UI sur /docs.
         styleSrc: ["'self'", ...swaggerCspExtras],
         scriptSrc: ["'self'", ...swaggerCspExtras],
         imgSrc: ["'self'", 'data:', 'https:'],
@@ -212,6 +215,39 @@ Tous les autres endpoints nécessitent un utilisateur lié à un tenant.
   fastifyInstance.get('/api/v1/openapi.json', async (_req: any, reply: any) => {
     reply.header('Content-Type', 'application/json').send(document);
   });
+
+  // Basic Auth sur la doc Swagger (/docs et ses assets). Identifiants dans le .env :
+  // DOCS_USER / DOCS_PASSWORD. Si non définis, la doc reste ouverte (pratique en dev),
+  // mais on alerte en prod pour éviter d'exposer /docs publiquement par oubli.
+  // Note : /api/v1/openapi.json reste public (consommé par le front et la CI).
+  const docsUser = process.env.DOCS_USER;
+  const docsPassword = process.env.DOCS_PASSWORD;
+  if (docsUser && docsPassword) {
+    const expected = Buffer.from(
+      'Basic ' + Buffer.from(`${docsUser}:${docsPassword}`).toString('base64'),
+    );
+    fastifyInstance.addHook('onRequest', async (req: any, reply: any) => {
+      if (!req.url.startsWith('/docs')) return;
+      const header = req.headers['authorization'];
+      const provided = typeof header === 'string' ? Buffer.from(header) : Buffer.alloc(0);
+      // Comparaison à temps constant (évite les timing attacks sur le mot de passe).
+      const ok =
+        provided.length === expected.length && timingSafeEqual(provided, expected);
+      if (!ok) {
+        return reply
+          .header('WWW-Authenticate', 'Basic realm="DataFriday API Docs", charset="UTF-8"')
+          .code(401)
+          .send({
+            statusCode: 401,
+            message: 'Authentification requise pour accéder à la documentation.',
+          });
+      }
+    });
+  } else if (isProd) {
+    console.warn(
+      '⚠️  DOCS_USER / DOCS_PASSWORD non définis : la documentation Swagger (/docs) est PUBLIQUE en production.',
+    );
+  }
 
   const port = process.env.PORT || 3000;
   await app.listen(port, '0.0.0.0');

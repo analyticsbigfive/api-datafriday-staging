@@ -14,6 +14,7 @@ import {
   ApiBearerAuth,
   ApiOperation,
   ApiParam,
+  ApiBody,
   ApiResponse,
 } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
@@ -39,13 +40,22 @@ export class RestockStateController {
   @Put()
   @ApiOperation({ summary: 'Enregistrer / mettre à jour l\'état de réarmement (upsert)' })
   @ApiParam({ name: 'spaceId', description: 'ID du space' })
+  @ApiBody({
+    type: RestockStateDto,
+    description:
+      'Snapshot du réarmement. Stocké comme blob jsonb opaque : champs additionnels tolérés, énumérations non figées (cf. docs/restockState.api.md).',
+  })
   @ApiResponse({ status: 200, description: 'RestockState persisté (avec id et updatedAt)' })
   async upsert(
+    // Body typé en objet libre (et non en RestockStateDto) : le ValidationPipe
+    // global (whitelist + forbidNonWhitelisted) s'exécute AVANT tout pipe de
+    // route et rejetterait/strippait les champs hors DTO. On garde donc le blob
+    // opaque conformément au contrat, validé a minima côté service.
     @Param('spaceId') spaceId: string,
-    @Body() dto: RestockStateDto,
+    @Body() state: Record<string, unknown>,
     @CurrentUser() user: any,
   ) {
-    return this.service.upsert(spaceId, user.tenantId, dto, user.id);
+    return this.service.upsert(spaceId, user.tenantId, state, user.id);
   }
 
   @Delete()

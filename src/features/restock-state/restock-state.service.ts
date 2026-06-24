@@ -1,6 +1,5 @@
-import { Injectable, ForbiddenException } from '@nestjs/common';
+import { Injectable, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
-import { RestockStateDto } from './dto/restock-state.dto';
 
 @Injectable()
 export class RestockStateService {
@@ -20,14 +19,23 @@ export class RestockStateService {
     return record ?? null;
   }
 
-  async upsert(spaceId: string, tenantId: string, dto: RestockStateDto, userId?: string) {
+  async upsert(
+    spaceId: string,
+    tenantId: string,
+    state: Record<string, unknown>,
+    userId?: string,
+  ) {
+    // Le `state` est un blob opaque : seule garantie exigée = « objet JSON ».
+    if (!state || typeof state !== 'object' || Array.isArray(state)) {
+      throw new BadRequestException('Le corps doit être un objet JSON (snapshot de réarmement).');
+    }
     // Ownership check conservé sur l'upsert pour éviter les lignes orphelines
     // (un tenant qui écrit sur un spaceId qui ne lui appartient pas).
     await this.assertSpaceOwnership(spaceId, tenantId);
     return this.prisma.restockState.upsert({
       where: { tenantId_spaceId: { tenantId, spaceId } },
-      update: { state: dto as any, updatedAt: new Date() },
-      create: { tenantId, spaceId, state: dto as any, createdBy: userId ?? null },
+      update: { state: state as any, updatedAt: new Date() },
+      create: { tenantId, spaceId, state: state as any, createdBy: userId ?? null },
     });
   }
 

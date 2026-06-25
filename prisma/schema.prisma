@@ -2086,6 +2086,7 @@ model EventPredictVersion {
   adjustedPerCapita          Float    @default(0)
   menuConfig                 Json
   quantityAdjustments        Json
+  manualQuantities           Json     @default("{}")
   selectedPredictionEventIds String[]
   selectedTimeRange          Json?
   createdBy                  String?

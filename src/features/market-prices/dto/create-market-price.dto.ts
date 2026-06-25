@@ -4,8 +4,6 @@ import {
   IsOptional,
   IsEnum,
   IsNumber,
-  IsInt,
-  IsArray,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -87,19 +85,17 @@ export class CreateMarketPriceDto {
   pricePerUnit?: number;
 
   @ApiProperty({ required: false })
-  @IsInt()
   @IsOptional()
   @Type(() => Number)
   packedUnits?: number;
 
   @ApiProperty({ required: false })
-  @IsInt()
   @IsOptional()
   @Type(() => Number)
   numberOfUnits?: number;
 
   @ApiProperty({ required: false })
-  @IsInt()
+  @IsNumber()
   @IsOptional()
   @Type(() => Number)
   unitsPerPurchase?: number;

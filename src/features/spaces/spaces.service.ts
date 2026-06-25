@@ -33,7 +33,7 @@ export class SpacesService {
    * sinon la liste des spaceId accessibles (cache tenant-wide à NE PAS utiliser).
    */
   private async restrictedSpaceIds(
-    user: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'role'>,
+    user: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'isOwner' | 'allSpacesAccess'>,
   ): Promise<string[] | null> {
     const ids = await this.spaceAccess.getAccessibleSpaceIds(user);
     return ids === 'ALL' ? null : ids;
@@ -103,7 +103,7 @@ export class SpacesService {
    * Find all spaces for a tenant with pagination (Redis-cached, TTL 60s).
    * Cache is bypassed when a search filter is applied.
    */
-  async findAll(tenantId: string, query: QuerySpaceDto, user: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'role'>) {
+  async findAll(tenantId: string, query: QuerySpaceDto, user: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'isOwner' | 'allSpacesAccess'>) {
     const { search, page = 1, limit = 10 } = query;
     const skip = (page - 1) * limit;
 
@@ -207,7 +207,7 @@ export class SpacesService {
    */
   async getSpacesLight(
     tenantId: string,
-    user: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'role'>,
+    user: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'isOwner' | 'allSpacesAccess'>,
   ): Promise<{ id: string; name: string }[]> {
     const accessibleIds = await this.restrictedSpaceIds(user);
     const cacheKey = this.SPACES_LIGHT_CACHE_KEY(tenantId);
@@ -473,7 +473,7 @@ export class SpacesService {
   async getPinned(
     userId: string,
     tenantId: string,
-    user: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'role'>,
+    user: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'isOwner' | 'allSpacesAccess'>,
   ) {
     const accessibleIds = await this.restrictedSpaceIds(user);
     const spaceWhere: any = { tenantId };
@@ -1675,7 +1675,7 @@ export class SpacesService {
     userId: string,
     tenantId: string,
     spaceIds: string[],
-    user: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'role'>,
+    user: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'isOwner' | 'allSpacesAccess'>,
   ) {
     // Verify all spaces exist and belong to tenant
     const validSpaces = await this.prisma.space.findMany({

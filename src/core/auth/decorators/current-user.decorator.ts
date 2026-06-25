@@ -34,6 +34,8 @@ export interface CurrentUserData {
   isOwner: boolean;
   /** Super-admin PLATEFORME (cross-tenant), distinct du rôle ADMIN d'organisation. */
   isSuperAdmin: boolean;
+  /** Voit TOUS les espaces (présents et futurs), indépendamment du rôle. */
+  allSpacesAccess: boolean;
 }
 
 /**

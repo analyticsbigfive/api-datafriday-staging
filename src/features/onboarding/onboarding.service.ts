@@ -316,12 +316,14 @@ export class OnboardingService {
             tenantId: tenant.id,
             role: 'ADMIN',
             roleId: roleIdBySystemKey[UserRole.ADMIN],
+            // L'owner voit tous les espaces (présents et futurs).
+            allSpacesAccess: true,
           },
         });
       } else {
         user = await tx.user.update({
           where: { id: user.id },
-          data: { roleId: roleIdBySystemKey[UserRole.ADMIN] },
+          data: { roleId: roleIdBySystemKey[UserRole.ADMIN], allSpacesAccess: true },
         });
       }
 

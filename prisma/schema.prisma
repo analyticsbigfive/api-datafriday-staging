@@ -280,6 +280,10 @@ model User {
   // Donne accès à l'administration cross-tenant (SuperAdminGuard). Écriture réservée
   // à un super-admin existant / bootstrap via script. Voir docs/CONCEPTION_CIBLE_AUTH.md §3.
   isSuperAdmin Boolean @default(false)
+  // Accès à TOUS les espaces de l'organisation (présents et futurs), INDÉPENDAMMENT du rôle.
+  // Choisi par l'owner à la création/édition. L'owner et le super-admin voient toujours tout.
+  // Voir docs/CONCEPTION_CIBLE_AUTH.md §5 (accès par espace découplé du rôle).
+  allSpacesAccess Boolean @default(false)
   tenantId  String // Keep for backward compatibility
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -4,8 +4,6 @@ import {
   IsOptional,
   IsEnum,
   IsNumber,
-  IsInt,
-  IsArray,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -34,10 +32,20 @@ export class CreateMarketPriceDto {
   @IsEnum(GoodType)
   goodType: GoodType;
 
-  @ApiProperty({ required: false, description: 'Catégorie produit' })
+  @ApiProperty({ required: false, description: 'Catégorie produit (texte libre, legacy)' })
   @IsString()
   @IsOptional()
   category?: string;
+
+  @ApiProperty({ required: false, description: 'ID du type de produit dynamique (ProductType)' })
+  @IsString()
+  @IsOptional()
+  typeId?: string;
+
+  @ApiProperty({ required: false, description: 'ID de la catégorie de produit dynamique (ProductCategory)' })
+  @IsString()
+  @IsOptional()
+  categoryId?: string;
 
   @ApiProperty({ required: false, description: 'Image URL' })
   @IsString()
@@ -77,19 +85,19 @@ export class CreateMarketPriceDto {
   pricePerUnit?: number;
 
   @ApiProperty({ required: false })
-  @IsInt()
+  @IsNumber()
   @IsOptional()
   @Type(() => Number)
   packedUnits?: number;
 
   @ApiProperty({ required: false })
-  @IsInt()
+  @IsNumber()
   @IsOptional()
   @Type(() => Number)
   numberOfUnits?: number;
 
   @ApiProperty({ required: false })
-  @IsInt()
+  @IsNumber()
   @IsOptional()
   @Type(() => Number)
   unitsPerPurchase?: number;
@@ -112,7 +120,12 @@ export class CreateMarketPriceDto {
   @Type(() => Number)
   packingLength?: number;
 
-  @ApiProperty({ required: false, description: 'Type de conditionnement inventaire (ex: Box, Bag, Pallet)' })
+  @ApiProperty({ required: false, description: "Emballage d'achat — \"Item is purchased in\" (ex: Box, Bag, Pallet)" })
+  @IsString()
+  @IsOptional()
+  purchasePackaging?: string;
+
+  @ApiProperty({ required: false, description: 'Emballage de stockage — "Item is stored in" (ex: Box, Bag, Pallet)' })
   @IsString()
   @IsOptional()
   inventoryPackaging?: string;

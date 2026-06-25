@@ -670,28 +670,37 @@ model MarketPrice {
   supplier               String? // Nom du fournisseur
   supplierId             String? // ID du fournisseur
   pricePerUnit           Decimal?  @db.Decimal(10, 4)
-  packedUnits            Int?
-  numberOfUnits          Int?
-  unitsPerPurchase       Int?
+  packedUnits            Float?
+  numberOfUnits          Float?
+  unitsPerPurchase       Float?
   packingWidth           Float?
   packingHeight          Float?
   packingLength          Float?
-  inventoryPackaging     String?
+  purchasePackaging      String? // Emballage d'achat ("Item is purchased in", ex: Box)
+  inventoryPackaging     String? // Emballage de stockage ("Item is stored in", ex: Bag)
+  // Taxonomie dynamique (additive). `goodType` (enum) reste le discriminateur
+  // fonctionnel qui pilote l'auto-création Ingredient/Packaging.
+  typeId                 String? // FK -> ProductType
+  categoryId             String? // FK -> ProductCategory
   tenantId               String
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
   deletedAt              DateTime?
 
-  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  supplierRel Supplier?    @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  ingredients Ingredient[]
-  packagings  Packaging[]
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplierRel     Supplier?        @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  productType     ProductType?     @relation(fields: [typeId], references: [id], onDelete: SetNull)
+  productCategory ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  ingredients     Ingredient[]
+  packagings      Packaging[]
 
   @@index([tenantId])
   @@index([supplierId])
   @@index([goodType])
   @@index([itemName])
   @@index([category])
+  @@index([typeId])
+  @@index([categoryId])
 }
 
 // ==================== WEEZEVENT SYNC ====================
@@ -1492,8 +1501,9 @@ model ProductType {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  categories ProductCategory[]
-  menuItems  MenuItem[]
+  categories   ProductCategory[]
+  menuItems    MenuItem[]
+  marketPrices MarketPrice[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -1509,8 +1519,9 @@ model ProductCategory {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  type      ProductType @relation(fields: [typeId], references: [id], onDelete: Cascade)
-  menuItems MenuItem[]
+  type         ProductType   @relation(fields: [typeId], references: [id], onDelete: Cascade)
+  menuItems    MenuItem[]
+  marketPrices MarketPrice[]
 
   @@unique([tenantId, typeId, name])
   @@index([tenantId])
@@ -2094,6 +2105,7 @@ model EventPredictVersion {
   adjustedPerCapita          Float    @default(0)
   menuConfig                 Json
   quantityAdjustments        Json
+  manualQuantities           Json     @default("{}")
   selectedPredictionEventIds String[]
   selectedTimeRange          Json?
   createdBy                  String?

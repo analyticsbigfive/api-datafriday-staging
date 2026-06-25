@@ -9,6 +9,36 @@ export class MarketPricesService {
 
   constructor(private prisma: PrismaService) {}
 
+  /**
+   * Convertit les champs Decimal (sérialisés en string par Prisma) en number,
+   * pour que le frontend reçoive `price: 3.5` au lieu de `"3.5"`. Normalise aussi
+   * les coûts des ingredients/packagings liés quand ils sont inclus.
+   */
+  private serialize(mp: any): any {
+    if (!mp) return mp;
+    const toNum = (v: any) => (v === null || v === undefined ? v : Number(v));
+    const out: any = {
+      ...mp,
+      price: toNum(mp.price),
+      pricePerUnit: toNum(mp.pricePerUnit),
+    };
+    if (Array.isArray(mp.ingredients)) {
+      out.ingredients = mp.ingredients.map((i: any) => ({
+        ...i,
+        costPerRecipeUnit: toNum(i.costPerRecipeUnit),
+        costPerPurchaseUnit: toNum(i.costPerPurchaseUnit),
+      }));
+    }
+    if (Array.isArray(mp.packagings)) {
+      out.packagings = mp.packagings.map((p: any) => ({
+        ...p,
+        costPerRecipeUnit: toNum(p.costPerRecipeUnit),
+        costPerPurchaseUnit: toNum(p.costPerPurchaseUnit),
+      }));
+    }
+    return out;
+  }
+
   async create(dto: CreateMarketPriceDto, tenantId: string) {
     this.logger.log(`Creating market price "${dto.itemName}" for tenant ${tenantId}`);
     try {
@@ -20,6 +50,8 @@ export class MarketPricesService {
           price: dto.price,
           goodType: dto.goodType,
           category: dto.category,
+          typeId: dto.typeId,
+          categoryId: dto.categoryId,
           image: dto.image,
           supplier: dto.supplier,
           supplierId: dto.supplierId,
@@ -33,6 +65,7 @@ export class MarketPricesService {
           packingWidth: dto.packingWidth,
           packingHeight: dto.packingHeight,
           packingLength: dto.packingLength,
+          purchasePackaging: dto.purchasePackaging,
           inventoryPackaging: dto.inventoryPackaging,
         },
         include: { supplierRel: true },
@@ -49,7 +82,7 @@ export class MarketPricesService {
         await this.ensurePackagingForMarketPrice(price, tenantId);
       }
 
-      return price;
+      return this.serialize(price);
     } catch (error) {
       this.logger.error(`Failed to create market price: ${error.message}`, error.stack);
       if (error.code === 'P2003') {
@@ -78,7 +111,7 @@ export class MarketPricesService {
       ]);
       this.logger.log(`Found ${prices.length}/${total} market prices`);
       return {
-        data: prices,
+        data: prices.map((p) => this.serialize(p)),
         meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
       };
     } catch (error) {
@@ -147,7 +180,7 @@ export class MarketPricesService {
 
       this.logger.log(`Found ${data.length}/${total} market prices with ingredients`);
       return {
-        data,
+        data: data.map((p) => this.serialize(p)),
         meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
       };
     } catch (error) {
@@ -207,7 +240,7 @@ export class MarketPricesService {
 
       this.logger.log(`Found ${data.length}/${total} market prices with packagings`);
       return {
-        data,
+        data: data.map((p) => this.serialize(p)),
         meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
       };
     } catch (error) {
@@ -228,7 +261,7 @@ export class MarketPricesService {
       throw new NotFoundException(`Market price with ID ${id} not found`);
     }
 
-    return price;
+    return this.serialize(price);
   }
 
   async update(id: string, dto: UpdateMarketPriceDto, tenantId: string) {
@@ -241,6 +274,8 @@ export class MarketPricesService {
     if (dto.price !== undefined) updateData.price = dto.price;
     if (dto.goodType !== undefined) updateData.goodType = dto.goodType;
     if (dto.category !== undefined) updateData.category = dto.category;
+    if (dto.typeId !== undefined) updateData.typeId = dto.typeId;
+    if (dto.categoryId !== undefined) updateData.categoryId = dto.categoryId;
     if (dto.image !== undefined) updateData.image = dto.image;
     if (dto.supplier !== undefined) updateData.supplier = dto.supplier;
     if (dto.supplierId !== undefined) updateData.supplierId = dto.supplierId;
@@ -254,6 +289,7 @@ export class MarketPricesService {
     if (dto.packingWidth !== undefined) updateData.packingWidth = dto.packingWidth;
     if (dto.packingHeight !== undefined) updateData.packingHeight = dto.packingHeight;
     if (dto.packingLength !== undefined) updateData.packingLength = dto.packingLength;
+    if (dto.purchasePackaging !== undefined) updateData.purchasePackaging = dto.purchasePackaging;
     if (dto.inventoryPackaging !== undefined) updateData.inventoryPackaging = dto.inventoryPackaging;
 
     try {
@@ -263,7 +299,7 @@ export class MarketPricesService {
         include: { supplierRel: true },
       });
       this.logger.log(`Market price ${id} updated`);
-      return price;
+      return this.serialize(price);
     } catch (error) {
       this.logger.error(`Failed to update market price ${id}: ${error.message}`, error.stack);
       if (error.code === 'P2003') {
@@ -320,6 +356,8 @@ export class MarketPricesService {
             price: dto.price,
             goodType: dto.goodType,
             category: dto.category,
+            typeId: dto.typeId,
+            categoryId: dto.categoryId,
             image: dto.image,
             supplier: dto.supplier,
             supplierId: dto.supplierId,
@@ -333,6 +371,7 @@ export class MarketPricesService {
             packingWidth: dto.packingWidth,
             packingHeight: dto.packingHeight,
             packingLength: dto.packingLength,
+            purchasePackaging: dto.purchasePackaging,
             inventoryPackaging: dto.inventoryPackaging,
           },
         });
@@ -344,7 +383,7 @@ export class MarketPricesService {
         if (dto.goodType === 'Packaging') {
           await this.ensurePackagingForMarketPrice(price, tenantId);
         }
-        results.push(price);
+        results.push(this.serialize(price));
       }
       this.logger.log(`Bulk created ${results.length} market prices`);
       return results;

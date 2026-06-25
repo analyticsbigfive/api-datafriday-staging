@@ -856,6 +856,28 @@ export class MenuItemsService {
     this.logger.log(`Product type ${id} deleted`);
   }
 
+  async updateProductType(id: string, name: string, tenantId: string) {
+    const productType = await this.prisma.productType.findFirst({
+      where: { id, OR: [{ tenantId }, { tenantId: null }] },
+    });
+
+    if (!productType) {
+      throw new NotFoundException(`Product type with ID ${id} not found`);
+    }
+
+    if (productType.tenantId === null) {
+      throw new BadRequestException(`Cannot update global product type`);
+    }
+
+    const updated = await this.prisma.productType.update({
+      where: { id },
+      data: { name },
+      include: { categories: true },
+    });
+    this.logger.log(`Product type ${id} updated`);
+    return updated;
+  }
+
   async getProductCategories(tenantId: string, typeId?: string) {
     return this.prisma.productCategory.findMany({
       where: {
@@ -947,5 +969,57 @@ export class MenuItemsService {
 
     await this.prisma.productCategory.delete({ where: { id } });
     this.logger.log(`Product category ${id} deleted`);
+  }
+
+  async updateProductCategory(
+    id: string,
+    data: { name?: string; typeId?: string; productTypeId?: string },
+    tenantId: string,
+  ) {
+    const productCategory = await this.prisma.productCategory.findFirst({
+      where: { id, OR: [{ tenantId }, { tenantId: null }] },
+    });
+
+    if (!productCategory) {
+      throw new NotFoundException(`Product category with ID ${id} not found`);
+    }
+
+    if (productCategory.tenantId === null) {
+      throw new BadRequestException(`Cannot update global product category`);
+    }
+
+    const resolvedTypeId = data.typeId ?? data.productTypeId;
+    const updateData: any = {};
+    if (data.name !== undefined) updateData.name = data.name;
+
+    if (resolvedTypeId !== undefined) {
+      const productType = await this.prisma.productType.findFirst({
+        where: { id: resolvedTypeId, OR: [{ tenantId }, { tenantId: null }] },
+      });
+      if (!productType) {
+        throw new BadRequestException({
+          message: 'Validation failed',
+          errors: [
+            {
+              property: 'typeId',
+              constraints: {
+                exists: 'typeId must reference an accessible product type',
+              },
+              messages: ['typeId must reference an accessible product type'],
+              value: resolvedTypeId,
+            },
+          ],
+        });
+      }
+      updateData.type = { connect: { id: resolvedTypeId } };
+    }
+
+    const updated = await this.prisma.productCategory.update({
+      where: { id },
+      data: updateData,
+      include: { type: true },
+    });
+    this.logger.log(`Product category ${id} updated`);
+    return updated;
   }
 }

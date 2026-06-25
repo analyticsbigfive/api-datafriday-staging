@@ -19,6 +19,8 @@ import { RecipeBatchDto } from './dto/recipe-batch.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 import { CreateProductCategoryDto } from './dto/create-product-category.dto';
 import { CreateProductTypeDto } from './dto/create-product-type.dto';
+import { UpdateProductTypeDto } from './dto/update-product-type.dto';
+import { UpdateProductCategoryDto } from './dto/update-product-category.dto';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
@@ -313,6 +315,20 @@ export class ProductTypesController {
     return this.menuItemsService.createProductType(body.name, tenantId);
   }
 
+  @Patch(':id')
+  @ApiOperation({ summary: 'Mettre à jour un type de produit' })
+  @ApiResponse({ status: 200, description: 'Type de produit mis à jour' })
+  @ApiResponse({ status: 404, description: 'Type de produit non trouvé' })
+  update(
+    @Param('id') id: string,
+    @Body() body: UpdateProductTypeDto,
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+  ) {
+    this.logger.log(`PATCH /product-types/${id} - User: ${user?.id}`);
+    return this.menuItemsService.updateProductType(id, body.name, tenantId);
+  }
+
   @RequirePermissions('menu.fb.menuItems')
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer un type de produit' })
@@ -353,6 +369,24 @@ export class ProductCategoriesController {
       body.typeId,
       tenantId,
       body.productTypeId,
+    );
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Mettre à jour une catégorie de produit' })
+  @ApiResponse({ status: 200, description: 'Catégorie de produit mise à jour' })
+  @ApiResponse({ status: 404, description: 'Catégorie de produit non trouvée' })
+  update(
+    @Param('id') id: string,
+    @Body() body: UpdateProductCategoryDto,
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+  ) {
+    this.logger.log(`PATCH /product-categories/${id} - User: ${user?.id}`);
+    return this.menuItemsService.updateProductCategory(
+      id,
+      { name: body.name, typeId: body.typeId, productTypeId: body.productTypeId },
+      tenantId,
     );
   }
 

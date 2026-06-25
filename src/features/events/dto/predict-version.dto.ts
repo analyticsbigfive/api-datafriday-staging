@@ -63,6 +63,11 @@ export class CreatePredictVersionDto {
   @IsObject()
   quantityAdjustments?: Record<string, any>;
 
+  @ApiPropertyOptional({ description: 'Quantités absolues (items à prédiction 0)', type: 'object' })
+  @IsOptional()
+  @IsObject()
+  manualQuantities?: Record<string, number>;
+
   @ApiPropertyOptional({ description: 'IDs des événements de prédiction sélectionnés', type: [String] })
   @IsOptional()
   @IsArray()
@@ -127,6 +132,11 @@ export class PatchPredictVersionDto {
   @IsOptional()
   @IsObject()
   quantityAdjustments?: Record<string, any>;
+
+  @ApiPropertyOptional({ type: 'object' })
+  @IsOptional()
+  @IsObject()
+  manualQuantities?: Record<string, number>;
 
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()

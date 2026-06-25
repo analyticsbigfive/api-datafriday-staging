@@ -668,7 +668,8 @@ model MarketPrice {
   packingWidth           Float?
   packingHeight          Float?
   packingLength          Float?
-  inventoryPackaging     String?
+  purchasePackaging      String? // Emballage d'achat ("Item is purchased in", ex: Box)
+  inventoryPackaging     String? // Emballage de stockage ("Item is stored in", ex: Bag)
   // Taxonomie dynamique (additive). `goodType` (enum) reste le discriminateur
   // fonctionnel qui pilote l'auto-création Ingredient/Packaging.
   typeId                 String? // FK -> ProductType

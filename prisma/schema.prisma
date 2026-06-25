@@ -669,21 +669,29 @@ model MarketPrice {
   packingHeight          Float?
   packingLength          Float?
   inventoryPackaging     String?
+  // Taxonomie dynamique (additive). `goodType` (enum) reste le discriminateur
+  // fonctionnel qui pilote l'auto-création Ingredient/Packaging.
+  typeId                 String? // FK -> ProductType
+  categoryId             String? // FK -> ProductCategory
   tenantId               String
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
   deletedAt              DateTime?
 
-  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  supplierRel Supplier?    @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  ingredients Ingredient[]
-  packagings  Packaging[]
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplierRel     Supplier?        @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  productType     ProductType?     @relation(fields: [typeId], references: [id], onDelete: SetNull)
+  productCategory ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  ingredients     Ingredient[]
+  packagings      Packaging[]
 
   @@index([tenantId])
   @@index([supplierId])
   @@index([goodType])
   @@index([itemName])
   @@index([category])
+  @@index([typeId])
+  @@index([categoryId])
 }
 
 // ==================== WEEZEVENT SYNC ====================
@@ -1484,8 +1492,9 @@ model ProductType {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  categories ProductCategory[]
-  menuItems  MenuItem[]
+  categories   ProductCategory[]
+  menuItems    MenuItem[]
+  marketPrices MarketPrice[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -1501,8 +1510,9 @@ model ProductCategory {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  type      ProductType @relation(fields: [typeId], references: [id], onDelete: Cascade)
-  menuItems MenuItem[]
+  type         ProductType   @relation(fields: [typeId], references: [id], onDelete: Cascade)
+  menuItems    MenuItem[]
+  marketPrices MarketPrice[]
 
   @@unique([tenantId, typeId, name])
   @@index([tenantId])

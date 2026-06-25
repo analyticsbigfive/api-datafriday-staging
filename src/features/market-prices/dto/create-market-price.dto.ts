@@ -34,10 +34,20 @@ export class CreateMarketPriceDto {
   @IsEnum(GoodType)
   goodType: GoodType;
 
-  @ApiProperty({ required: false, description: 'Catégorie produit' })
+  @ApiProperty({ required: false, description: 'Catégorie produit (texte libre, legacy)' })
   @IsString()
   @IsOptional()
   category?: string;
+
+  @ApiProperty({ required: false, description: 'ID du type de produit dynamique (ProductType)' })
+  @IsString()
+  @IsOptional()
+  typeId?: string;
+
+  @ApiProperty({ required: false, description: 'ID de la catégorie de produit dynamique (ProductCategory)' })
+  @IsString()
+  @IsOptional()
+  categoryId?: string;
 
   @ApiProperty({ required: false, description: 'Image URL' })
   @IsString()

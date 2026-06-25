@@ -25,9 +25,10 @@ export class SuppliersService {
           sites: createSupplierDto.spaceIds || [],
           configurationIds: createSupplierDto.configurationIds || [],
           sectors: createSupplierDto.sectors || [],
-          tenant: {
-            connect: { id: tenantId },
-          },
+          // tenantId est injecté par le middleware d'isolation (PrismaService).
+          // On ne pose PAS la relation `tenant: { connect }` ici : elle entrerait
+          // en conflit avec le scalaire `tenantId` injecté → "Unknown argument tenantId".
+          tenantId,
         },
       });
       this.logger.log(`Supplier created successfully: ${supplier.id}`);

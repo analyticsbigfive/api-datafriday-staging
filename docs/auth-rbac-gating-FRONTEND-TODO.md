@@ -130,11 +130,31 @@ Idéalement, créer un composant réutilisable `<Can permission="...">…</Can>`
 
 ---
 
-## 4. CRUD utilisateur (préparation Phase 2)
-- `UserCreateView` envoie déjà `roleId` → OK.
-- À venir (Phase 2) : ajouter au formulaire la sélection des **espaces accessibles** (toggle « tous les
-  espaces » + multi-select). Le backend exposera `allSpaces` / `spaceAccess[]` dans `POST /users`.
-  Ne rien coder maintenant côté espaces — un second handoff suivra quand le backend Phase 2 sera prêt.
+## 4. CRUD utilisateur — sélection des espaces (Phase 2, backend PRÊT)
+
+Le backend Phase 2 est livré. `POST /users` accepte maintenant, en plus de `roleId` :
+
+| Champ | Type | Effet |
+|-------|------|-------|
+| `allSpaces` | `boolean` | Donne accès à **tous les espaces actuels** du tenant (crée les `UserSpaceAccess`). |
+| `spaceIds` | `string[]` | Liste d'IDs d'espaces à accorder (ignoré si `allSpaces`). IDs hors-orga ignorés. |
+
+Règle d'accès appliquée côté backend (à refléter dans l'UX) :
+- **ADMIN / MANAGER** voient **tous** les espaces (permission `spaces.viewAll`) → pour eux, le sélecteur
+  d'espaces est inutile (le masquer ou afficher « tous les espaces »).
+- **STAFF / VIEWER** (et rôles custom sans `spaces.viewAll`) → ne voient **que** les espaces accordés.
+  C'est là que le sélecteur compte.
+
+**À faire dans `UserCreateView`** : quand le rôle choisi n'est pas ADMIN/MANAGER, afficher un toggle
+« Accès à tous les espaces » (→ `allSpaces: true`) **ou** un multi-select d'espaces (→ `spaceIds`).
+Charger la liste via `GET /spaces/light`.
+
+**Conséquence côté navigation/espaces** : un utilisateur restreint reçoit désormais **403** s'il tente
+d'ouvrir un espace hors de son périmètre, et sa **liste d'espaces est déjà filtrée** par l'API (rien à
+faire de spécial, mais ne pas s'étonner qu'un STAFF voie moins d'espaces qu'un ADMIN).
+
+> Édition du périmètre d'un utilisateur existant (ajout/retrait d'espaces après coup) : endpoints
+> `POST/DELETE /users/:id/spaces/:spaceId/access` déjà existants (ADMIN/MANAGER).
 
 ## 5. Super-admin (préparation)
 - `GET /me` renvoie maintenant `isSuperAdmin`. Stocker ce flag dans le store `auth` (à côté de `userRole`)

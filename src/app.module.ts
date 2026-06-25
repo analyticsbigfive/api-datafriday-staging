@@ -47,6 +47,8 @@ import { TenantThrottlerGuard } from './core/throttle/tenant-throttler.guard';
 import { JwtDatabaseGuard } from './core/auth/guards/jwt-db.guard';
 import { RolesGuard } from './core/auth/guards/roles.guard';
 import { PermissionsGuard } from './core/auth/guards/permissions.guard';
+import { SpaceAccessGuard } from './core/auth/guards/space-access.guard';
+import { SpaceAccessModule } from './core/auth/space-access.module';
 import { TenantGuard } from './core/auth/guards/tenant.guard';
 import { SupabaseModule } from './core/supabase/supabase.module';
 import { TenantModule } from './core/tenant/tenant.module';
@@ -112,6 +114,7 @@ import { TenantContextInterceptor } from './core/tenant/tenant-context.intercept
     CacheModule,
     SupabaseModule,
     TenantModule,
+    SpaceAccessModule,
     RedisModule.forRoot(),
     QueueModule,
     PrismaModule,
@@ -163,6 +166,8 @@ import { TenantContextInterceptor } from './core/tenant/tenant-context.intercept
     { provide: APP_GUARD, useClass: RolesGuard },
     // 5. Fine-grained RBAC — enforces @RequirePermissions()
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    // 6. Space-scoped access — STAFF/VIEWER limités à leurs espaces accordés
+    { provide: APP_GUARD, useClass: SpaceAccessGuard },
   ],
 })
 export class AppModule { }

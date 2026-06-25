@@ -6,6 +6,8 @@ import { CreateSpaceDto } from './dto/create-space.dto';
 import { UpdateSpaceDto } from './dto/update-space.dto';
 import { QuerySpaceDto } from './dto/query-space.dto';
 import { WeezeventClientService } from '../weezevent/services/weezevent-client.service';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
+import { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 
 @Injectable()
 export class SpacesService {
@@ -22,7 +24,20 @@ export class SpacesService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly weezeventClient: WeezeventClientService,
+    private readonly spaceAccess: SpaceAccessService,
   ) {}
+
+  /**
+   * Périmètre d'espaces de l'utilisateur pour le filtrage des LISTES.
+   * Retourne `null` = accès complet (aucun filtre, cache tenant-wide autorisé),
+   * sinon la liste des spaceId accessibles (cache tenant-wide à NE PAS utiliser).
+   */
+  private async restrictedSpaceIds(
+    user: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'role'>,
+  ): Promise<string[] | null> {
+    const ids = await this.spaceAccess.getAccessibleSpaceIds(user);
+    return ids === 'ALL' ? null : ids;
+  }
 
   /** Invalidate all space list caches for a tenant */
   private async invalidateSpaceCache(tenantId: string, spaceId?: string) {
@@ -88,12 +103,16 @@ export class SpacesService {
    * Find all spaces for a tenant with pagination (Redis-cached, TTL 60s).
    * Cache is bypassed when a search filter is applied.
    */
-  async findAll(tenantId: string, query: QuerySpaceDto) {
+  async findAll(tenantId: string, query: QuerySpaceDto, user: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'role'>) {
     const { search, page = 1, limit = 10 } = query;
     const skip = (page - 1) * limit;
 
-    // Only cache the default first-page, no-filter request (the common wizard case)
-    const isCacheable = !search && page === 1 && limit === 10;
+    // Périmètre espaces : null = accès complet ; sinon liste restreinte.
+    const accessibleIds = await this.restrictedSpaceIds(user);
+
+    // Cache tenant-wide réservé aux utilisateurs à accès complet (sinon fuite d'espaces
+    // non autorisés à un user restreint).
+    const isCacheable = !search && page === 1 && limit === 10 && accessibleIds === null;
     if (isCacheable) {
       const cached = await this.redis.get<any>(this.SPACES_LIST_CACHE_KEY(tenantId));
       if (cached) return cached;
@@ -102,6 +121,10 @@ export class SpacesService {
     const where: any = {
       tenantId,
     };
+
+    if (accessibleIds !== null) {
+      where.id = { in: accessibleIds };
+    }
 
     if (search) {
       where.name = {
@@ -182,18 +205,31 @@ export class SpacesService {
    * Lightweight space list for selects/wizards — only id + name.
    * Redis-cached (TTL 60s). ~10x faster than findAll.
    */
-  async getSpacesLight(tenantId: string): Promise<{ id: string; name: string }[]> {
+  async getSpacesLight(
+    tenantId: string,
+    user: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'role'>,
+  ): Promise<{ id: string; name: string }[]> {
+    const accessibleIds = await this.restrictedSpaceIds(user);
     const cacheKey = this.SPACES_LIGHT_CACHE_KEY(tenantId);
-    const cached = await this.redis.get<{ id: string; name: string }[]>(cacheKey);
-    if (cached) return cached;
+
+    // Cache tenant-wide réservé aux accès complets.
+    if (accessibleIds === null) {
+      const cached = await this.redis.get<{ id: string; name: string }[]>(cacheKey);
+      if (cached) return cached;
+    }
+
+    const where: any = { tenantId };
+    if (accessibleIds !== null) where.id = { in: accessibleIds };
 
     const spaces = await this.prisma.space.findMany({
-      where: { tenantId },
+      where,
       orderBy: { name: 'asc' },
       select: { id: true, name: true },
     });
 
-    await this.redis.set(cacheKey, spaces, { ttl: this.SPACES_CACHE_TTL });
+    if (accessibleIds === null) {
+      await this.redis.set(cacheKey, spaces, { ttl: this.SPACES_CACHE_TTL });
+    }
     return spaces;
   }
 
@@ -434,13 +470,19 @@ export class SpacesService {
   /**
    * Get pinned spaces for a user
    */
-  async getPinned(userId: string, tenantId: string) {
+  async getPinned(
+    userId: string,
+    tenantId: string,
+    user: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'role'>,
+  ) {
+    const accessibleIds = await this.restrictedSpaceIds(user);
+    const spaceWhere: any = { tenantId };
+    if (accessibleIds !== null) spaceWhere.id = { in: accessibleIds };
+
     const pinned = await this.prisma.userPinnedSpace.findMany({
       where: {
         userId,
-        space: {
-          tenantId,
-        },
+        space: spaceWhere,
       },
       include: {
         space: {
@@ -1629,7 +1671,12 @@ export class SpacesService {
   /**
    * Set pinned spaces for a user (replace all)
    */
-  async setPinnedSpaces(userId: string, tenantId: string, spaceIds: string[]) {
+  async setPinnedSpaces(
+    userId: string,
+    tenantId: string,
+    spaceIds: string[],
+    user: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'role'>,
+  ) {
     // Verify all spaces exist and belong to tenant
     const validSpaces = await this.prisma.space.findMany({
       where: {
@@ -1662,7 +1709,7 @@ export class SpacesService {
     }
 
     // Return updated pinned spaces
-    return this.getPinned(userId, tenantId);
+    return this.getPinned(userId, tenantId, user);
   }
 
   /**

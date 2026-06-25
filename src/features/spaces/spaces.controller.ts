@@ -36,10 +36,14 @@ import { RolesGuard } from '../../core/auth/guards/roles.guard';
 import { Roles } from '../../core/auth/decorators/roles.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
+import { SpaceIdParam } from '../../core/auth/decorators/space-id-param.decorator';
 
 @ApiTags('Spaces')
 @ApiBearerAuth('supabase-jwt')
 @Controller('spaces')
+// Ce contrôleur expose `/spaces/:id` → indique au SpaceAccessGuard que l'id d'espace
+// est porté par le param `id` (et non `spaceId`).
+@SpaceIdParam('id')
 @UseGuards(JwtDatabaseGuard, RolesGuard)
 export class SpacesController {
   constructor(private readonly spacesService: SpacesService) {}
@@ -137,7 +141,7 @@ export class SpacesController {
     if (!user.tenantId) {
       throw new ForbiddenException('Organisation requise. Veuillez compléter l\'onboarding.');
     }
-    return this.spacesService.findAll(user.tenantId, query);
+    return this.spacesService.findAll(user.tenantId, query, user);
   }
 
   /**
@@ -166,7 +170,7 @@ export class SpacesController {
     if (!user.tenantId) {
       throw new ForbiddenException('Organisation requise. Veuillez compléter l\'onboarding.');
     }
-    return this.spacesService.getSpacesLight(user.tenantId);
+    return this.spacesService.getSpacesLight(user.tenantId, user);
   }
 
   /**
@@ -218,7 +222,7 @@ export class SpacesController {
     description: 'Liste des espaces épinglés',
   })
   async getPinned(@CurrentUser() user: any) {
-    return this.spacesService.getPinned(user.id, user.tenantId);
+    return this.spacesService.getPinned(user.id, user.tenantId, user);
   }
 
   /**

@@ -15,7 +15,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { QueryUserDto } from './dto/query-user.dto';
 import { InviteUserDto } from './dto/invite-user.dto';
 import { ChangeRoleDto } from './dto/change-role.dto';
-import { UserRole } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 
 @Injectable()
 export class UsersService {
@@ -70,6 +70,30 @@ export class UsersService {
   }
 
   /**
+   * Résout les espaces à accorder à un nouvel utilisateur :
+   * `allSpaces` → tous les espaces du tenant ; sinon `spaceIds` validés
+   * (les IDs hors de l'organisation sont silencieusement ignorés).
+   */
+  private async resolveTargetSpaceIds(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    dto: { allSpaces?: boolean; spaceIds?: string[] },
+  ): Promise<string[]> {
+    if (dto.allSpaces) {
+      const spaces = await tx.space.findMany({ where: { tenantId }, select: { id: true } });
+      return spaces.map((s) => s.id);
+    }
+    if (dto.spaceIds?.length) {
+      const valid = await tx.space.findMany({
+        where: { tenantId, id: { in: dto.spaceIds } },
+        select: { id: true },
+      });
+      return valid.map((s) => s.id);
+    }
+    return [];
+  }
+
+  /**
    * Create a new user for a tenant
    */
   async create(tenantId: string, dto: CreateUserDto) {
@@ -100,33 +124,48 @@ export class UsersService {
       userMetadata: { firstName: dto.firstName, lastName: dto.lastName, tenantId },
     });
 
-    // 2) Mirror in our DB. On failure, roll back the Supabase account to avoid orphans.
+    // 2) Mirror in our DB (atomique : user + membership + accès espaces).
+    //    On failure, roll back the Supabase account to avoid orphans.
     try {
-      const user = await this.prisma.user.create({
-        data: {
-          id: supabaseUser.id,
-          email: dto.email,
-          firstName: dto.firstName,
-          lastName: dto.lastName,
-          fullName,
-          role,
-          roleId,
-          avatar: dto.avatar,
-          tenantId,
-        },
-        include: {
-          tenant: { select: { id: true, name: true, slug: true } },
-        },
-      });
+      const user = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.user.create({
+          data: {
+            id: supabaseUser.id,
+            email: dto.email,
+            firstName: dto.firstName,
+            lastName: dto.lastName,
+            fullName,
+            role,
+            roleId,
+            avatar: dto.avatar,
+            tenantId,
+          },
+          include: {
+            tenant: { select: { id: true, name: true, slug: true } },
+          },
+        });
 
-      await this.prisma.userTenant.create({
-        data: {
-          userId: user.id,
-          tenantId,
-          role,
-          roleId,
-          isOwner: false,
-        },
+        await tx.userTenant.create({
+          data: {
+            userId: created.id,
+            tenantId,
+            role,
+            roleId,
+            isOwner: false,
+          },
+        });
+
+        // Accès par espace (cf. Phase 2). Sans effet réel pour les rôles à accès complet
+        // (ADMIN/MANAGER voient déjà tout), mais on respecte l'intention de l'admin.
+        const spaceIds = await this.resolveTargetSpaceIds(tx, tenantId, dto);
+        if (spaceIds.length) {
+          await tx.userSpaceAccess.createMany({
+            data: spaceIds.map((spaceId) => ({ userId: created.id, spaceId, role })),
+            skipDuplicates: true,
+          });
+        }
+
+        return created;
       });
 
       this.logger.log(`User ${user.email} (${user.id}) created for tenant ${tenantId}`);

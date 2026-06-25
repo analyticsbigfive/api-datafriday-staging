@@ -662,9 +662,9 @@ model MarketPrice {
   supplier               String? // Nom du fournisseur
   supplierId             String? // ID du fournisseur
   pricePerUnit           Decimal?  @db.Decimal(10, 4)
-  packedUnits            Int?
-  numberOfUnits          Int?
-  unitsPerPurchase       Int?
+  packedUnits            Float?
+  numberOfUnits          Float?
+  unitsPerPurchase       Float?
   packingWidth           Float?
   packingHeight          Float?
   packingLength          Float?

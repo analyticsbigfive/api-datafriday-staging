@@ -85,11 +85,13 @@ export class CreateMarketPriceDto {
   pricePerUnit?: number;
 
   @ApiProperty({ required: false })
+  @IsNumber()
   @IsOptional()
   @Type(() => Number)
   packedUnits?: number;
 
   @ApiProperty({ required: false })
+  @IsNumber()
   @IsOptional()
   @Type(() => Number)
   numberOfUnits?: number;

@@ -276,6 +276,10 @@ model User {
   role      UserRole @default(VIEWER) // Legacy - conservé pour compatibilité, voir roleRef
   roleId    String? // RBAC dynamique - FK vers Role (nullable pendant la transition)
   avatar    String?
+  // Super-admin PLATEFORME (DataFriday), distinct du rôle ADMIN d'une organisation.
+  // Donne accès à l'administration cross-tenant (SuperAdminGuard). Écriture réservée
+  // à un super-admin existant / bootstrap via script. Voir docs/CONCEPTION_CIBLE_AUTH.md §3.
+  isSuperAdmin Boolean @default(false)
   tenantId  String // Keep for backward compatibility
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

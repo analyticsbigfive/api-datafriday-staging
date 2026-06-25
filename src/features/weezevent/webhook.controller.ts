@@ -12,12 +12,18 @@ import {
 } from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../../core/database/prisma.service';
+import { Public } from '../../core/auth/decorators/public.decorator';
 import { WebhookSignatureService } from './services/webhook-signature.service';
 import { WebhookEventHandler } from './services/webhook-event.handler';
 import { WeezeventWebhookPayloadDto } from './dto/webhook-payload.dto';
 
+// Endpoint appelé par Weezevent (sans JWT Supabase) : l'authentification se fait
+// par SIGNATURE HMAC (header x-weezevent-signature), pas par le guard JWT global.
+// `@Public()` désactive JwtDatabaseGuard/TenantGuard ; le scoping Prisma est de toute
+// façon neutralisé hors contexte tenant (cf. PrismaService).
 @ApiTags('Weezevent Webhooks')
 @Controller('webhooks/weezevent')
+@Public()
 export class WebhookController {
     private readonly logger = new Logger(WebhookController.name);
 
@@ -71,25 +77,29 @@ export class WebhookController {
                 throw new UnauthorizedException('Webhooks not enabled for this tenant');
             }
 
-            // 2. Validate signature if secret is configured
-            if (tenant.weezeventWebhookSecret) {
-                if (!signature) {
-                    throw new UnauthorizedException('Signature header missing');
-                }
-
-                const isValid = this.signatureService.validateSignature(
-                    payload,
-                    signature,
-                    tenant.weezeventWebhookSecret,
-                );
-
-                if (!isValid) {
-                    this.logger.warn(`Invalid signature for tenant ${tenantId}`);
-                    throw new UnauthorizedException('Invalid signature');
-                }
-
-                this.logger.log(`Signature validated for tenant ${tenantId}`);
+            // 2. Validate signature (OBLIGATOIRE — fail-closed). Sans secret configuré
+            //    ou sans signature valide, on rejette : pas de webhook anonyme/spoofable.
+            if (!tenant.weezeventWebhookSecret) {
+                this.logger.warn(`Webhook secret not configured for tenant ${tenantId}`);
+                throw new UnauthorizedException('Webhook secret not configured for this tenant');
             }
+
+            if (!signature) {
+                throw new UnauthorizedException('Signature header missing');
+            }
+
+            const isValid = this.signatureService.validateSignature(
+                payload,
+                signature,
+                tenant.weezeventWebhookSecret,
+            );
+
+            if (!isValid) {
+                this.logger.warn(`Invalid signature for tenant ${tenantId}`);
+                throw new UnauthorizedException('Invalid signature');
+            }
+
+            this.logger.log(`Signature validated for tenant ${tenantId}`);
 
             // 3. Store webhook event for audit and processing
             const webhookEvent = await this.prisma.weezeventWebhookEvent.create({

@@ -5,6 +5,7 @@ import { RolesGuard } from '../../core/auth/guards/roles.guard';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { SpaceMenusService } from './space-menus.service';
 import { SaveSpaceMenuConfigurationDto } from './dto/save-space-menu-configuration.dto';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 
 @ApiTags('Space Menus')
 @ApiBearerAuth('supabase-jwt')
@@ -219,6 +220,7 @@ export class SpaceMenusController {
     return this.spaceMenusService.getMenuConfiguration(spaceId, configId);
   }
 
+  @RequirePermissions('menu.fb.spaceMenu')
   @Post()
   @ApiOperation({ summary: 'Save menu configuration for a space/config' })
   @ApiBody({ type: SaveSpaceMenuConfigurationDto })

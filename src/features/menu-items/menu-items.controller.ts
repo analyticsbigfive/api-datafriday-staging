@@ -21,6 +21,7 @@ import { CreateProductCategoryDto } from './dto/create-product-category.dto';
 import { CreateProductTypeDto } from './dto/create-product-type.dto';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 
 @ApiTags('Menu Items')
 @ApiBearerAuth('supabase-jwt')
@@ -31,6 +32,7 @@ export class MenuItemsController {
 
   constructor(private readonly menuItemsService: MenuItemsService) {}
 
+  @RequirePermissions('menu.fb.menuItems')
   @Post()
   @ApiOperation({ summary: 'Créer un article de menu' })
   @ApiResponse({ status: 201, description: 'Article créé' })
@@ -39,6 +41,7 @@ export class MenuItemsController {
     return this.menuItemsService.create(dto, tenantId);
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Post('bulk')
   @ApiOperation({ summary: 'Créer plusieurs articles de menu' })
   @ApiResponse({ status: 201, description: 'Articles créés' })
@@ -155,6 +158,7 @@ export class MenuItemsController {
     return this.menuItemsService.findAll(tenantId, page ? +page : 1, limit ? +limit : 100);
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Post('refresh-costs')
   @ApiOperation({ summary: 'Recalculer les coûts des articles' })
   @ApiResponse({ status: 200, description: 'Coûts recalculés' })
@@ -163,6 +167,7 @@ export class MenuItemsController {
     return this.menuItemsService.refreshCosts(tenantId);
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Post(':id/refresh-costs')
   @ApiOperation({ summary: "Recalculer les coûts d'un article" })
   @ApiResponse({ status: 200, description: 'Coûts recalculés (article)' })
@@ -176,6 +181,7 @@ export class MenuItemsController {
     return this.menuItemsService.findOne(id, tenantId);
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Post('recipes')
   @ApiOperation({
     summary: 'Recettes de plusieurs menu items (réarmement plats composés)',
@@ -215,6 +221,7 @@ export class MenuItemsController {
     return this.menuItemsService.findOne(id, tenantId);
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Put(':id/components')
   @ApiOperation({ summary: "Remplacer les composants d'un menu item" })
   @ApiParam({ name: 'id', description: 'ID de l’article de menu' })
@@ -229,6 +236,7 @@ export class MenuItemsController {
     return this.menuItemsService.replaceComponents(id, dto.components, tenantId);
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Put(':id/ingredients')
   @ApiOperation({ summary: "Remplacer les ingrédients d'un menu item" })
   @ApiParam({ name: 'id', description: 'ID de l’article de menu' })
@@ -243,6 +251,7 @@ export class MenuItemsController {
     return this.menuItemsService.replaceIngredients(id, dto.ingredients, tenantId);
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Put(':id/packagings')
   @ApiOperation({ summary: "Remplacer les packagings d'un menu item" })
   @ApiParam({ name: 'id', description: 'ID de l’article de menu' })
@@ -257,6 +266,7 @@ export class MenuItemsController {
     return this.menuItemsService.replacePackagings(id, dto.packagings, tenantId);
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour un article' })
   @ApiParam({ name: 'id', description: 'ID de l’article de menu' })
@@ -266,6 +276,7 @@ export class MenuItemsController {
     return this.menuItemsService.update(id, dto, tenantId);
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer un article' })
   @ApiParam({ name: 'id', description: 'ID de l’article de menu' })
@@ -293,6 +304,7 @@ export class ProductTypesController {
     return this.menuItemsService.getProductTypes(tenantId);
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Post()
   @ApiOperation({ summary: 'Créer un type de produit' })
   @ApiResponse({ status: 201, description: 'Type de produit créé' })
@@ -301,6 +313,7 @@ export class ProductTypesController {
     return this.menuItemsService.createProductType(body.name, tenantId);
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer un type de produit' })
   @ApiResponse({ status: 200, description: 'Type de produit supprimé' })
@@ -329,6 +342,7 @@ export class ProductCategoriesController {
     return this.menuItemsService.getProductCategories(tenantId, typeId);
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Post()
   @ApiOperation({ summary: 'Créer une catégorie de produit' })
   @ApiResponse({ status: 201, description: 'Catégorie de produit créée' })
@@ -342,6 +356,7 @@ export class ProductCategoriesController {
     );
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer une catégorie de produit' })
   @ApiResponse({ status: 200, description: 'Catégorie de produit supprimée' })

@@ -16,6 +16,7 @@ import { SuppliersService } from './suppliers.service';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 
 @ApiTags('Suppliers')
 @ApiBearerAuth('supabase-jwt')
@@ -26,6 +27,7 @@ export class SuppliersController {
 
   constructor(private readonly suppliersService: SuppliersService) {}
 
+  @RequirePermissions('menu.fb.suppliers')
   @Post()
   @ApiOperation({ summary: 'Créer un fournisseur' })
   @ApiResponse({ status: 201, description: 'Fournisseur créé avec succès' })
@@ -69,6 +71,7 @@ export class SuppliersController {
     return this.suppliersService.findOne(id, user.tenantId);
   }
 
+  @RequirePermissions('menu.fb.suppliers')
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour un fournisseur' })
   @ApiParam({ name: 'id', description: 'ID du fournisseur' })
@@ -83,6 +86,7 @@ export class SuppliersController {
     return this.suppliersService.update(id, updateSupplierDto, user.tenantId);
   }
 
+  @RequirePermissions('menu.fb.suppliers')
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer un fournisseur' })
   @ApiParam({ name: 'id', description: 'ID du fournisseur' })

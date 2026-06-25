@@ -1,14 +1,21 @@
-import { Controller, Get } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { RedisService } from '../core/redis/redis.service';
 import { PrismaService } from '../core/database/prisma.service';
 import { QueueService } from '../core/queue/queue.service';
+import { JwtDatabaseGuard } from '../core/auth/guards/jwt-db.guard';
+import { SuperAdminGuard } from '../core/auth/guards/super-admin.guard';
+import { AllowNoTenant } from '../core/auth/decorators/allow-no-tenant.decorator';
 
 /**
- * P2: Metrics endpoint for monitoring performance and health
+ * P2: Metrics endpoint for monitoring performance and health.
+ * Sécurité (P1-5) : métriques PLATEFORME (Redis/DB/queues) → réservées au super-admin.
  */
 @ApiTags('Health')
+@ApiBearerAuth('supabase-jwt')
 @Controller('metrics')
+@AllowNoTenant()
+@UseGuards(JwtDatabaseGuard, SuperAdminGuard)
 export class MetricsController {
   constructor(
     private readonly redis: RedisService,

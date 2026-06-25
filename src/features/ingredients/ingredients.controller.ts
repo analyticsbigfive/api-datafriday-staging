@@ -5,6 +5,7 @@ import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { IngredientsService } from './ingredients.service';
 import { CreateIngredientDto } from './dto/create-ingredient.dto';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 
 @ApiTags('Ingredients')
 @ApiBearerAuth('supabase-jwt')
@@ -15,6 +16,7 @@ export class IngredientsController {
 
   constructor(private readonly ingredientsService: IngredientsService) {}
 
+  @RequirePermissions('menu.fb.menuItems')
   @Post()
   @ApiOperation({ summary: 'Créer un ingrédient' })
   @ApiResponse({ status: 201, description: 'Ingrédient créé' })
@@ -63,6 +65,7 @@ export class IngredientsController {
     return this.ingredientsService.findOne(id, tenantId);
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour un ingrédient' })
   @ApiParam({ name: 'id', description: "ID de l'ingrédient" })
@@ -72,6 +75,7 @@ export class IngredientsController {
     return this.ingredientsService.update(id, dto, tenantId);
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer un ingrédient' })
   @ApiParam({ name: 'id', description: "ID de l'ingrédient" })

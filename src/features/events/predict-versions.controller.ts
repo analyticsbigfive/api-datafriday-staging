@@ -22,6 +22,7 @@ import {
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { PredictVersionsService } from './predict-versions.service';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import {
   CreatePredictVersionDto,
   PatchPredictVersionDto,
@@ -48,6 +49,7 @@ export class PredictVersionsController {
     return this.service.findAll(eventId, user.tenantId);
   }
 
+  @RequirePermissions('menu.events.manage')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Créer une version de prédiction' })
@@ -62,6 +64,7 @@ export class PredictVersionsController {
   }
 
   // Doit être déclaré AVANT :versionId pour que NestJS le matche en premier
+  @RequirePermissions('menu.events.manage')
   @Put('default')
   @ApiOperation({
     summary: 'Définir la version par défaut (exclusif)',
@@ -87,6 +90,7 @@ export class PredictVersionsStandaloneController {
 
   constructor(private readonly service: PredictVersionsService) {}
 
+  @RequirePermissions('menu.events.manage')
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour partiellement une version de prédiction' })
   @ApiParam({ name: 'id', description: 'ID de la version' })
@@ -100,6 +104,7 @@ export class PredictVersionsStandaloneController {
     return this.service.patch(id, user.tenantId, dto);
   }
 
+  @RequirePermissions('menu.events.manage')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Supprimer une version de prédiction' })

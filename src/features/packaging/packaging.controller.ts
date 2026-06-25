@@ -5,6 +5,7 @@ import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { PackagingService } from './packaging.service';
 import { CreatePackagingDto } from './dto/create-packaging.dto';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 
 @ApiTags('Packaging')
 @ApiBearerAuth('supabase-jwt')
@@ -15,6 +16,7 @@ export class PackagingController {
 
   constructor(private readonly packagingService: PackagingService) {}
 
+  @RequirePermissions('menu.fb.menuItems')
   @Post()
   @ApiOperation({ summary: 'Créer un packaging' })
   @ApiResponse({ status: 201, description: 'Packaging créé' })
@@ -47,6 +49,7 @@ export class PackagingController {
     return this.packagingService.findOne(id, tenantId);
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour un packaging' })
   @ApiParam({ name: 'id', description: 'ID du packaging' })
@@ -56,6 +59,7 @@ export class PackagingController {
     return this.packagingService.update(id, dto, tenantId);
   }
 
+  @RequirePermissions('menu.fb.menuItems')
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer un packaging' })
   @ApiParam({ name: 'id', description: 'ID du packaging' })

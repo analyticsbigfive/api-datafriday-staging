@@ -14,6 +14,7 @@ import { QueueService } from '../../core/queue/queue.service';
 import { WeezeventClientService } from './services/weezevent-client.service';
 import { WeezeventCollectWorkerService } from './services/weezevent-collect-worker.service';
 import { WeezeventInsertWorkerService } from './services/weezevent-insert-worker.service';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 
 @ApiTags('Weezevent')
 @ApiBearerAuth('supabase-jwt')
@@ -152,6 +153,7 @@ export class WeezeventController {
      * transactions / events / products are executed in-process (no queue).
      * orders / prices / attendees are still queued via BullMQ.
      */
+    @RequirePermissions('menu.integration.fb')
     @Post('sync')
     @ApiOperation({ summary: 'Déclencher une synchronisation Weezevent' })
     @ApiBody({ type: SyncWeezeventDto })
@@ -293,6 +295,7 @@ export class WeezeventController {
     /**
      * Reset sync state (force full sync next time)
      */
+    @RequirePermissions('menu.integration.fb')
     @Delete('sync/state')
     @ApiOperation({ summary: 'Réinitialiser l’état de synchronisation Weezevent' })
     @ApiQuery({ name: 'integrationId', required: false, description: 'ID de l\'intégration à réinitialiser — si omis, réinitialise toutes les intégrations du tenant' })
@@ -321,6 +324,7 @@ export class WeezeventController {
      * Called when removing an integration with the "delete data" option.
      * Deletes in dependency order to respect foreign key constraints.
      */
+    @RequirePermissions('menu.integration.fb')
     @Delete('data')
     @ApiOperation({ summary: 'Supprimer toutes les données Weezevent synchronisées' })
     @ApiQuery({ name: 'integrationId', required: false, description: 'Supprimer uniquement les données de cette intégration — si omis, supprime TOUT le tenant' })
@@ -734,6 +738,7 @@ export class WeezeventController {
     /**
      * Map a Weezevent product to a MenuItem
      */
+    @RequirePermissions('menu.integration.fb')
     @Post('products/:productId/map')
     @ApiOperation({ summary: 'Associer un produit Weezevent à un menu item' })
     @ApiParam({ name: 'productId', description: 'ID du produit Weezevent' })
@@ -832,6 +837,7 @@ export class WeezeventController {
     /**
      * Delete a product mapping
      */
+    @RequirePermissions('menu.integration.fb')
     @Delete('products/:productId/map')
     @ApiOperation({ summary: 'Supprimer le mapping d’un produit Weezevent' })
     @ApiParam({ name: 'productId', description: 'ID du produit Weezevent' })
@@ -991,6 +997,7 @@ export class WeezeventController {
      * Démarre un job de sync asynchrone avec bissection.
      * Retourne immédiatement un jobId — le frontend poll GET /sync/status/:jobId.
      */
+    @RequirePermissions('menu.integration.fb')
     @Post('sync/start')
     @ApiOperation({ summary: 'Démarrer un job de synchronisation par bissection' })
     @ApiBody({ type: StartSyncJobDto })
@@ -1191,6 +1198,7 @@ export class WeezeventController {
      * Supprime un job de sync (et ses chunks via cascade).
      * Interdit si le job est encore actif (COLLECTING ou INSERTING).
      */
+    @RequirePermissions('menu.integration.fb')
     @Delete('sync/jobs/:jobId')
     @ApiOperation({ summary: 'Supprimer un job de sync' })
     @ApiParam({ name: 'jobId', description: 'ID du job à supprimer' })

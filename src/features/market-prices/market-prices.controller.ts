@@ -18,6 +18,7 @@ import { UpdateMarketPriceDto } from './dto/update-market-price.dto';
 import { ImportMarketPricesDto } from './dto/import-market-prices.dto';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 
 @ApiTags('Market Prices')
 @ApiBearerAuth('supabase-jwt')
@@ -28,6 +29,7 @@ export class MarketPricesController {
 
   constructor(private readonly marketPricesService: MarketPricesService) {}
 
+  @RequirePermissions('menu.fb.marketPrices')
   @Post()
   @ApiOperation({ summary: 'Créer un prix du marché' })
   @ApiResponse({ status: 201, description: 'Prix créé' })
@@ -36,6 +38,7 @@ export class MarketPricesController {
     return this.marketPricesService.create(dto, tenantId);
   }
 
+  @RequirePermissions('menu.fb.marketPrices')
   @Post('import')
   @ApiOperation({ summary: 'Importer des prix en masse' })
   @ApiResponse({ status: 201, description: 'Prix importés' })
@@ -44,6 +47,7 @@ export class MarketPricesController {
     return this.marketPricesService.bulkCreate(dto.items, tenantId);
   }
 
+  @RequirePermissions('menu.fb.marketPrices')
   @Post('deduplicate')
   @ApiOperation({ summary: 'Dédupliquer les prix du marché' })
   @ApiResponse({ status: 200, description: 'Déduplication effectuée' })
@@ -52,6 +56,7 @@ export class MarketPricesController {
     return this.marketPricesService.deduplicate(tenantId);
   }
 
+  @RequirePermissions('menu.fb.marketPrices')
   @Post('sync-ingredients')
   @ApiOperation({ summary: 'Synchroniser les ingrédients depuis les prix du marché (Food/Beverage)' })
   @ApiResponse({ status: 200, description: 'Synchronisation effectuée' })
@@ -60,6 +65,7 @@ export class MarketPricesController {
     return this.marketPricesService.syncIngredients(tenantId);
   }
 
+  @RequirePermissions('menu.fb.marketPrices')
   @Post('sync-packagings')
   @ApiOperation({
     summary: 'Synchroniser les packagings depuis les prix du marché (Packaging)',
@@ -188,6 +194,7 @@ export class MarketPricesController {
     return this.marketPricesService.findOne(id, tenantId);
   }
 
+  @RequirePermissions('menu.fb.marketPrices')
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour un prix' })
   @ApiParam({ name: 'id', description: 'ID du prix marché' })
@@ -198,6 +205,7 @@ export class MarketPricesController {
     return this.marketPricesService.update(id, dto, tenantId);
   }
 
+  @RequirePermissions('menu.fb.marketPrices')
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer un prix' })
   @ApiParam({ name: 'id', description: 'ID du prix marché' })
@@ -208,6 +216,7 @@ export class MarketPricesController {
     return this.marketPricesService.remove(id, tenantId);
   }
 
+  @RequirePermissions('menu.fb.marketPrices')
   @Delete('item/:itemName')
   @ApiOperation({ summary: 'Supprimer tous les prix par nom de produit' })
   @ApiParam({ name: 'itemName', description: 'Nom du produit à supprimer (URL encodé si nécessaire)' })

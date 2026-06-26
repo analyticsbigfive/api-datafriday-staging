@@ -8,6 +8,7 @@ import { QueueService } from '../../core/queue/queue.service';
 import { WeezeventClientService } from './services/weezevent-client.service';
 import { WeezeventCollectWorkerService } from './services/weezevent-collect-worker.service';
 import { WeezeventInsertWorkerService } from './services/weezevent-insert-worker.service';
+import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
 
 describe('WeezeventController', () => {
   let controller: WeezeventController;
@@ -148,6 +149,14 @@ describe('WeezeventController', () => {
         { provide: WeezeventClientService, useValue: {} },
         { provide: WeezeventCollectWorkerService, useValue: {} },
         { provide: WeezeventInsertWorkerService, useValue: {} },
+        {
+          provide: MenuItemPricingService,
+          useValue: {
+            getTenantDefaultVatRate: jest.fn().mockResolvedValue(20),
+            withPricing: jest.fn((mi: any) => mi),
+            enrichMappingsPricing: jest.fn(async (mappings: any[]) => mappings),
+          },
+        },
       ],
     }).compile();
 

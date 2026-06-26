@@ -12,11 +12,12 @@ describe('MenuItemsService product categories', () => {
   } as any;
 
   const mockRedis = {} as any;
+  const mockPricing = {} as any;
 
   let service: MenuItemsService;
 
   beforeEach(() => {
-    service = new MenuItemsService(mockPrisma, mockRedis);
+    service = new MenuItemsService(mockPrisma, mockRedis, mockPricing);
     jest.clearAllMocks();
   });
 

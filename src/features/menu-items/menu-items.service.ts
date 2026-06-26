@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
+import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 
@@ -33,6 +34,7 @@ export class MenuItemsService {
   constructor(
     private prisma: PrismaService,
     private redis: RedisService,
+    private pricing: MenuItemPricingService,
   ) {}
 
   private cacheKey(tenantId: string, suffix = 'list') {
@@ -66,7 +68,7 @@ export class MenuItemsService {
     },
   };
 
-  private serializeItem(item: any) {
+  private serializeItem(item: any, tenantVatRate: number | null = null) {
     // Collect spaceIds from direct field first, then enrich with menuAssignments-derived ones
     const directSpaceIds: string[] = Array.isArray(item.spaceIds) ? item.spaceIds : [];
     const assignmentSpaceIds: string[] = [];
@@ -84,12 +86,22 @@ export class MenuItemsService {
       if (!mergedSpaceIds.includes(sid)) mergedSpaceIds.push(sid);
     }
     const { menuAssignments, ...rest } = item;
-    return { ...rest, spaceIds: mergedSpaceIds };
+    return {
+      ...rest,
+      spaceIds: mergedSpaceIds,
+      pricing: this.pricing.computePricing(item, tenantVatRate, null),
+      spacePricing: this.pricing.computeSpacePricing(item, tenantVatRate, null),
+    };
   }
 
   private toNumber(value: unknown, fallback = 0) {
     const n = Number(value);
     return Number.isFinite(n) ? n : fallback;
+  }
+
+  /** Délègue au service partagé (réutilisé par la Data Integration). */
+  private getTenantDefaultVatRate(tenantId: string): Promise<number> {
+    return this.pricing.getTenantDefaultVatRate(tenantId);
   }
 
   private async getComponentUnitCost(componentId: string, tenantId: string) {
@@ -147,6 +159,9 @@ export class MenuItemsService {
           brandId: dto.brandId || null,
           displayNameId: dto.displayNameId || null,
           basePrice: dto.basePrice,
+          vatRate: dto.vatRate ?? null,
+          discountType: dto.discountType ?? null,
+          discountValue: dto.discountValue ?? null,
           totalCost: dto.totalCost,
           margin: dto.margin,
           description: dto.description,
@@ -240,6 +255,9 @@ export class MenuItemsService {
         brandId: dto.brandId || null,
         displayNameId: dto.displayNameId || null,
         basePrice: dto.basePrice,
+        vatRate: dto.vatRate ?? null,
+        discountType: dto.discountType ?? null,
+        discountValue: dto.discountValue ?? null,
         totalCost: dto.totalCost,
         margin: dto.margin,
         description: dto.description,
@@ -288,7 +306,7 @@ export class MenuItemsService {
       const cacheKey = this.cacheKey(tenantId, `list:${page}:${limit}`);
       return this.redis.getOrSet(cacheKey, async () => {
         const skip = (page - 1) * limit;
-        const [items, total] = await Promise.all([
+        const [items, total, tenantVatRate] = await Promise.all([
           this.prisma.menuItem.findMany({
             where: { tenantId, deletedAt: null },
             orderBy: { name: 'asc' },
@@ -297,10 +315,11 @@ export class MenuItemsService {
             take: limit,
           }),
           this.prisma.menuItem.count({ where: { tenantId, deletedAt: null } }),
+          this.getTenantDefaultVatRate(tenantId),
         ]);
         this.logger.log(`Found ${items.length}/${total} menu items`);
         return {
-          data: items.map(i => this.serializeItem(i)),
+          data: items.map(i => this.serializeItem(i, tenantVatRate)),
           meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
         };
       }, { ttl: 60 });
@@ -312,15 +331,18 @@ export class MenuItemsService {
 
   async findOne(id: string, tenantId: string) {
     this.logger.log(`Fetching menu item ${id} for tenant ${tenantId}`);
-    const item = await this.prisma.menuItem.findFirst({
-      where: { id, tenantId, deletedAt: null },
-      include: this.includeRelations,
-    });
+    const [item, tenantVatRate] = await Promise.all([
+      this.prisma.menuItem.findFirst({
+        where: { id, tenantId, deletedAt: null },
+        include: this.includeRelations,
+      }),
+      this.getTenantDefaultVatRate(tenantId),
+    ]);
     if (!item) {
       this.logger.warn(`Menu item ${id} not found for tenant ${tenantId}`);
       throw new NotFoundException(`Menu item with ID ${id} not found`);
     }
-    return this.serializeItem(item);
+    return this.serializeItem(item, tenantVatRate);
   }
 
   // ── Recette / réarmement plats composés ──────────────────────────────────
@@ -506,6 +528,9 @@ export class MenuItemsService {
     if (dto.brandId !== undefined) updateData.brandId = dto.brandId || null;
     if (dto.displayNameId !== undefined) updateData.displayNameId = dto.displayNameId || null;
     if (dto.basePrice !== undefined) updateData.basePrice = dto.basePrice;
+    if (dto.vatRate !== undefined) updateData.vatRate = dto.vatRate ?? null;
+    if (dto.discountType !== undefined) updateData.discountType = dto.discountType ?? null;
+    if (dto.discountValue !== undefined) updateData.discountValue = dto.discountValue ?? null;
     if (dto.totalCost !== undefined) updateData.totalCost = dto.totalCost;
     if (dto.margin !== undefined) updateData.margin = dto.margin;
     if (dto.description !== undefined) updateData.description = dto.description;

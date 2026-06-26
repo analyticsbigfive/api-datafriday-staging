@@ -15,6 +15,7 @@ import { WeezeventClientService } from './services/weezevent-client.service';
 import { WeezeventCollectWorkerService } from './services/weezevent-collect-worker.service';
 import { WeezeventInsertWorkerService } from './services/weezevent-insert-worker.service';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
 
 @ApiTags('Weezevent')
 @ApiBearerAuth('supabase-jwt')
@@ -32,6 +33,7 @@ export class WeezeventController {
         private readonly weezeventClient: WeezeventClientService,
         private readonly collectWorker: WeezeventCollectWorkerService,
         private readonly insertWorker: WeezeventInsertWorkerService,
+        private readonly pricing: MenuItemPricingService,
     ) { }
 
     /**
@@ -813,7 +815,7 @@ export class WeezeventController {
             this.prisma.weezeventProductMapping.findMany({
                 where: { tenantId },
                 include: {
-                    weezeventProduct: true,
+                    weezeventProduct: { include: { prices: true } },
                     menuItem: true,
                 },
                 orderBy: { createdAt: 'desc' },
@@ -823,8 +825,13 @@ export class WeezeventController {
             this.prisma.weezeventProductMapping.count({ where: { tenantId } }),
         ]);
 
+        // Étape 3 Data Integration : on expose TOUT (le front décide quoi afficher) —
+        // menuItem.pricing (catalogue) + weezeventProduct.pricing (référence Weezevent,
+        // TVA + devise réelles) + weezeventProduct.salesPricing (réellement encaissé).
+        const data = await this.pricing.enrichMappingsPricing(mappings, tenantId);
+
         return {
-            data: mappings,
+            data,
             meta: {
                 current_page: p,
                 per_page: pp,

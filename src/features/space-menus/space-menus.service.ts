@@ -1,11 +1,15 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
 
 @Injectable()
 export class SpaceMenusService {
   private readonly logger = new Logger(SpaceMenusService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private pricing: MenuItemPricingService,
+  ) {}
 
   /**
    * Get all menu items assigned to a shop (SpaceElement)
@@ -40,6 +44,10 @@ export class SpaceMenusService {
                 id: true,
                 name: true,
                 basePrice: true,
+                vatRate: true,
+                discountType: true,
+                discountValue: true,
+                spacePrices: true,
                 totalCost: true,
                 margin: true,
                 description: true,
@@ -166,6 +174,7 @@ export class SpaceMenusService {
     }
 
     const shopAny = shop as any;
+    const tenantVatRate = await this.pricing.getTenantDefaultVatRate(tenantId);
 
     // Transform the data to a cleaner format
     const menuItems = shopAny.menuAssignments.map((assignment: any) => {
@@ -178,6 +187,9 @@ export class SpaceMenusService {
         basePrice: Number(mi.basePrice || 0),
         totalCost: Number(mi.totalCost || 0),
         margin: mi.margin,
+        // Décomposition prix complète (TTC/HT/taxe/remise) — même contrat que /menu-items.
+        pricing: this.pricing.computePricing(mi, tenantVatRate, null),
+        spacePricing: this.pricing.computeSpacePricing(mi, tenantVatRate, null),
         diet: mi.diet || [],
         allergens: mi.allergens || [],
         storageType: mi.storageType || [],

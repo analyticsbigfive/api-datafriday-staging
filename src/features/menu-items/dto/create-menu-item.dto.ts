@@ -6,6 +6,7 @@ import {
   IsInt,
   IsArray,
   IsEnum,
+  IsIn,
   ValidateNested,
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
@@ -96,10 +97,27 @@ export class CreateMenuItemDto {
   @Transform(({ value }) => value || undefined)
   displayNameId?: string;
 
-  @ApiProperty({ description: 'Prix de vente de base' })
+  @ApiProperty({ description: 'Prix de vente de base (TTC brut)' })
   @IsNumber()
   @Type(() => Number)
   basePrice: number;
+
+  @ApiPropertyOptional({ description: 'Taux de TVA % par article (null → défaut tenant)' })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  vatRate?: number;
+
+  @ApiPropertyOptional({ description: 'Type de remise catalogue', enum: ['percent', 'amount'] })
+  @IsOptional()
+  @IsIn(['percent', 'amount'])
+  discountType?: 'percent' | 'amount';
+
+  @ApiPropertyOptional({ description: 'Valeur de remise (% si percent, montant TTC si amount)' })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  discountValue?: number;
 
   @ApiPropertyOptional({ description: 'Coût total calculé' })
   @IsOptional()

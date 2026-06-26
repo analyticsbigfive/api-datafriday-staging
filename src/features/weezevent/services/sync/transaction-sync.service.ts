@@ -430,7 +430,9 @@ export class WeezeventTransactionSyncService {
                 quantity: totalQty || 1,
                 unitPrice: (row.unit_price || 0) / 100,
                 vat: row.vat || 0,
-                reduction: row.reduction || 0,
+                // Weezevent renvoie reduction en centimes → euros (aligné sur
+                // incremental-sync + aggregation qui la traite comme un montant €).
+                reduction: (row.reduction || 0) / 100,
                 rawData: row as any,
             };
         });

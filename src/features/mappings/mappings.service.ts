@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SpacesService } from '../spaces/spaces.service';
+import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
 import {
   CreateLocationSpaceMappingDto,
   CreateMerchantElementMappingDto,
@@ -20,7 +21,11 @@ export class MappingsService {
   /** Safe chunk size for Prisma $transaction batches (avoids timeouts/OOM at 100k+ items). */
   private readonly BULK_CHUNK_SIZE = 500;
 
-  constructor(private prisma: PrismaService, private spacesService: SpacesService) {}
+  constructor(
+    private prisma: PrismaService,
+    private spacesService: SpacesService,
+    private pricing: MenuItemPricingService,
+  ) {}
 
   // ─── Location → Space ───────────────────────────────────
 
@@ -501,7 +506,7 @@ export class MappingsService {
       this.prisma.weezeventProductMapping.findMany({
         where,
         include: {
-          weezeventProduct: true,
+          weezeventProduct: { include: { prices: true } },
           menuItem: true,
         },
         orderBy: { createdAt: 'desc' },
@@ -511,8 +516,13 @@ export class MappingsService {
       this.prisma.weezeventProductMapping.count({ where }),
     ]);
 
+    // Étape 3 Data Integration : on expose TOUT (le front décide quoi afficher) —
+    // menuItem.pricing (catalogue) + weezeventProduct.pricing (référence Weezevent,
+    // TVA + devise réelles) + weezeventProduct.salesPricing (réellement encaissé).
+    const enriched = await this.pricing.enrichMappingsPricing(data, tenantId);
+
     return {
-      data,
+      data: enriched,
       meta: { page, limit: safeLimit, total, totalPages: Math.ceil(total / safeLimit) },
     };
   }

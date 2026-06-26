@@ -10,6 +10,7 @@ import { UpdateEventCategoryDto } from './dto/update-event-category.dto';
 import { CreateEventSubcategoryDto } from './dto/create-event-subcategory.dto';
 import { UpdateEventSubcategoryDto } from './dto/update-event-subcategory.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 
 @ApiTags('Events')
 @ApiBearerAuth('supabase-jwt')
@@ -18,6 +19,7 @@ import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 export class EventsController {
   constructor(private readonly eventsService: EventsService) {}
 
+  @RequirePermissions('menu.events.manage')
   @Post()
   @ApiOperation({ summary: 'Créer un événement' })
   @ApiResponse({ status: 201, description: 'Événement créé' })
@@ -43,6 +45,7 @@ export class EventsController {
     return this.eventsService.findOne(id, req.user.tenantId);
   }
 
+  @RequirePermissions('menu.events.manage')
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour un événement' })
   @ApiParam({ name: 'id', description: 'ID de l’événement' })
@@ -51,6 +54,7 @@ export class EventsController {
     return this.eventsService.update(id, req.user.tenantId, dto);
   }
 
+  @RequirePermissions('menu.events.manage')
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer un événement' })
   @ApiParam({ name: 'id', description: 'ID de l’événement' })
@@ -72,17 +76,20 @@ export class EventTypesController {
   @ApiResponse({ status: 200, description: 'Liste des types d’événements' })
   findAll(@Req() req) { return this.eventsService.getEventTypes(req.user.tenantId); }
 
+  @RequirePermissions('menu.events.manage')
   @Post()
   @ApiOperation({ summary: 'Créer un type d’événement' })
   @ApiResponse({ status: 201, description: 'Type d’événement créé' })
   create(@Req() req, @Body() dto: CreateEventTypeDto) { return this.eventsService.createEventType(req.user.tenantId, dto); }
 
+  @RequirePermissions('menu.events.manage')
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour un type d’événement' })
   @ApiParam({ name: 'id', description: 'ID du type d’événement' })
   @ApiResponse({ status: 200, description: 'Type d’événement mis à jour' })
   update(@Req() req, @Param('id') id: string, @Body() dto: UpdateEventTypeDto) { return this.eventsService.updateEventType(req.user.tenantId, id, dto); }
 
+  @RequirePermissions('menu.events.manage')
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer un type d’événement' })
   @ApiParam({ name: 'id', description: 'ID du type d’événement' })
@@ -102,17 +109,20 @@ export class EventCategoriesController {
   @ApiResponse({ status: 200, description: 'Liste des catégories d’événements' })
   findAll(@Req() req) { return this.eventsService.getEventCategories(req.user.tenantId); }
 
+  @RequirePermissions('menu.events.manage')
   @Post()
   @ApiOperation({ summary: 'Créer une catégorie d’événement' })
   @ApiResponse({ status: 201, description: 'Catégorie d’événement créée' })
   create(@Req() req, @Body() dto: CreateEventCategoryDto) { return this.eventsService.createEventCategory(req.user.tenantId, dto); }
 
+  @RequirePermissions('menu.events.manage')
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour une catégorie d’événement' })
   @ApiParam({ name: 'id', description: 'ID de la catégorie d’événement' })
   @ApiResponse({ status: 200, description: 'Catégorie d’événement mise à jour' })
   update(@Req() req, @Param('id') id: string, @Body() dto: UpdateEventCategoryDto) { return this.eventsService.updateEventCategory(req.user.tenantId, id, dto); }
 
+  @RequirePermissions('menu.events.manage')
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer une catégorie d’événement' })
   @ApiParam({ name: 'id', description: 'ID de la catégorie d’événement' })
@@ -132,17 +142,20 @@ export class EventSubcategoriesController {
   @ApiResponse({ status: 200, description: 'Liste des sous-catégories d’événements' })
   findAll(@Req() req) { return this.eventsService.getEventSubcategories(req.user.tenantId); }
 
+  @RequirePermissions('menu.events.manage')
   @Post()
   @ApiOperation({ summary: 'Créer une sous-catégorie d’événement' })
   @ApiResponse({ status: 201, description: 'Sous-catégorie d’événement créée' })
   create(@Req() req, @Body() dto: CreateEventSubcategoryDto) { return this.eventsService.createEventSubcategory(req.user.tenantId, dto); }
 
+  @RequirePermissions('menu.events.manage')
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour une sous-catégorie d’événement' })
   @ApiParam({ name: 'id', description: 'ID de la sous-catégorie d’événement' })
   @ApiResponse({ status: 200, description: 'Sous-catégorie d’événement mise à jour' })
   update(@Req() req, @Param('id') id: string, @Body() dto: UpdateEventSubcategoryDto) { return this.eventsService.updateEventSubcategory(req.user.tenantId, id, dto); }
 
+  @RequirePermissions('menu.events.manage')
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer une sous-catégorie d’événement' })
   @ApiParam({ name: 'id', description: 'ID de la sous-catégorie d’événement' })

@@ -20,6 +20,13 @@ export interface PermissionDefinition {
 export const SYSTEM_PERMISSIONS: PermissionDefinition[] = [
   // Navigation
   { code: 'nav.spaces', name: 'Accès Spaces', category: 'Navigation', description: 'Accès au menu Spaces' },
+  {
+    code: 'spaces.viewAll',
+    name: 'Voir tous les espaces',
+    category: 'Spaces',
+    description:
+      "Accès à TOUS les espaces de l'organisation. Sans cette permission, l'utilisateur ne voit que les espaces qui lui sont explicitement accordés (UserSpaceAccess).",
+  },
   { code: 'nav.analytics.fb', name: 'Analytiques F&B', category: 'Navigation' },
   { code: 'nav.analytics.hospitality', name: 'Analytiques Hospitality', category: 'Navigation' },
   { code: 'nav.analytics.merch', name: 'Analytiques Merch', category: 'Navigation' },
@@ -75,6 +82,7 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
       "Gestion opérationnelle : F&B, événements, configuration, intégrations et utilisateurs (hors rôles/permissions).",
     permissions: [
       'nav.spaces',
+      'spaces.viewAll',
       'nav.analytics.fb',
       'nav.analytics.hospitality',
       'nav.analytics.merch',

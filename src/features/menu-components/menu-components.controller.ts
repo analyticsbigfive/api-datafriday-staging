@@ -19,6 +19,7 @@ import { UpdateMenuComponentDto } from './dto/update-menu-component.dto';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { ValidationErrorEnricherInterceptor } from './interceptors/validation-error-enricher.interceptor';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 
 @ApiTags('Menu Components')
 @ApiBearerAuth('supabase-jwt')
@@ -29,6 +30,7 @@ export class MenuComponentsController {
 
   constructor(private readonly menuComponentsService: MenuComponentsService) {}
 
+  @RequirePermissions('menu.fb.components')
   @Post()
   @UseInterceptors(ValidationErrorEnricherInterceptor)
   @ApiOperation({ summary: 'Créer un composant de menu' })
@@ -42,6 +44,7 @@ export class MenuComponentsController {
     return this.menuComponentsService.create(dto, tenantId);
   }
 
+  @RequirePermissions('menu.fb.components')
   @Post('repair')
   @ApiOperation({ summary: 'Réparer les composants de menu' })
   @ApiResponse({ status: 200, description: 'Composants réparés' })
@@ -50,6 +53,7 @@ export class MenuComponentsController {
     return this.menuComponentsService.repair(tenantId);
   }
 
+  @RequirePermissions('menu.fb.components')
   @Post('refresh-costs')
   @ApiOperation({ summary: 'Recalculer les coûts des composants de menu' })
   @ApiResponse({ status: 200, description: 'Coûts recalculés' })
@@ -75,6 +79,7 @@ export class MenuComponentsController {
     return this.menuComponentsService.findOne(id, tenantId);
   }
 
+  @RequirePermissions('menu.fb.components')
   @Put(':id/ingredients')
   @ApiOperation({ summary: "Remplacer les lignes d'ingrédients d'un composant" })
   @ApiParam({ name: 'id', description: 'ID du composant de menu' })
@@ -89,6 +94,7 @@ export class MenuComponentsController {
     return this.menuComponentsService.replaceIngredients(id, dto.ingredients, tenantId);
   }
 
+  @RequirePermissions('menu.fb.components')
   @Put(':id/children')
   @ApiOperation({ summary: "Remplacer les sous-composants (children) d'un composant" })
   @ApiParam({ name: 'id', description: 'ID du composant de menu' })
@@ -103,6 +109,7 @@ export class MenuComponentsController {
     return this.menuComponentsService.replaceChildren(id, dto.children, tenantId);
   }
 
+  @RequirePermissions('menu.fb.components')
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour un composant' })
   @ApiParam({ name: 'id', description: 'ID du composant de menu' })
@@ -112,6 +119,7 @@ export class MenuComponentsController {
     return this.menuComponentsService.update(id, dto, tenantId);
   }
 
+  @RequirePermissions('menu.fb.components')
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer un composant' })
   @ApiParam({ name: 'id', description: 'ID du composant de menu' })

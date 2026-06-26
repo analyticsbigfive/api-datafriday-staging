@@ -44,8 +44,8 @@ export class TenantsService {
     // Weezevent Integration
     weezeventEnabled: true,
     weezeventOrganizationId: true,
-    weezeventClientId: true,
-    weezeventClientSecret: true, // Attention: sera retourné chiffré
+    // ⚠️ Sécurité (P0-3) : ne JAMAIS exposer les identifiants/secrets d'intégration
+    // via l'API. `weezeventClientId` / `weezeventClientSecret` sont volontairement omis.
     createdAt: true,
     updatedAt: true,
   };

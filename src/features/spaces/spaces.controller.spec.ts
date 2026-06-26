@@ -83,7 +83,7 @@ describe('SpacesController', () => {
       const result = await controller.findAll(mockUser, {});
 
       expect(result).toEqual(paginatedResult);
-      expect(mockSpacesService.findAll).toHaveBeenCalledWith('tenant-123', {});
+      expect(mockSpacesService.findAll).toHaveBeenCalledWith('tenant-123', {}, expect.anything());
     });
 
     it('should apply search filter', async () => {
@@ -91,7 +91,7 @@ describe('SpacesController', () => {
 
       await controller.findAll(mockUser, { search: 'test' });
 
-      expect(mockSpacesService.findAll).toHaveBeenCalledWith('tenant-123', { search: 'test' });
+      expect(mockSpacesService.findAll).toHaveBeenCalledWith('tenant-123', { search: 'test' }, expect.anything());
     });
   });
 
@@ -148,7 +148,7 @@ describe('SpacesController', () => {
       const result = await controller.getPinned(mockUser);
 
       expect(result).toEqual([mockSpace]);
-      expect(mockSpacesService.getPinned).toHaveBeenCalledWith('user-123', 'tenant-123');
+      expect(mockSpacesService.getPinned).toHaveBeenCalledWith('user-123', 'tenant-123', expect.anything());
     });
   });
 

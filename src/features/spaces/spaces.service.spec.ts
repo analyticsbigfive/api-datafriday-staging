@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { SpacesService } from './spaces.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { WeezeventClientService } from '../weezevent/services/weezevent-client.service';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 
@@ -71,6 +72,8 @@ describe('SpacesService', () => {
           useValue: {},
         },
         { provide: RedisService, useValue: { set: jest.fn(), get: jest.fn(), del: jest.fn(), delete: jest.fn(), getClient: jest.fn() } },
+        // Accès complet par défaut dans les tests (pas de restriction d'espace)
+        { provide: SpaceAccessService, useValue: { getAccessibleSpaceIds: jest.fn().mockResolvedValue('ALL'), hasFullAccess: jest.fn().mockReturnValue(true), canAccessSpace: jest.fn().mockResolvedValue(true) } },
       ],
     }).compile();
 
@@ -155,7 +158,7 @@ describe('SpacesService', () => {
       mockPrismaService.space.findMany.mockResolvedValue(mockSpaces);
       mockPrismaService.space.count.mockResolvedValue(2);
 
-      const result = await service.findAll(tenantId, query);
+      const result = await service.findAll(tenantId, query, { id: "u", isSuperAdmin: false, role: { systemKey: "ADMIN" } } as any);
 
       expect(result.data).toEqual(mockSpaces);
       expect(result.meta).toEqual({
@@ -173,7 +176,7 @@ describe('SpacesService', () => {
       mockPrismaService.space.findMany.mockResolvedValue([]);
       mockPrismaService.space.count.mockResolvedValue(0);
 
-      await service.findAll(tenantId, query);
+      await service.findAll(tenantId, query, { id: "u", isSuperAdmin: false, role: { systemKey: "ADMIN" } } as any);
 
       expect(mockPrismaService.space.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -636,7 +639,7 @@ describe('SpacesService', () => {
         pinnedSpaces.map((s) => ({ space: s })),
       );
 
-      const result = await service.setPinnedSpaces(userId, tenantId, spaceIds);
+      const result = await service.setPinnedSpaces(userId, tenantId, spaceIds, { id: userId, isSuperAdmin: false, role: { systemKey: "ADMIN" } } as any);
 
       expect(mockPrismaService.userPinnedSpace.deleteMany).toHaveBeenCalled();
       expect(mockPrismaService.userPinnedSpace.createMany).toHaveBeenCalledWith({
@@ -663,7 +666,7 @@ describe('SpacesService', () => {
       mockPrismaService.userPinnedSpace.deleteMany.mockResolvedValue({ count: 2 });
       mockPrismaService.userPinnedSpace.findMany.mockResolvedValue([]);
 
-      const result = await service.setPinnedSpaces(userId, tenantId, spaceIds);
+      const result = await service.setPinnedSpaces(userId, tenantId, spaceIds, { id: userId, isSuperAdmin: false, role: { systemKey: "ADMIN" } } as any);
 
       expect(mockPrismaService.userPinnedSpace.deleteMany).toHaveBeenCalled();
       expect(mockPrismaService.userPinnedSpace.createMany).not.toHaveBeenCalled();
@@ -689,7 +692,7 @@ describe('SpacesService', () => {
         { space: { id: 'space-2', name: 'Space 2' } },
       ]);
 
-      await service.setPinnedSpaces(userId, tenantId, spaceIds);
+      await service.setPinnedSpaces(userId, tenantId, spaceIds, { id: userId, isSuperAdmin: false, role: { systemKey: "ADMIN" } } as any);
 
       expect(mockPrismaService.userPinnedSpace.createMany).toHaveBeenCalledWith({
         data: [

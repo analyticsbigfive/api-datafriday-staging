@@ -13,6 +13,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@ne
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { MappingsService } from './mappings.service';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import {
   CreateLocationSpaceMappingDto,
   CreateMerchantElementMappingDto,
@@ -96,6 +97,7 @@ export class MappingsController {
     return this.mappingsService.getLocationSpaceMapping(user.tenantId, locationId);
   }
 
+  @RequirePermissions('menu.integration.fb')
   @Post('location-space')
   @ApiOperation({
     summary: 'Créer/mettre à jour un mapping location → space',
@@ -111,6 +113,7 @@ export class MappingsController {
     return this.mappingsService.createLocationSpaceMapping(dto, user.tenantId);
   }
 
+  @RequirePermissions('menu.integration.fb')
   @Delete('location-space/:locationId')
   @ApiOperation({ summary: 'Supprimer un mapping location → space' })
   @ApiResponse({ status: 200, description: 'Mapping supprimé' })
@@ -149,6 +152,7 @@ export class MappingsController {
     );
   }
 
+  @RequirePermissions('menu.integration.fb')
   @Post('location-shop')
   @ApiOperation({ summary: 'Créer/mettre à jour un mapping location → shop' })
   @ApiResponse({ status: 201, description: 'Mapping créé ou mis à jour' })
@@ -159,6 +163,7 @@ export class MappingsController {
     return this.mappingsService.createLocationShopMapping(dto, user.tenantId);
   }
 
+  @RequirePermissions('menu.integration.fb')
   @Post('location-shop/bulk')
   @ApiOperation({ summary: 'Créer/mettre à jour des mappings location → shop en masse' })
   @ApiResponse({ status: 201, description: 'Mappings créés ou mis à jour' })
@@ -169,6 +174,7 @@ export class MappingsController {
     return this.mappingsService.bulkLocationShopMappings(dto, user.tenantId);
   }
 
+  @RequirePermissions('menu.integration.fb')
   @Delete('location-shop/:locationId')
   @ApiOperation({
     summary: 'Supprimer un mapping location → shop',
@@ -234,6 +240,7 @@ export class MappingsController {
     return this.mappingsService.getMerchantElementMappings(user.tenantId, locationId, +page, +limit);
   }
 
+  @RequirePermissions('menu.integration.fb')
   @Post('merchant-element')
   @ApiOperation({ summary: 'Créer/mettre à jour un mapping merchant → element' })
   @ApiResponse({ status: 201, description: 'Mapping créé ou mis à jour' })
@@ -245,6 +252,7 @@ export class MappingsController {
     return this.mappingsService.createMerchantElementMapping(dto, user.tenantId);
   }
 
+  @RequirePermissions('menu.integration.fb')
   @Post('merchant-element/bulk')
   @ApiOperation({
     summary: 'Créer/mettre à jour des mappings merchant → element en masse',
@@ -280,6 +288,7 @@ export class MappingsController {
     return this.mappingsService.bulkMerchantElementMappings(dto, user.tenantId);
   }
 
+  @RequirePermissions('menu.integration.fb')
   @Delete('merchant-element/:merchantId')
   @ApiOperation({
     summary: 'Supprimer un mapping merchant → element',
@@ -360,6 +369,7 @@ export class MappingsController {
     return this.mappingsService.getProductMappings(user.tenantId, locationId, +page, +limit);
   }
 
+  @RequirePermissions('menu.integration.fb')
   @Post('product-menu/bulk')
   @ApiOperation({
     summary: 'Créer/mettre à jour des mappings product → menu item en masse',
@@ -395,6 +405,7 @@ export class MappingsController {
     return this.mappingsService.bulkProductMappings(dto, user.tenantId, user.id);
   }
 
+  @RequirePermissions('menu.integration.fb')
   @Delete('product-menu/:productId')
   @ApiOperation({ summary: 'Supprimer un mapping product → menu item' })
   @ApiResponse({ status: 200, description: 'Mapping supprimé' })

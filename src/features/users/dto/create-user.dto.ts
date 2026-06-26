@@ -1,4 +1,4 @@
-import { IsEmail, IsString, IsOptional, IsEnum, MinLength, MaxLength } from 'class-validator';
+import { IsEmail, IsString, IsOptional, IsEnum, IsBoolean, IsArray, MinLength, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 
@@ -62,4 +62,23 @@ export class CreateUserDto {
   @IsOptional()
   @IsString()
   avatar?: string;
+
+  @ApiPropertyOptional({
+    description:
+      "Donner accès à TOUS les espaces actuels de l'organisation (crée les UserSpaceAccess correspondants). Sans effet pour les rôles ADMIN/MANAGER qui voient déjà tout.",
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  allSpaces?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      "Liste d'IDs d'espaces auxquels donner accès (ignoré si `allSpaces`). Les IDs hors de l'organisation sont ignorés.",
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  spaceIds?: string[];
 }

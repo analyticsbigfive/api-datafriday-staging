@@ -68,6 +68,7 @@ describe('PinnedSpacesController', () => {
       expect(mockSpacesService.getPinned).toHaveBeenCalledWith(
         mockUser.id,
         mockUser.tenantId,
+        mockUser,
       );
     });
 
@@ -80,6 +81,7 @@ describe('PinnedSpacesController', () => {
       expect(mockSpacesService.getPinned).toHaveBeenCalledWith(
         mockUser.id,
         mockUser.tenantId,
+        mockUser,
       );
     });
   });
@@ -102,6 +104,7 @@ describe('PinnedSpacesController', () => {
         mockUser.id,
         mockUser.tenantId,
         spaceIds,
+        mockUser,
       );
     });
 
@@ -117,6 +120,7 @@ describe('PinnedSpacesController', () => {
         mockUser.id,
         mockUser.tenantId,
         [],
+        mockUser,
       );
     });
 
@@ -130,6 +134,7 @@ describe('PinnedSpacesController', () => {
         mockUser.id,
         mockUser.tenantId,
         [],
+        mockUser,
       );
     });
   });

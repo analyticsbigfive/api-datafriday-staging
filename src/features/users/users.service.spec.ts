@@ -32,13 +32,17 @@ describe('UsersService', () => {
     userSpaceAccess: {
       upsert: jest.fn(),
       deleteMany: jest.fn(),
+      createMany: jest.fn(),
     },
     space: {
       findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     role: {
       findFirst: jest.fn(),
     },
+    // create() englobe user + userTenant + userSpaceAccess dans une transaction.
+    $transaction: jest.fn((cb: any) => cb(mockPrismaService)),
   };
 
   const mockJwtDatabaseStrategy = {

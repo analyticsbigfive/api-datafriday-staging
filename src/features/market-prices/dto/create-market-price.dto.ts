@@ -120,7 +120,12 @@ export class CreateMarketPriceDto {
   @Type(() => Number)
   packingLength?: number;
 
-  @ApiProperty({ required: false, description: 'Type de conditionnement inventaire (ex: Box, Bag, Pallet)' })
+  @ApiProperty({ required: false, description: "Emballage d'achat — \"Item is purchased in\" (ex: Box, Bag, Pallet)" })
+  @IsString()
+  @IsOptional()
+  purchasePackaging?: string;
+
+  @ApiProperty({ required: false, description: 'Emballage de stockage — "Item is stored in" (ex: Box, Bag, Pallet)' })
   @IsString()
   @IsOptional()
   inventoryPackaging?: string;

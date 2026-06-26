@@ -18,13 +18,17 @@ import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { QueryTenantDto } from './dto/query-tenant.dto';
 import { UpgradePlanDto } from './dto/upgrade-plan.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
-import { RolesGuard } from '../../core/auth/guards/roles.guard';
-import { Roles } from '../../core/auth/decorators/roles.decorator';
+import { SuperAdminGuard } from '../../core/auth/guards/super-admin.guard';
+import { AllowNoTenant } from '../../core/auth/decorators/allow-no-tenant.decorator';
 
+// ⚠️ Surface d'administration PLATEFORME (cross-tenant) — réservée au super-admin.
+// Le rôle ADMIN d'une organisation ne donne AUCUN accès ici (cf. faille corrigée P0-1).
+// `@AllowNoTenant` : un super-admin peut ne pas avoir de tenant courant.
 @ApiTags('Tenants')
 @ApiBearerAuth('supabase-jwt')
 @Controller('tenants')
-@UseGuards(JwtDatabaseGuard, RolesGuard)
+@AllowNoTenant()
+@UseGuards(JwtDatabaseGuard, SuperAdminGuard)
 export class TenantsController {
   constructor(private readonly tenantsService: TenantsService) {}
 
@@ -32,7 +36,6 @@ export class TenantsController {
    * Create a new tenant
    */
   @Post()
-  @Roles('ADMIN')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Créer un nouveau tenant (admin)',
@@ -48,7 +51,6 @@ export class TenantsController {
    * Get all tenants with pagination and filters
    */
   @Get()
-  @Roles('ADMIN')
   @ApiOperation({
     summary: 'Lister tous les tenants (admin)',
     description: 'Liste paginée de tous les tenants avec filtres optionnels.',
@@ -67,7 +69,6 @@ export class TenantsController {
    * Get tenant statistics
    */
   @Get('statistics')
-  @Roles('ADMIN')
   @ApiOperation({
     summary: 'Statistiques des tenants (admin)',
     description: 'Retourne les statistiques globales sur les tenants.',
@@ -81,7 +82,6 @@ export class TenantsController {
    * Get tenant by slug
    */
   @Get('by-slug/:slug')
-  @Roles('ADMIN', 'MANAGER')
   @ApiOperation({
     summary: 'Obtenir un tenant par slug',
   })
@@ -96,7 +96,6 @@ export class TenantsController {
    * Get tenant by ID
    */
   @Get(':id')
-  @Roles('ADMIN', 'MANAGER')
   @ApiOperation({
     summary: 'Obtenir un tenant par ID',
   })
@@ -111,7 +110,6 @@ export class TenantsController {
    * Update tenant
    */
   @Patch(':id')
-  @Roles('ADMIN', 'MANAGER')
   @ApiOperation({
     summary: 'Mettre à jour un tenant',
   })
@@ -125,7 +123,6 @@ export class TenantsController {
    * Delete tenant (soft delete)
    */
   @Delete(':id')
-  @Roles('ADMIN')
   @ApiOperation({
     summary: 'Supprimer un tenant (soft delete)',
     description: 'Marque le tenant comme supprimé sans effacer les données.',
@@ -139,9 +136,7 @@ export class TenantsController {
    * Hard delete tenant (permanent)
    * DELETE /api/v1/tenants/:id/permanent
    */
-  @Delete(':id/permanent')
-  @Roles('ADMIN')
-  async hardDelete(@Param('id') id: string) {
+  @Delete(':id/permanent')  async hardDelete(@Param('id') id: string) {
     return this.tenantsService.hardDelete(id);
   }
 
@@ -149,9 +144,7 @@ export class TenantsController {
    * Upgrade tenant plan
    * POST /api/v1/tenants/:id/upgrade
    */
-  @Post(':id/upgrade')
-  @Roles('ADMIN', 'MANAGER')
-  async upgradePlan(@Param('id') id: string, @Body() upgradePlanDto: UpgradePlanDto) {
+  @Post(':id/upgrade')  async upgradePlan(@Param('id') id: string, @Body() upgradePlanDto: UpgradePlanDto) {
     return this.tenantsService.upgradePlan(id, upgradePlanDto);
   }
 
@@ -159,9 +152,7 @@ export class TenantsController {
    * Get tenant usage statistics
    * GET /api/v1/tenants/:id/usage
    */
-  @Get(':id/usage')
-  @Roles('ADMIN', 'MANAGER')
-  async getUsage(@Param('id') id: string) {
+  @Get(':id/usage')  async getUsage(@Param('id') id: string) {
     return this.tenantsService.getUsage(id);
   }
 
@@ -170,7 +161,6 @@ export class TenantsController {
    * POST /api/v1/tenants/:id/suspend
    */
   @Post(':id/suspend')
-  @Roles('ADMIN')
   @HttpCode(HttpStatus.OK)
   async suspend(@Param('id') id: string) {
     return this.tenantsService.suspend(id);
@@ -181,7 +171,6 @@ export class TenantsController {
    * POST /api/v1/tenants/:id/reactivate
    */
   @Post(':id/reactivate')
-  @Roles('ADMIN')
   @HttpCode(HttpStatus.OK)
   async reactivate(@Param('id') id: string) {
     return this.tenantsService.reactivate(id);

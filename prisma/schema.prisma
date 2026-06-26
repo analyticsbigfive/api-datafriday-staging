@@ -276,6 +276,14 @@ model User {
   role      UserRole @default(VIEWER) // Legacy - conservé pour compatibilité, voir roleRef
   roleId    String? // RBAC dynamique - FK vers Role (nullable pendant la transition)
   avatar    String?
+  // Super-admin PLATEFORME (DataFriday), distinct du rôle ADMIN d'une organisation.
+  // Donne accès à l'administration cross-tenant (SuperAdminGuard). Écriture réservée
+  // à un super-admin existant / bootstrap via script. Voir docs/CONCEPTION_CIBLE_AUTH.md §3.
+  isSuperAdmin Boolean @default(false)
+  // Accès à TOUS les espaces de l'organisation (présents et futurs), INDÉPENDAMMENT du rôle.
+  // Choisi par l'owner à la création/édition. L'owner et le super-admin voient toujours tout.
+  // Voir docs/CONCEPTION_CIBLE_AUTH.md §5 (accès par espace découplé du rôle).
+  allSpacesAccess Boolean @default(false)
   tenantId  String // Keep for backward compatibility
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -668,7 +676,8 @@ model MarketPrice {
   packingWidth           Float?
   packingHeight          Float?
   packingLength          Float?
-  inventoryPackaging     String?
+  purchasePackaging      String? // Emballage d'achat ("Item is purchased in", ex: Box)
+  inventoryPackaging     String? // Emballage de stockage ("Item is stored in", ex: Bag)
   // Taxonomie dynamique (additive). `goodType` (enum) reste le discriminateur
   // fonctionnel qui pilote l'auto-création Ingredient/Packaging.
   typeId                 String? // FK -> ProductType

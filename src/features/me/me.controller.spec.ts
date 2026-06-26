@@ -31,6 +31,8 @@ describe('MeController', () => {
       permissions: [],
     },
     isOwner: true,
+    isSuperAdmin: false,
+    allSpacesAccess: true,
   };
 
   const mockPrismaService = {

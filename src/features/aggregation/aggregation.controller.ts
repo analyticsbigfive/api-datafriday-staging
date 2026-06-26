@@ -13,6 +13,7 @@ import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { AggregationService } from './aggregation.service';
 import { ProcessEventsDto, SynchronizeDto, SkipEventDto } from './dto/aggregation.dto';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 
 @ApiTags('Aggregation')
 @ApiBearerAuth('supabase-jwt')
@@ -58,6 +59,7 @@ export class AggregationController {
     return this.aggregationService.getEventsTimelineStatus(user.tenantId, spaceId, integrationId);
   }
 
+  @RequirePermissions('menu.integration.fb')
   @Post('process-events')
   @ApiOperation({
     summary: 'Traiter les événements pour agrégation',
@@ -86,6 +88,7 @@ export class AggregationController {
     return this.aggregationService.processEvents(user.tenantId, dto.spaceId, dto.eventIds, dto.integrationId);
   }
 
+  @RequirePermissions('menu.integration.fb')
   @Post('synchronize')
   @ApiOperation({
     summary: 'Synchronisation complète des données agrégées',
@@ -113,6 +116,7 @@ export class AggregationController {
     return this.aggregationService.synchronize(user.tenantId, dto.spaceId, dto.integrationId);
   }
 
+  @RequirePermissions('menu.integration.fb')
   @Post('skip-event')
   @ApiOperation({
     summary: 'Ignorer un événement',

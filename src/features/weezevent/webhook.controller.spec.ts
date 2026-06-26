@@ -155,23 +155,21 @@ describe('WebhookController', () => {
       ).rejects.toThrow(UnauthorizedException);
     });
 
-    it('should accept webhook without signature when secret not configured', async () => {
+    // Sécurité (P0-2) : fail-closed — un tenant sans secret configuré ne peut PAS
+    // recevoir de webhook (sinon endpoint anonyme spoofable, vu qu'il est @Public).
+    it('should REJECT webhook when secret not configured (fail-closed)', async () => {
       mockPrismaService.weezeventIntegration.findUnique.mockResolvedValue(mockIntegration);
       mockPrismaService.tenant.findUnique.mockResolvedValue({
         ...mockTenant,
         weezeventWebhookSecret: null,
       });
-      mockPrismaService.weezeventWebhookEvent.create.mockResolvedValue(mockWebhookEvent);
 
-      const result = await controller.receiveWebhook(
-        'tenant-123',
-        'integration-123',
-        '',
-        mockPayload as any,
-      );
+      await expect(
+        controller.receiveWebhook('tenant-123', 'integration-123', '', mockPayload as any),
+      ).rejects.toThrow(UnauthorizedException);
 
-      expect(result.received).toBe(true);
       expect(mockSignatureService.validateSignature).not.toHaveBeenCalled();
+      expect(mockPrismaService.weezeventWebhookEvent.create).not.toHaveBeenCalled();
     });
   });
 });

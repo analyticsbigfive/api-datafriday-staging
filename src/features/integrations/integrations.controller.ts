@@ -18,6 +18,7 @@ import { WebhookIntegrationService } from './services/webhook-integration.servic
 import { WeezeventAuthService } from '../weezevent/services/weezevent-auth.service';
 import { WeezeventConfigDto } from './dto/weezevent-config.dto';
 import { WebhookConfigDto } from './dto/webhook-config.dto';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import {
     CreateWeezeventInstanceDto,
     UpdateWeezeventInstanceDto,
@@ -61,6 +62,7 @@ export class IntegrationsController {
     /**
      * Test Weezevent credentials without saving
      */
+    @RequirePermissions('menu.integration.fb')
     @Post('weezevent/test')
     @ApiOperation({ summary: 'Tester les credentials Weezevent' })
     @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
@@ -88,6 +90,7 @@ export class IntegrationsController {
     /**
      * Update Weezevent configuration (validates credentials first)
      */
+    @RequirePermissions('menu.integration.fb')
     @Patch('weezevent')
     @ApiOperation({ summary: 'Mettre à jour la configuration Weezevent' })
     @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
@@ -143,6 +146,7 @@ export class IntegrationsController {
         return this.weezeventService.listInstances(this.resolveTenantId(user, organizationId));
     }
 
+    @RequirePermissions('menu.integration.fb')
     @Post('weezevent/instances')
     @ApiOperation({ summary: 'Créer une instance Weezevent', description: 'Crée une nouvelle instance Weezevent après validation des credentials.' })
     @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
@@ -170,6 +174,7 @@ export class IntegrationsController {
         return this.weezeventService.createInstance(tenantId, dto);
     }
 
+    @RequirePermissions('menu.integration.fb')
     @Patch('weezevent/instances/:instanceId')
     @ApiOperation({ summary: 'Mettre à jour une instance Weezevent' })
     @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
@@ -215,6 +220,7 @@ export class IntegrationsController {
         return this.weezeventService.updateInstance(tenantId, instanceId, dto);
     }
 
+    @RequirePermissions('menu.integration.fb')
     @Delete('weezevent/instances/:instanceId')
     @ApiOperation({ summary: 'Supprimer une instance Weezevent' })
     @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
@@ -229,6 +235,7 @@ export class IntegrationsController {
         return this.weezeventService.deleteInstance(this.resolveTenantId(user, organizationId), instanceId);
     }
 
+    @RequirePermissions('menu.integration.fb')
     @Post('weezevent/instances/:instanceId/test')
     @ApiOperation({ summary: 'Tester les credentials d\'une instance Weezevent', description: 'Vérifie si les credentials stockés ou fournis permettent de se connecter à Weezevent.' })
     @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
@@ -266,6 +273,7 @@ export class IntegrationsController {
     /**
      * Update webhook configuration
      */
+    @RequirePermissions('menu.integration.fb')
     @Patch('webhooks')
     @ApiOperation({ summary: 'Mettre à jour la configuration des webhooks' })
     @ApiParam({ name: 'organizationId', description: 'ID de l’organisation' })

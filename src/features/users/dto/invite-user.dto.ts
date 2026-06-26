@@ -1,4 +1,4 @@
-import { IsEmail, IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsEmail, IsEnum, IsOptional, IsString, IsBoolean, IsArray } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 
@@ -46,4 +46,22 @@ export class InviteUserDto {
   @IsOptional()
   @IsString()
   message?: string;
+
+  @ApiPropertyOptional({
+    description:
+      "Donner accès à TOUS les espaces actuels de l'organisation. Sans effet pour ADMIN/MANAGER (voient déjà tout).",
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  allSpaces?: boolean;
+
+  @ApiPropertyOptional({
+    description: "Liste d'IDs d'espaces à accorder (ignoré si `allSpaces`). IDs hors-orga ignorés.",
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  spaceIds?: string[];
 }

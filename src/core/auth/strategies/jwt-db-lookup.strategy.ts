@@ -179,6 +179,8 @@ export class JwtDatabaseStrategy
         lastName: true,
         fullName: true,
         role: true, // legacy enum, conservé en fallback
+        isSuperAdmin: true, // super-admin plateforme (cross-tenant)
+        allSpacesAccess: true, // voit tous les espaces (présents et futurs)
         tenantId: true,
         tenant: {
           select: {
@@ -223,6 +225,8 @@ export class JwtDatabaseStrategy
           permissions: [],
         },
         isOwner: false,
+        isSuperAdmin: false,
+        allSpacesAccess: false,
       };
 
       this.setLocalCachedUser(cacheKey, anonymousUser);
@@ -253,6 +257,8 @@ export class JwtDatabaseStrategy
         permissions: user.roleRef?.permissions.map((rp) => rp.permission.code) ?? [],
       },
       isOwner: userTenant?.isOwner ?? false,
+      isSuperAdmin: user.isSuperAdmin ?? false,
+      allSpacesAccess: user.allSpacesAccess ?? false,
     };
 
     this.setLocalCachedUser(cacheKey, userPayload);

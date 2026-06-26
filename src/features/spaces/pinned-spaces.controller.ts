@@ -62,7 +62,7 @@ export class PinnedSpacesController {
     if (!user.tenantId) {
       throw new ForbiddenException('Organisation requise. Veuillez compléter l\'onboarding.');
     }
-    return this.spacesService.getPinned(user.id, user.tenantId);
+    return this.spacesService.getPinned(user.id, user.tenantId, user);
   }
 
   /**
@@ -117,6 +117,6 @@ export class PinnedSpacesController {
     if (!user.tenantId) {
       throw new ForbiddenException('Organisation requise. Veuillez compléter l\'onboarding.');
     }
-    return this.spacesService.setPinnedSpaces(user.id, user.tenantId, body.spaceIds || []);
+    return this.spacesService.setPinnedSpaces(user.id, user.tenantId, body.spaceIds || [], user);
   }
 }

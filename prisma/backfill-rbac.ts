@@ -2,19 +2,27 @@
 /**
  * Backfill RBAC — aligne TOUS les tenants existants sur le catalogue/rôles cible.
  *
- * À exécuter une fois après le déploiement du nouveau catalogue (voir
- * docs/auth/RBAC_SYSTEM.md). Idempotent : ré-exécutable sans effet de bord.
+ * Idempotent : ré-exécutable sans effet de bord.
  *
- *   npm run rbac:backfill            # catalogue + rôles métier + dé-systématisation
+ * ⚠️ ORDRE DE DÉPLOIEMENT CRITIQUE
+ *   Le run par défaut est **purement additif** (catalogue + rôles métier) et donc SÛR à exécuter
+ *   AVANT ou APRÈS le déploiement du code. Il NE TOUCHE PAS aux anciens rôles MANAGER/STAFF/VIEWER.
+ *
+ *   La dé-systématisation (passer MANAGER/STAFF/VIEWER en `systemKey=null`) **casse le code ANCIEN**
+ *   (son RolesGuard lit `systemKey`) → ne JAMAIS la faire avant le déploiement. Elle est donc gardée
+ *   derrière un flag explicite, à lancer UNIQUEMENT une fois le nouveau code en prod :
+ *
+ *   npm run rbac:backfill                          # additif seul (catalogue + 6 rôles métier) — SÛR
  *   REMAP_LEGACY_TO="Analyste F&B" npm run rbac:backfill
- *                                    # + réassigne les users encore sur MANAGER/STAFF/VIEWER
+ *                                                  # + réassigne les users encore sur MANAGER/STAFF/VIEWER
+ *   DESYSTEMATIZE_LEGACY=1 npm run rbac:backfill    # POST-DEPLOY uniquement : retire le statut système
+ *                                                  #   des anciens rôles (les rend éditables/supprimables)
  *
- * Ce que fait le script, pour chaque tenant :
+ * Étapes par tenant :
  *  1. (global) (ré)insère le catalogue de permissions système (nouveaux codes inclus).
- *  2. clone/ré-synchronise les rôles système cibles : ADMIN + 6 rôles métier.
- *  3. dé-systématise les anciens rôles MANAGER/STAFF/VIEWER (isSystem=false, systemKey=null)
- *     pour qu'un admin puisse les éditer/supprimer — SANS casser les users encore assignés.
- *  4. (optionnel) remap des users encore sur un ancien rôle vers REMAP_LEGACY_TO.
+ *  2. crée les rôles système cibles manquants : ADMIN + 6 rôles métier (ne réécrit pas les perms existantes).
+ *  3. (optionnel REMAP_LEGACY_TO) remap des users encore sur un ancien rôle vers le rôle nommé.
+ *  4. (optionnel DESYSTEMATIZE_LEGACY=1, POST-DEPLOY) dé-systématise MANAGER/STAFF/VIEWER.
  */
 import { PrismaClient } from '@prisma/client';
 import { ensureSystemPermissionCatalog, cloneSystemRolesForTenant } from '../src/core/rbac/permission-catalog';
@@ -25,7 +33,8 @@ const LEGACY_ROLE_NAMES = ['MANAGER', 'STAFF', 'VIEWER'];
 
 async function main() {
   const remapTo = process.env.REMAP_LEGACY_TO?.trim() || null;
-  console.log('🔧 RBAC backfill — début');
+  const desystematize = process.env.DESYSTEMATIZE_LEGACY === '1';
+  console.log('🔧 RBAC backfill — début' + (desystematize ? ' (DÉ-SYSTÉMATISATION activée — post-deploy)' : ' (additif seul — sûr)'));
 
   // 1. Catalogue global (idempotent)
   await ensureSystemPermissionCatalog(prisma);
@@ -41,21 +50,14 @@ async function main() {
     //    permissions par défaut ; ne réécrit pas les permissions des rôles déjà présents.
     const roleIdByName = await cloneSystemRolesForTenant(prisma, tenant.id);
 
-    // 3. Dé-systématise les anciens rôles génériques restants
+    // Anciens rôles génériques restants (pour remap / dé-systématisation / reporting)
     const legacyRoles = await prisma.role.findMany({
-      where: { tenantId: tenant.id, name: { in: LEGACY_ROLE_NAMES }, isSystem: true },
+      where: { tenantId: tenant.id, name: { in: LEGACY_ROLE_NAMES } },
       select: { id: true, name: true },
     });
-
-    if (legacyRoles.length > 0) {
-      await prisma.role.updateMany({
-        where: { id: { in: legacyRoles.map((r) => r.id) } },
-        data: { isSystem: false, systemKey: null },
-      });
-    }
+    const legacyRoleIds = legacyRoles.map((r) => r.id);
 
     // Combien de users sont encore assignés à un ancien rôle ?
-    const legacyRoleIds = legacyRoles.map((r) => r.id);
     const [usersOnLegacy, userTenantsOnLegacy] = await Promise.all([
       legacyRoleIds.length
         ? prisma.user.count({ where: { tenantId: tenant.id, roleId: { in: legacyRoleIds } } })
@@ -66,7 +68,7 @@ async function main() {
     ]);
     totalLegacyUsers += usersOnLegacy;
 
-    // 4. Remap optionnel
+    // 3. Remap optionnel (réassigne les users AVANT toute dé-systématisation)
     if (remapTo && legacyRoleIds.length && (usersOnLegacy > 0 || userTenantsOnLegacy > 0)) {
       const targetRoleId = roleIdByName[remapTo];
       if (!targetRoleId) {
@@ -84,10 +86,20 @@ async function main() {
       });
     }
 
+    // 4. Dé-systématisation — POST-DEPLOY UNIQUEMENT (casse l'ancien code qui lit systemKey).
+    let desysCount = 0;
+    if (desystematize && legacyRoleIds.length) {
+      const r = await prisma.role.updateMany({
+        where: { id: { in: legacyRoleIds }, isSystem: true },
+        data: { isSystem: false, systemKey: null },
+      });
+      desysCount = r.count;
+    }
+
     const remapNote = remapTo ? ` → remap ${usersOnLegacy} user(s) vers "${remapTo}"` : '';
+    const desysNote = desystematize ? ` ; ${desysCount} ancien(s) rôle(s) dé-systématisé(s)` : '';
     console.log(
-      `  • ${tenant.name} : rôles cibles OK ; ${legacyRoles.length} ancien(s) rôle(s) dé-systématisé(s) ; ` +
-        `${usersOnLegacy} user(s) legacy${remapNote}`,
+      `  • ${tenant.name} : rôles cibles OK ; ${usersOnLegacy} user(s) legacy${remapNote}${desysNote}`,
     );
   }
 

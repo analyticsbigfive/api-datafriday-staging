@@ -42,11 +42,22 @@
 **Profils d'administration :** `Super Admin` = plateforme (`User.isSuperAdmin`, `SuperAdminGuard`,
 cross-tenant). `Administrateur de site` (gestion users scopée par site) = **lot ultérieur**, non livré ici.
 
-**Déploiement** : pas de migration de schéma (catalogue/rôles sont des données). Exécuter
-`npm run rbac:backfill` (catalogue + rôles métier sur tous les tenants + dé-systématisation des anciens
-rôles) **avec/avant** le déploiement du code, sinon les rôles métier seraient bloqués sur les écrans
-nouvellement gardés. Option `REMAP_LEGACY_TO="<Nom de rôle>"` pour réassigner les users encore sur
-MANAGER/STAFF/VIEWER.
+**Déploiement** (pas de migration de schéma — catalogue/rôles sont des données) :
+
+1. **Avant ou avec le deploy** — `npm run rbac:backfill` : **purement additif** (catalogue + 6 rôles
+   métier). Sûr, ne touche pas aux anciens rôles.
+2. **Déployer le code.** L'enforcement `@RequirePermissions` s'active alors.
+3. **Réassigner les users** encore sur MANAGER/STAFF/VIEWER vers un rôle métier (via l'admin, ou
+   `REMAP_LEGACY_TO="<Nom de rôle>" npm run rbac:backfill`).
+4. **Post-deploy uniquement** — `DESYSTEMATIZE_LEGACY=1 npm run rbac:backfill` pour retirer le statut
+   système des anciens rôles (les rend éditables/supprimables).
+
+> ⚠️ **Ne JAMAIS dé-systématiser MANAGER/STAFF/VIEWER avant le deploy** : l'ancien code lit
+> `role.systemKey` dans son `RolesGuard` ; passer ces rôles à `systemKey=null` bloque (403) tous les
+> users non-admin encore en place. Incident constaté le 2026-06-26, corrigé. La dé-systématisation est
+> donc gardée derrière le flag `DESYSTEMATIZE_LEGACY=1`. Note cache : la résolution user/role est mise
+> en cache (Redis TTL 300s + local 15s, canal `auth:invalidate`) — après un changement de rôle massif,
+> compter ≤5 min de propagation (ou flush).
 
 ---
 

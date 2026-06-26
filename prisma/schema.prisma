@@ -2106,6 +2106,7 @@ model EventPredictVersion {
   menuConfig                 Json
   quantityAdjustments        Json
   manualQuantities           Json     @default("{}")
+  predictedRecords           Json     @default("[]")
   selectedPredictionEventIds String[]
   selectedTimeRange          Json?
   createdBy                  String?

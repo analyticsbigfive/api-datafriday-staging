@@ -47,6 +47,7 @@ export class PredictVersionsService {
         menuConfig: (dto.menuConfig ?? {}) as any,
         quantityAdjustments: (dto.quantityAdjustments ?? {}) as any,
         manualQuantities: (dto.manualQuantities ?? {}) as any,
+        predictedRecords: (dto.predictedRecords ?? []) as any,
         selectedPredictionEventIds: dto.selectedPredictionEventIds ?? [],
         selectedTimeRange: (dto.selectedTimeRange ?? null) as any,
         createdBy: userId ?? null,
@@ -70,6 +71,7 @@ export class PredictVersionsService {
         menuConfig: (dto.menuConfig ?? {}) as any,
         quantityAdjustments: (dto.quantityAdjustments ?? {}) as any,
         manualQuantities: (dto.manualQuantities ?? {}) as any,
+        predictedRecords: (dto.predictedRecords ?? []) as any,
         selectedPredictionEventIds: dto.selectedPredictionEventIds ?? [],
         selectedTimeRange: (dto.selectedTimeRange ?? null) as any,
       },
@@ -82,7 +84,7 @@ export class PredictVersionsService {
     const scalarFields = [
       'name', 'spaceId', 'eventSnapshot', 'totalRevenue', 'adjustedTotalRevenue',
       'perCapita', 'adjustedPerCapita', 'menuConfig', 'quantityAdjustments',
-      'manualQuantities', 'selectedPredictionEventIds', 'selectedTimeRange',
+      'manualQuantities', 'predictedRecords', 'selectedPredictionEventIds', 'selectedTimeRange',
     ] as const;
     for (const field of scalarFields) {
       if (dto[field] !== undefined) data[field] = dto[field];

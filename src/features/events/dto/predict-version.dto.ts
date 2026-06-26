@@ -68,6 +68,11 @@ export class CreatePredictVersionDto {
   @IsObject()
   manualQuantities?: Record<string, number>;
 
+  @ApiPropertyOptional({ description: 'Quantités prédites par item (shop × menuItem) pour le réarmement', type: 'array' })
+  @IsOptional()
+  @IsArray()
+  predictedRecords?: Array<Record<string, unknown>>;
+
   @ApiPropertyOptional({ description: 'IDs des événements de prédiction sélectionnés', type: [String] })
   @IsOptional()
   @IsArray()
@@ -137,6 +142,11 @@ export class PatchPredictVersionDto {
   @IsOptional()
   @IsObject()
   manualQuantities?: Record<string, number>;
+
+  @ApiPropertyOptional({ type: 'array' })
+  @IsOptional()
+  @IsArray()
+  predictedRecords?: Array<Record<string, unknown>>;
 
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()

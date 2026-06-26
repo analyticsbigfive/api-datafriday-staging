@@ -18,6 +18,7 @@ import {
   ApiResponse,
 } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { RestockStateService } from './restock-state.service';
 import { RestockStateDto } from './dto/restock-state.dto';
@@ -30,6 +31,8 @@ export class RestockStateController {
   constructor(private readonly service: RestockStateService) {}
 
   @Get()
+  // Lecture : accessible au Réarmement comme au Tableau de Réarmement (logique OR).
+  @RequirePermissions('front.fb.restock', 'front.fb.restockBoard')
   @ApiOperation({ summary: 'Lire l\'état de réarmement d\'un space' })
   @ApiParam({ name: 'spaceId', description: 'ID du space' })
   @ApiResponse({ status: 200, description: 'RestockState ou null si aucun état enregistré' })
@@ -38,6 +41,7 @@ export class RestockStateController {
   }
 
   @Put()
+  @RequirePermissions('front.fb.restock')
   @ApiOperation({ summary: 'Enregistrer / mettre à jour l\'état de réarmement (upsert)' })
   @ApiParam({ name: 'spaceId', description: 'ID du space' })
   @ApiBody({
@@ -60,6 +64,7 @@ export class RestockStateController {
 
   @Delete()
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermissions('front.fb.restock')
   @ApiOperation({ summary: 'Réinitialiser l\'état de réarmement' })
   @ApiParam({ name: 'spaceId', description: 'ID du space' })
   @ApiResponse({ status: 204, description: 'État supprimé (idempotent)' })

@@ -124,8 +124,10 @@ export class OnboardingService {
 
     // Create user and link to tenant
     return this.prisma.$transaction(async (tx) => {
-      const roleIdBySystemKey = await cloneSystemRolesForTenant(tx, tenant.id);
+      await cloneSystemRolesForTenant(tx, tenant.id);
 
+      // Un membre qui rejoint un tenant existant n'a AUCUN rôle fonctionnel par défaut
+      // (moindre privilège) : un admin lui attribue ensuite un rôle métier. Voir RBAC_SYSTEM.md.
       const user = await tx.user.create({
         data: {
           id: supabaseUserId,
@@ -134,8 +136,8 @@ export class OnboardingService {
           lastName: lastName || '',
           fullName: firstName && lastName ? `${firstName} ${lastName}` : email.split('@')[0],
           tenantId: tenant.id,
-          role: 'STAFF', // Default role when joining existing tenant
-          roleId: roleIdBySystemKey[UserRole.STAFF],
+          role: 'VIEWER', // legacy enum (compat) — pas de roleId tant qu'un admin n'a pas assigné un rôle
+          roleId: null,
         },
       });
 
@@ -144,8 +146,8 @@ export class OnboardingService {
         data: {
           userId: user.id,
           tenantId: tenant.id,
-          role: 'STAFF',
-          roleId: roleIdBySystemKey[UserRole.STAFF],
+          role: 'VIEWER',
+          roleId: null,
           isOwner: false,
         },
       });
@@ -209,8 +211,9 @@ export class OnboardingService {
 
     // Create user and link to tenant
     return this.prisma.$transaction(async (tx) => {
-      const roleIdBySystemKey = await cloneSystemRolesForTenant(tx, tenant.id);
+      await cloneSystemRolesForTenant(tx, tenant.id);
 
+      // Idem join-by-code : moindre privilège, l'admin attribuera un rôle métier ensuite.
       const user = await tx.user.create({
         data: {
           id: supabaseUserId,
@@ -219,8 +222,8 @@ export class OnboardingService {
           lastName: lastName || '',
           fullName: firstName && lastName ? `${firstName} ${lastName}` : email.split('@')[0],
           tenantId: tenant.id,
-          role: 'STAFF', // Default role when joining via invitation
-          roleId: roleIdBySystemKey[UserRole.STAFF],
+          role: 'VIEWER', // legacy enum (compat) — pas de roleId tant qu'un admin n'a pas assigné un rôle
+          roleId: null,
         },
       });
 
@@ -229,8 +232,8 @@ export class OnboardingService {
         data: {
           userId: user.id,
           tenantId: tenant.id,
-          role: 'STAFF',
-          roleId: roleIdBySystemKey[UserRole.STAFF],
+          role: 'VIEWER',
+          roleId: null,
           isOwner: false,
         },
       });
@@ -296,8 +299,9 @@ export class OnboardingService {
         },
       });
 
-      // Clone the 4 system roles (ADMIN/MANAGER/STAFF/VIEWER) for this tenant
-      const roleIdBySystemKey = await cloneSystemRolesForTenant(tx, tenant.id);
+      // Clone des rôles système (ADMIN + rôles métier) pour ce tenant.
+      // Map indexée par nom de rôle ; `UserRole.ADMIN === 'ADMIN'` correspond au nom du rôle ADMIN.
+      const roleIdByName = await cloneSystemRolesForTenant(tx, tenant.id);
 
       // Check if user already exists
       let user = await tx.user.findUnique({
@@ -315,7 +319,7 @@ export class OnboardingService {
             fullName: `${dto.firstName} ${dto.lastName}`,
             tenantId: tenant.id,
             role: 'ADMIN',
-            roleId: roleIdBySystemKey[UserRole.ADMIN],
+            roleId: roleIdByName[UserRole.ADMIN],
             // L'owner voit tous les espaces (présents et futurs).
             allSpacesAccess: true,
           },
@@ -323,7 +327,7 @@ export class OnboardingService {
       } else {
         user = await tx.user.update({
           where: { id: user.id },
-          data: { roleId: roleIdBySystemKey[UserRole.ADMIN], allSpacesAccess: true },
+          data: { roleId: roleIdByName[UserRole.ADMIN], allSpacesAccess: true },
         });
       }
 
@@ -333,7 +337,7 @@ export class OnboardingService {
           userId: user.id,
           tenantId: tenant.id,
           role: 'ADMIN',
-          roleId: roleIdBySystemKey[UserRole.ADMIN],
+          roleId: roleIdByName[UserRole.ADMIN],
           isOwner: true,
         },
       });

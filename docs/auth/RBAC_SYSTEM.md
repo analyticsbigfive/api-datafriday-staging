@@ -6,6 +6,61 @@
 
 ---
 
+## 0. Alignement « Permissions (rôles) » — 2026-06-26 (état courant)
+
+> Cette section **prévaut** sur les §2–§3 historiques (design d'origine). Source de vérité du
+> catalogue et des rôles : [`src/core/rbac/permission-catalog.ts`](../../src/core/rbac/permission-catalog.ts).
+> Mapping écran ↔ code pour le front : [`docs/HANDOFF_FRONT_RBAC_ROLES.md`](../HANDOFF_FRONT_RBAC_ROLES.md).
+
+**Décisions appliquées :**
+- **Rôles système = `ADMIN` + 6 rôles métier.** ADMIN inchangé (bypass, toutes permissions).
+  MANAGER/STAFF/VIEWER **retirés** des rôles seedés (l'enum `UserRole` est conservé pour la
+  compat des données legacy uniquement). Les 6 rôles métier ont `systemKey = null` et sont
+  identifiés par leur `name`.
+- **Permissions au niveau écran** (ex. `front.fb.predict`, `front.fb.live`, `back.fb.costTracking`),
+  regroupées par catégorie (`Edit Space`, `Edit F&B Menu`, `Edit Events`, `Edit HR`, `Data Integration`,
+  `Users`, `Account`…).
+- **Enforcement backend** : les écrans front auparavant ouverts sont désormais gardés par
+  `@RequirePermissions` (`analyse` → `front.fb.analyse`/`back.fb.costTracking`, `inventory` →
+  `front.fb.spaceInventory`, `restock-state` → `front.fb.restock`/`restockBoard`). Les écritures
+  `spaces` passent de `@Roles('ADMIN','MANAGER')` à `@RequirePermissions('space.edit')`. Les gates
+  `@Roles` redondants sur `users`/`roles`/`permissions` sont supprimés au profit des `@RequirePermissions`
+  déjà présents (modèle 100 % piloté par permission).
+
+**Matrice rôle → permissions (défauts seedés, modifiables par l'admin sauf ADMIN) :**
+
+| Rôle | `systemKey` | Permissions |
+|---|---|---|
+| **ADMIN** | `ADMIN` | toutes (bypass) |
+| **Analyste F&B** | `null` | `nav.spaces`, `front.fb.analyse`, `front.fb.eventPredict`, `front.fb.predict`, `front.fb.spaceInventory`, `front.fb.stockUp`, `front.fb.live`, `front.fb.shoppingList`, `back.fb.costTracking`, `back.fb.marginReport` |
+| **Logistic F&B** | `null` | `nav.spaces`, `front.fb.spaceInventory`, `front.fb.restock` |
+| **Technicien Logistic** | `null` | `nav.spaces`, `front.fb.restockBoard` |
+| **PDV Superviseur** | `null` | `nav.spaces`, `front.fb.spaceInventory`, `front.fb.restockBoard` |
+| **Achat F&B** | `null` | `nav.spaces`, `menu.fb.suppliers`, `menu.fb.marketPrices`, `front.fb.analyse`, `front.fb.eventPredict`, `front.fb.predict`, `front.fb.spaceInventory`, `front.fb.stockUp`, `front.fb.live`, `front.fb.shoppingList` |
+| **Chef** | `null` | `nav.spaces`, `menu.fb.components`, `menu.fb.menuItems`, `menu.fb.spaceMenu` |
+
+**Profils d'administration :** `Super Admin` = plateforme (`User.isSuperAdmin`, `SuperAdminGuard`,
+cross-tenant). `Administrateur de site` (gestion users scopée par site) = **lot ultérieur**, non livré ici.
+
+**Déploiement** (pas de migration de schéma — catalogue/rôles sont des données) :
+
+1. **Avant ou avec le deploy** — `npm run rbac:backfill` : **purement additif** (catalogue + 6 rôles
+   métier). Sûr, ne touche pas aux anciens rôles.
+2. **Déployer le code.** L'enforcement `@RequirePermissions` s'active alors.
+3. **Réassigner les users** encore sur MANAGER/STAFF/VIEWER vers un rôle métier (via l'admin, ou
+   `REMAP_LEGACY_TO="<Nom de rôle>" npm run rbac:backfill`).
+4. **Post-deploy uniquement** — `DESYSTEMATIZE_LEGACY=1 npm run rbac:backfill` pour retirer le statut
+   système des anciens rôles (les rend éditables/supprimables).
+
+> ⚠️ **Ne JAMAIS dé-systématiser MANAGER/STAFF/VIEWER avant le deploy** : l'ancien code lit
+> `role.systemKey` dans son `RolesGuard` ; passer ces rôles à `systemKey=null` bloque (403) tous les
+> users non-admin encore en place. Incident constaté le 2026-06-26, corrigé. La dé-systématisation est
+> donc gardée derrière le flag `DESYSTEMATIZE_LEGACY=1`. Note cache : la résolution user/role est mise
+> en cache (Redis TTL 300s + local 15s, canal `auth:invalidate`) — après un changement de rôle massif,
+> compter ≤5 min de propagation (ou flush).
+
+---
+
 ## 1. Principes directeurs
 
 - **"Super admin" = Admin/Owner du tenant.** Pas de rôle plateforme cross-tenant. Chaque organisation gère ses propres rôles et permissions, exactement comme le suggère l'emplacement actuel des pages `Roles`/`Permissions` sous *Organisation → Accès* dans le frontend.

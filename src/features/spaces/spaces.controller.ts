@@ -33,7 +33,7 @@ import { GrantSpaceAccessDto } from './dto/grant-space-access.dto';
 import { UpdateSpaceElementDto } from './dto/update-space-element.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RolesGuard } from '../../core/auth/guards/roles.guard';
-import { Roles } from '../../core/auth/decorators/roles.decorator';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { SpaceIdParam } from '../../core/auth/decorators/space-id-param.decorator';
@@ -52,7 +52,7 @@ export class SpacesController {
    * Create a new space
    */
   @Post()
-  @Roles('ADMIN', 'MANAGER')
+  @RequirePermissions('space.edit')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Créer un nouvel espace/établissement',
@@ -177,7 +177,7 @@ export class SpacesController {
    * Get space statistics
    */
   @Get('statistics')
-  @Roles('ADMIN', 'MANAGER')
+  @RequirePermissions('space.edit')
   @ApiOperation({
     summary: 'Statistiques des espaces',
     description: 'Retourne les statistiques globales sur les espaces.',
@@ -311,7 +311,7 @@ export class SpacesController {
    * Update a space
    */
   @Patch(':id')
-  @Roles('ADMIN', 'MANAGER')
+  @RequirePermissions('space.edit')
   @ApiOperation({
     summary: 'Mettre à jour un espace',
     description: 'Modifie les informations d\'un espace. Réservé aux ADMIN et MANAGER.',
@@ -332,7 +332,7 @@ export class SpacesController {
    * Update space image
    */
   @Put(':id/image')
-  @Roles('ADMIN', 'MANAGER')
+  @RequirePermissions('space.edit')
   @ApiOperation({
     summary: 'Mettre à jour l\'image d\'un espace',
     description: 'Met à jour l\'image d\'un espace. Réservé aux ADMIN et MANAGER.',
@@ -617,7 +617,7 @@ export class SpacesController {
    * Delete a space
    */
   @Delete(':id')
-  @Roles('ADMIN')
+  @RequirePermissions('space.edit')
   @ApiOperation({
     summary: 'Supprimer un espace',
     description: 'Supprime définitivement un espace. Réservé aux ADMIN uniquement.',
@@ -665,7 +665,7 @@ export class SpacesController {
    * Grant user access to a space
    */
   @Post(':id/access')
-  @Roles('ADMIN', 'MANAGER')
+  @RequirePermissions('space.edit')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Donner accès à un utilisateur',
@@ -688,7 +688,7 @@ export class SpacesController {
    * Revoke user access to a space
    */
   @Delete(':id/access/:userId')
-  @Roles('ADMIN', 'MANAGER')
+  @RequirePermissions('space.edit')
   @ApiOperation({
     summary: 'Révoquer l\'accès d\'un utilisateur',
     description: 'Retire l\'accès d\'un utilisateur à cet espace. Réservé aux ADMIN et MANAGER.',
@@ -709,7 +709,7 @@ export class SpacesController {
    * Get users with access to a space
    */
   @Get(':id/users')
-  @Roles('ADMIN', 'MANAGER')
+  @RequirePermissions('space.edit')
   @ApiOperation({
     summary: 'Lister les utilisateurs ayant accès',
     description: 'Retourne la liste des utilisateurs avec leurs rôles sur cet espace.',
@@ -750,7 +750,7 @@ export class SpacesController {
    * Quick-create a shop element for a space (from Weezevent import flow)
    */
   @Post(':id/quick-element')
-  @Roles('ADMIN', 'MANAGER')
+  @RequirePermissions('space.edit')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Créer rapidement un shop dans un espace (import Weezevent)',
@@ -788,7 +788,7 @@ export class SpacesController {
    * Assign a list of SpaceElements to a floor level (creates the floor if needed)
    */
   @Post(':id/assign-floor')
-  @Roles('ADMIN', 'MANAGER')
+  @RequirePermissions('space.edit')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Assigner des shops à un étage ou au parvis' })
   @ApiParam({ name: 'id', description: 'ID de l\'espace' })
@@ -818,7 +818,7 @@ export class ConfigurationsController {
    * Create or update a configuration
    */
   @Post()
-  @Roles('ADMIN', 'MANAGER', 'STAFF')
+  @RequirePermissions('space.edit')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Créer ou mettre à jour une configuration',
@@ -894,7 +894,7 @@ export class ConfigurationsController {
    * Delete a configuration
    */
   @Delete(':id')
-  @Roles('ADMIN', 'MANAGER')
+  @RequirePermissions('space.edit')
   @ApiOperation({
     summary: 'Supprimer une configuration',
     description: 'Supprime définitivement une configuration.',
@@ -914,7 +914,7 @@ export class ConfigurationsController {
    * Update a configuration by ID
    */
   @Patch(':id')
-  @Roles('ADMIN', 'MANAGER', 'STAFF')
+  @RequirePermissions('space.edit')
   @ApiOperation({
     summary: 'Mettre à jour une configuration',
     description: 'Met à jour une configuration existante (floors, forecourt, capacity, etc.).',
@@ -935,7 +935,7 @@ export class ConfigurationsController {
    * Update a shop (SpaceElement) — image, name, type, shopTypes
    */
   @Patch('elements/:elementId')
-  @Roles('ADMIN', 'MANAGER')
+  @RequirePermissions('space.edit')
   @ApiOperation({
     summary: 'Modifier un shop (SpaceElement)',
     description: 'Met à jour le nom, l\'image, le type principal et/ou les sous-types d\'un SpaceElement (shop). Vérifie que l\'élément appartient bien au tenant avant modification.',
@@ -973,7 +973,7 @@ export class ConfigurationsController {
    * Quick-create a shop element for a space (from Weezevent import flow)
    */
   @Post(':id/quick-element')
-  @Roles('ADMIN', 'MANAGER')
+  @RequirePermissions('space.edit')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Créer rapidement un shop dans un espace (import Weezevent)',

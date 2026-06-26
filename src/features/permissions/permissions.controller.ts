@@ -17,10 +17,8 @@ import { UpdatePermissionDto } from './dto/update-permission.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RolesGuard } from '../../core/auth/guards/roles.guard';
 import { PermissionsGuard } from '../../core/auth/guards/permissions.guard';
-import { Roles } from '../../core/auth/decorators/roles.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
-import { UserRole } from '@prisma/client';
 
 @ApiTags('Permissions')
 @ApiBearerAuth('supabase-jwt')
@@ -47,7 +45,6 @@ export class PermissionsController {
    * Create a custom permission
    */
   @Post()
-  @Roles(UserRole.ADMIN)
   @RequirePermissions('org.permissions.manage')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -64,7 +61,6 @@ export class PermissionsController {
    * Update a custom permission
    */
   @Patch(':id')
-  @Roles(UserRole.ADMIN)
   @RequirePermissions('org.permissions.manage')
   @ApiOperation({
     summary: 'Mettre à jour une permission',
@@ -86,7 +82,6 @@ export class PermissionsController {
    * Delete a custom permission
    */
   @Delete(':id')
-  @Roles(UserRole.ADMIN)
   @RequirePermissions('org.permissions.manage')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

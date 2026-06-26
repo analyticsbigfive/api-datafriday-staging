@@ -27,40 +27,72 @@ export const SYSTEM_PERMISSIONS: PermissionDefinition[] = [
     description:
       "Accès à TOUS les espaces de l'organisation. Sans cette permission, l'utilisateur ne voit que les espaces qui lui sont explicitement accordés (UserSpaceAccess).",
   },
+  // Conservés pour compat : sections analytiques (autres domaines). `nav.analytics.fb`
+  // est remplacé fonctionnellement par `front.fb.analyse` mais gardé pour compatibilité.
   { code: 'nav.analytics.fb', name: 'Analytiques F&B', category: 'Navigation' },
   { code: 'nav.analytics.hospitality', name: 'Analytiques Hospitality', category: 'Navigation' },
   { code: 'nav.analytics.merch', name: 'Analytiques Merch', category: 'Navigation' },
   { code: 'nav.analytics.ticketing', name: 'Analytiques Ticketing', category: 'Navigation' },
   { code: 'nav.analytics.storage', name: 'Analytiques Storage', category: 'Navigation' },
 
-  // F&B
-  { code: 'menu.fb.suppliers', name: 'Fournisseurs F&B', category: 'F&B' },
-  { code: 'menu.fb.marketPrices', name: 'Prix du marché', category: 'F&B' },
-  { code: 'menu.fb.components', name: 'Composants', category: 'F&B' },
-  { code: 'menu.fb.menuItems', name: 'Articles de menu', category: 'F&B' },
-  { code: 'menu.fb.spaceMenu', name: 'Menus par espace', category: 'F&B' },
+  // Edit Space
+  {
+    code: 'space.edit',
+    name: 'Éditer un espace',
+    category: 'Edit Space',
+    description: "Création, modification, suppression d'un espace et de ses accès/floors (CRUD spaces).",
+  },
 
-  // Events
-  { code: 'menu.events.manage', name: 'Gestion des événements', category: 'Events' },
+  // F&B Front (écrans opérationnels par espace)
+  { code: 'front.fb.analyse', name: 'Analyse', category: 'F&B Front' },
+  { code: 'front.fb.eventPredict', name: 'Event Predict', category: 'F&B Front' },
+  { code: 'front.fb.predict', name: 'Predict', category: 'F&B Front' },
+  { code: 'front.fb.spaceInventory', name: 'Space Inventory', category: 'F&B Front' },
+  { code: 'front.fb.stockUp', name: 'Stock Up', category: 'F&B Front' },
+  { code: 'front.fb.live', name: 'Live', category: 'F&B Front' },
+  { code: 'front.fb.shoppingList', name: 'Liste de course', category: 'F&B Front' },
+  { code: 'front.fb.restock', name: 'Réarmement', category: 'F&B Front' },
+  { code: 'front.fb.restockBoard', name: 'Tableau de Réarmement', category: 'F&B Front' },
+
+  // Edit F&B Menu (écrans de configuration back)
+  { code: 'menu.fb.suppliers', name: 'Suppliers', category: 'Edit F&B Menu' },
+  { code: 'menu.fb.marketPrices', name: 'Market Price List', category: 'Edit F&B Menu' },
+  { code: 'menu.fb.components', name: 'Components', category: 'Edit F&B Menu' },
+  { code: 'menu.fb.menuItems', name: 'Menu Items', category: 'Edit F&B Menu' },
+  { code: 'menu.fb.spaceMenu', name: 'Space Menus', category: 'Edit F&B Menu' },
+
+  // F&B Back (analytics back)
+  { code: 'back.fb.costTracking', name: 'Cost Tracking', category: 'F&B Back' },
+  { code: 'back.fb.marginReport', name: 'Margin Report', category: 'F&B Back' },
+
+  // Edit Events
+  { code: 'menu.events.manage', name: 'Gestion des événements', category: 'Edit Events' },
+
+  // Edit HR (catalogue seul — pas encore d'endpoint dédié)
+  { code: 'menu.hr.manage', name: 'Edit HR', category: 'Edit HR' },
 
   // Configuration
   { code: 'menu.config.manage', name: 'Configurations produits', category: 'Configuration' },
 
-  // Intégration
-  { code: 'menu.integration.fb', name: 'Intégration de données F&B', category: 'Intégration' },
+  // Data Integration
+  { code: 'menu.integration.fb', name: 'Intégration de données F&B', category: 'Data Integration' },
 
-  // Organisation
-  { code: 'org.users.view', name: 'Voir les utilisateurs', category: 'Organisation' },
-  { code: 'org.users.manage', name: 'Gérer les utilisateurs', category: 'Organisation' },
-  { code: 'org.users.changeRole', name: "Changer le rôle d'un utilisateur", category: 'Organisation' },
-  { code: 'org.roles.manage', name: 'Gérer les rôles', category: 'Organisation' },
-  { code: 'org.permissions.manage', name: 'Gérer les permissions', category: 'Organisation' },
+  // Users
+  { code: 'org.users.view', name: 'Voir les utilisateurs', category: 'Users' },
+  { code: 'org.users.manage', name: 'Gérer les utilisateurs', category: 'Users' },
+  { code: 'org.users.changeRole', name: "Changer le rôle d'un utilisateur", category: 'Users' },
+
+  // Account (rôles & permissions)
+  { code: 'org.roles.manage', name: 'Gérer les rôles', category: 'Account' },
+  { code: 'org.permissions.manage', name: 'Gérer les permissions', category: 'Account' },
 ];
 
 const ALL_CODES = SYSTEM_PERMISSIONS.map((p) => p.code);
 
 export interface SystemRoleDefinition {
-  systemKey: UserRole;
+  // `systemKey` n'est renseigné que pour ADMIN (bypass guard, cf. PermissionsGuard).
+  // Les rôles métier sont identifiés par leur `name` et ont `systemKey = null`.
+  systemKey: UserRole | null;
   name: string;
   description: string;
   permissions: string[];
@@ -76,63 +108,66 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
     permissions: ALL_CODES,
   },
   {
-    systemKey: UserRole.MANAGER,
-    name: 'MANAGER',
-    description:
-      "Gestion opérationnelle : F&B, événements, configuration, intégrations et utilisateurs (hors rôles/permissions).",
+    systemKey: null,
+    name: 'Analyste F&B',
+    description: 'Analyse F&B : tableaux de bord, prédictions et suivi des coûts/marges.',
     permissions: [
       'nav.spaces',
-      'spaces.viewAll',
-      'nav.analytics.fb',
-      'nav.analytics.hospitality',
-      'nav.analytics.merch',
-      'nav.analytics.ticketing',
-      'nav.analytics.storage',
-      'menu.fb.suppliers',
-      'menu.fb.marketPrices',
-      'menu.fb.components',
-      'menu.fb.menuItems',
-      'menu.fb.spaceMenu',
-      'menu.events.manage',
-      'menu.config.manage',
-      'menu.integration.fb',
-      'org.users.view',
-      'org.users.manage',
+      'front.fb.analyse',
+      'front.fb.eventPredict',
+      'front.fb.predict',
+      'front.fb.spaceInventory',
+      'front.fb.stockUp',
+      'front.fb.live',
+      'front.fb.shoppingList',
+      'back.fb.costTracking',
+      'back.fb.marginReport',
     ],
   },
   {
-    systemKey: UserRole.STAFF,
-    name: 'STAFF',
-    description: 'Accès opérationnel quotidien : spaces, analytiques et menus F&B.',
+    systemKey: null,
+    name: 'Logistic F&B',
+    description: 'Logistique F&B : inventaire des espaces et réarmement.',
+    permissions: ['nav.spaces', 'front.fb.spaceInventory', 'front.fb.restock'],
+  },
+  {
+    systemKey: null,
+    name: 'Technicien Logistic',
+    description: 'Technicien logistique : tableau de réarmement.',
+    permissions: ['nav.spaces', 'front.fb.restockBoard'],
+  },
+  {
+    systemKey: null,
+    name: 'PDV Superviseur',
+    description: "Superviseur point de vente : inventaire d'espace et tableau de réarmement.",
+    permissions: ['nav.spaces', 'front.fb.spaceInventory', 'front.fb.restockBoard'],
+  },
+  {
+    systemKey: null,
+    name: 'Achat F&B',
+    description: 'Achats F&B : fournisseurs, prix du marché et écrans analytiques front.',
     permissions: [
       'nav.spaces',
-      'nav.analytics.fb',
-      'nav.analytics.hospitality',
-      'nav.analytics.merch',
-      'nav.analytics.ticketing',
-      'nav.analytics.storage',
       'menu.fb.suppliers',
       'menu.fb.marketPrices',
-      'menu.fb.menuItems',
-      'menu.fb.spaceMenu',
+      'front.fb.analyse',
+      'front.fb.eventPredict',
+      'front.fb.predict',
+      'front.fb.spaceInventory',
+      'front.fb.stockUp',
+      'front.fb.live',
+      'front.fb.shoppingList',
     ],
   },
   {
-    systemKey: UserRole.VIEWER,
-    name: 'VIEWER',
-    description: 'Accès en lecture seule aux spaces et aux analytiques.',
-    permissions: [
-      'nav.spaces',
-      'nav.analytics.fb',
-      'nav.analytics.hospitality',
-      'nav.analytics.merch',
-      'nav.analytics.ticketing',
-      'nav.analytics.storage',
-    ],
+    systemKey: null,
+    name: 'Chef',
+    description: 'Chef : composants, articles de menu et menus par espace.',
+    permissions: ['nav.spaces', 'menu.fb.components', 'menu.fb.menuItems', 'menu.fb.spaceMenu'],
   },
 ];
 
-type RbacClient = Pick<Prisma.TransactionClient, 'permission' | 'role'>;
+type RbacClient = Pick<Prisma.TransactionClient, 'permission' | 'role' | 'rolePermission'>;
 
 /**
  * Insère/à jour le catalogue de permissions système (`tenantId = null`, `isSystem = true`).
@@ -183,18 +218,27 @@ export async function ensureSystemPermissionCatalog(prisma: RbacClient): Promise
 }
 
 /**
- * Clone les 4 rôles système (ADMIN/MANAGER/STAFF/VIEWER) pour un tenant, avec
- * leur jeu de permissions par défaut (cf. tableau §4 du doc frontend).
- * Idempotent (upsert sur `[tenantId, name]`).
+ * Clone les rôles système (ADMIN + rôles métier) pour un tenant, avec leur jeu de
+ * permissions par défaut (cf. SYSTEM_ROLES). Idempotent (upsert sur `[tenantId, name]`).
  *
- * Retourne une map `UserRole -> roleId` pour faciliter le backfill `roleId`.
+ * Pour un rôle déjà présent, on met seulement à jour les métadonnées (description,
+ * systemKey, isSystem) : on **ne touche pas** à ses permissions, afin de préserver
+ * d'éventuelles personnalisations de l'admin (les rôles système hors ADMIN sont éditables).
+ * Les permissions par défaut ne sont donc posées qu'à la **création** du rôle.
+ *
+ * **Exception ADMIN** : le rôle ADMIN doit TOUJOURS posséder l'intégralité du catalogue
+ * (invariant, jamais personnalisé). Ses permissions sont donc resynchronisées à chaque appel
+ * pour absorber tout nouveau code ajouté au catalogue (le bypass guard reste vrai quoi qu'il arrive).
+ *
+ * Retourne une map `roleName -> roleId` (les rôles métier ont `systemKey = null`,
+ * on ne peut donc pas indexer par `UserRole`). Ex. `roles['ADMIN']`, `roles['Chef']`.
  */
 export async function cloneSystemRolesForTenant(
   prisma: RbacClient,
   tenantId: string,
-): Promise<Record<UserRole, string>> {
+): Promise<Record<string, string>> {
   const permissionIdByCode = await ensureSystemPermissionCatalog(prisma);
-  const roleIdBySystemKey = {} as Record<UserRole, string>;
+  const roleIdByName: Record<string, string> = {};
 
   for (const roleDef of SYSTEM_ROLES) {
     const existing = await prisma.role.findFirst({
@@ -217,6 +261,13 @@ export async function cloneSystemRolesForTenant(
           isSystem: true,
         },
       });
+      // ADMIN : resync complet du catalogue (invariant). Les autres rôles gardent leurs perms.
+      if (roleDef.systemKey === UserRole.ADMIN) {
+        await prisma.rolePermission.deleteMany({ where: { roleId: existing.id } });
+        await prisma.rolePermission.createMany({
+          data: permissionIds.map((permissionId) => ({ roleId: existing.id, permissionId })),
+        });
+      }
       roleId = existing.id;
     } else {
       const created = await prisma.role.create({
@@ -234,8 +285,8 @@ export async function cloneSystemRolesForTenant(
       roleId = created.id;
     }
 
-    roleIdBySystemKey[roleDef.systemKey] = roleId;
+    roleIdByName[roleDef.name] = roleId;
   }
 
-  return roleIdBySystemKey;
+  return roleIdByName;
 }

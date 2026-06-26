@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { AnalyseService } from './analyse.service';
 
 @ApiTags('Analyse')
@@ -11,6 +12,7 @@ export class AnalyseController {
   constructor(private readonly analyseService: AnalyseService) {}
 
   @Get('dashboard')
+  @RequirePermissions('front.fb.analyse')
   @ApiOperation({
     summary: 'Tableau de bord analytique global',
     description: 'Retourne les KPIs agrégés du tenant : chiffre d\'affaires total, nombre d\'événements, coût total, marge moyenne et top articles.',
@@ -45,6 +47,7 @@ export class AnalyseController {
   }
 
   @Get('kpis/menu')
+  @RequirePermissions('front.fb.analyse')
   @ApiOperation({
     summary: 'KPIs par article de menu',
     description: 'Retourne les indicateurs de performance par article de menu : ventes, coût, marge, quantité vendue.',
@@ -73,6 +76,7 @@ export class AnalyseController {
   }
 
   @Get('kpis/events')
+  @RequirePermissions('front.fb.analyse')
   @ApiOperation({
     summary: 'KPIs par événement',
     description: 'Retourne les indicateurs de performance par événement : revenus, coûts, marge, articles les plus vendus.',
@@ -101,6 +105,7 @@ export class AnalyseController {
   }
 
   @Get('timeline/:eventId')
+  @RequirePermissions('front.fb.analyse')
   @ApiOperation({
     summary: 'Timeline minute par minute d\'un événement (via WeezeventEvent.id)',
     description:
@@ -155,6 +160,7 @@ export class AnalyseController {
   }
 
   @Get('cost-breakdown')
+  @RequirePermissions('back.fb.costTracking')
   @ApiOperation({
     summary: 'Ventilation des coûts',
     description: 'Retourne la décomposition des coûts par catégorie (ingrédients, packaging, composants) et par article de menu.',

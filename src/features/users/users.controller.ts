@@ -30,7 +30,6 @@ import { GrantSpaceAccessDto } from './dto/grant-space-access.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RolesGuard } from '../../core/auth/guards/roles.guard';
 import { PermissionsGuard } from '../../core/auth/guards/permissions.guard';
-import { Roles } from '../../core/auth/decorators/roles.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
@@ -47,7 +46,6 @@ export class UsersController {
    * Create a new user
    */
   @Post()
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @RequirePermissions('org.users.manage')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -67,7 +65,6 @@ export class UsersController {
    * Get all users with pagination
    */
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @RequirePermissions('org.users.view')
   @ApiOperation({
     summary: 'Lister les utilisateurs',
@@ -89,7 +86,6 @@ export class UsersController {
    * Get user statistics
    */
   @Get('statistics')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @RequirePermissions('org.users.view')
   @ApiOperation({
     summary: 'Statistiques des utilisateurs',
@@ -120,7 +116,6 @@ export class UsersController {
    * Get user by ID
    */
   @Get(':id')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @RequirePermissions('org.users.view')
   @ApiOperation({
     summary: 'Détail d\'un utilisateur',
@@ -140,7 +135,6 @@ export class UsersController {
    * Update a user
    */
   @Patch(':id')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @RequirePermissions('org.users.manage')
   @ApiOperation({
     summary: 'Mettre à jour un utilisateur',
@@ -161,7 +155,6 @@ export class UsersController {
    * Delete a user
    */
   @Delete(':id')
-  @Roles(UserRole.ADMIN)
   @RequirePermissions('org.users.manage')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -184,7 +177,6 @@ export class UsersController {
    * Invite a user
    */
   @Post('invite')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @RequirePermissions('org.users.manage')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -205,7 +197,6 @@ export class UsersController {
    * Change user role
    */
   @Patch(':id/role')
-  @Roles(UserRole.ADMIN)
   @RequirePermissions('org.users.changeRole')
   @ApiOperation({
     summary: 'Changer le rôle d\'un utilisateur',
@@ -227,7 +218,6 @@ export class UsersController {
    * Grant space access to a user
    */
   @Post(':id/spaces/:spaceId/access')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @RequirePermissions('org.users.manage')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -251,7 +241,6 @@ export class UsersController {
    * Revoke space access from a user
    */
   @Delete(':id/spaces/:spaceId/access')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @RequirePermissions('org.users.manage')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

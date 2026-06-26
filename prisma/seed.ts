@@ -29,7 +29,7 @@ async function main() {
   });
   console.log('✅ Tenant 1 created:', tenant1.name);
 
-  // RBAC: clone des rôles système (ADMIN/MANAGER/STAFF/VIEWER) pour tenant 1
+  // RBAC: clone des rôles système (ADMIN + rôles métier) pour tenant 1
   const roles1 = await cloneSystemRolesForTenant(prisma, tenant1.id);
   console.log('✅ System roles cloned for tenant 1');
 
@@ -99,7 +99,7 @@ async function main() {
   });
   console.log('✅ Tenant 2 created:', tenant2.name);
 
-  // RBAC: clone des rôles système (ADMIN/MANAGER/STAFF/VIEWER) pour tenant 2
+  // RBAC: clone des rôles système (ADMIN + rôles métier) pour tenant 2
   const roles2 = await cloneSystemRolesForTenant(prisma, tenant2.id);
   console.log('✅ System roles cloned for tenant 2');
 

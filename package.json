@@ -34,6 +34,7 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "prisma:seed": "npx tsx prisma/seed.ts",
+    "rbac:backfill": "npx tsx prisma/backfill-rbac.ts",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
     "docker:logs": "docker-compose logs -f api"

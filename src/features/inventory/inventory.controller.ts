@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { InventoryService } from './inventory.service';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
@@ -19,6 +20,7 @@ import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 @ApiTags('inventory')
 @ApiBearerAuth('supabase-jwt')
 @UseGuards(JwtDatabaseGuard)
+@RequirePermissions('front.fb.spaceInventory')
 @Controller('inventory')
 export class InventoryController {
   private readonly logger = new Logger(InventoryController.name);
@@ -68,6 +70,7 @@ export class InventoryController {
 @ApiTags('inventory')
 @ApiBearerAuth('supabase-jwt')
 @UseGuards(JwtDatabaseGuard)
+@RequirePermissions('front.fb.spaceInventory')
 @Controller('inventory-counts')
 export class InventoryCountsController {
   private readonly logger = new Logger(InventoryCountsController.name);

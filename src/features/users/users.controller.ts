@@ -194,6 +194,29 @@ export class UsersController {
   }
 
   /**
+   * Re-send the invitation email to a still-pending user
+   */
+  @Post(':id/reinvite')
+  @RequirePermissions('org.users.manage')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Renvoyer une invitation',
+    description:
+      "Renvoie l'email d'invitation à un utilisateur invité qui ne s'est jamais connecté (rôle et accès aux espaces préservés).",
+  })
+  @ApiParam({ name: 'id', description: 'ID de l\'utilisateur' })
+  @ApiResponse({ status: 201, description: 'Invitation renvoyée' })
+  @ApiResponse({ status: 409, description: 'Utilisateur déjà connecté ou multi-organisation' })
+  @ApiResponse({ status: 404, description: 'Utilisateur non trouvé' })
+  async reinvite(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.usersService.reinvite(id, tenantId, user.id);
+  }
+
+  /**
    * Change user role
    */
   @Patch(':id/role')

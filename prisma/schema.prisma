@@ -272,6 +272,7 @@ model User {
   firstName String
   lastName  String
   fullName  String?
+  phone     String? // Téléphone de contact (optionnel)
 
   role      UserRole @default(VIEWER) // Legacy - conservé pour compatibilité, voir roleRef
   roleId    String? // RBAC dynamique - FK vers Role (nullable pendant la transition)

@@ -33,6 +33,7 @@ describe('UsersService', () => {
       upsert: jest.fn(),
       deleteMany: jest.fn(),
       createMany: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     space: {
       findFirst: jest.fn(),
@@ -55,6 +56,7 @@ describe('UsersService', () => {
     deleteUser: jest.fn(),
     getUserById: jest.fn(),
     getUserByEmail: jest.fn().mockResolvedValue(null),
+    getAuthInfoByIds: jest.fn().mockResolvedValue(new Map()),
     isEnabled: jest.fn().mockReturnValue(true),
   };
 
@@ -238,6 +240,64 @@ describe('UsersService', () => {
     });
   });
 
+  describe('reinvite', () => {
+    const pendingUser = {
+      ...mockUser,
+      firstName: 'Invited',
+      lastName: 'User',
+      roleId: 'role-staff',
+      allSpacesAccess: false,
+    };
+
+    it('re-sends a fresh invitation for a pending user, preserving role + spaces', async () => {
+      // 1st findFirst: lookup by id (the pending user). 2nd findFirst (inside invite): existing-by-email → null.
+      mockPrismaService.user.findFirst
+        .mockResolvedValueOnce(pendingUser)
+        .mockResolvedValueOnce(null);
+      mockSupabaseAdmin.getUserById.mockResolvedValue({ id: mockUserId, last_sign_in_at: null });
+      mockPrismaService.userTenant.count.mockResolvedValue(1);
+      mockPrismaService.userSpaceAccess.findMany.mockResolvedValue([{ spaceId: 's1' }]);
+      mockPrismaService.user.delete.mockResolvedValue(pendingUser);
+      mockPrismaService.role.findFirst.mockResolvedValue({ id: 'role-staff', systemKey: UserRole.STAFF });
+      mockSupabaseAdmin.getUserByEmail.mockResolvedValue(null);
+      mockSupabaseAdmin.inviteUserByEmail.mockResolvedValue({ id: 'new-supa-id', email: mockUser.email });
+      mockPrismaService.user.create.mockResolvedValue({ id: 'new-supa-id', email: mockUser.email });
+      mockPrismaService.userTenant.create.mockResolvedValue({});
+      mockConfigService.get.mockReturnValue('https://app.test/accept-invite');
+
+      const result = await service.reinvite(mockUserId, mockTenantId, 'admin-1');
+
+      expect(result.success).toBe(true);
+      expect(result.message).toContain(mockUser.email);
+      expect(mockSupabaseAdmin.deleteUser).toHaveBeenCalledWith(mockUserId);
+      expect(mockPrismaService.user.delete).toHaveBeenCalledWith({ where: { id: mockUserId } });
+      expect(mockSupabaseAdmin.inviteUserByEmail).toHaveBeenCalled();
+    });
+
+    it('refuses to re-invite a user who already signed in (409)', async () => {
+      mockPrismaService.user.findFirst.mockResolvedValue(pendingUser);
+      mockSupabaseAdmin.getUserById.mockResolvedValue({ id: mockUserId, last_sign_in_at: '2026-01-01T00:00:00Z' });
+
+      await expect(service.reinvite(mockUserId, mockTenantId, 'admin-1')).rejects.toThrow(ConflictException);
+      expect(mockSupabaseAdmin.deleteUser).not.toHaveBeenCalled();
+    });
+
+    it('refuses to re-invite a multi-organization account (409)', async () => {
+      mockPrismaService.user.findFirst.mockResolvedValue(pendingUser);
+      mockSupabaseAdmin.getUserById.mockResolvedValue({ id: mockUserId, last_sign_in_at: null });
+      mockPrismaService.userTenant.count.mockResolvedValue(2);
+
+      await expect(service.reinvite(mockUserId, mockTenantId, 'admin-1')).rejects.toThrow(ConflictException);
+      expect(mockPrismaService.user.delete).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the user is not in the tenant', async () => {
+      mockPrismaService.user.findFirst.mockResolvedValue(null);
+
+      await expect(service.reinvite('nope', mockTenantId, 'admin-1')).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('findAll', () => {
     it('should return paginated users', async () => {
       mockPrismaService.user.findMany.mockResolvedValue([mockUser]);
@@ -248,6 +308,34 @@ describe('UsersService', () => {
       expect(result.data).toHaveLength(1);
       expect(result.meta.total).toBe(1);
       expect(result.meta.page).toBe(1);
+    });
+
+    it('enriches users with a connection status from Supabase', async () => {
+      mockPrismaService.user.findMany.mockResolvedValue([mockUser]);
+      mockPrismaService.user.count.mockResolvedValue(1);
+      mockSupabaseAdmin.getAuthInfoByIds.mockResolvedValue(
+        new Map([[mockUserId, { lastSignInAt: '2026-06-01T10:00:00Z', invitedAt: null, emailConfirmedAt: '2026-05-01T00:00:00Z' }]]),
+      );
+
+      const result = await service.findAll(mockTenantId, { page: 1, limit: 20 });
+
+      expect(result.data[0].status).toBe('active');
+      expect(result.data[0].lastSignInAt).toBe('2026-06-01T10:00:00Z');
+    });
+
+    it('marks users as pending when they never signed in, unknown when Supabase has no info', async () => {
+      mockPrismaService.user.findMany.mockResolvedValue([mockUser]);
+      mockPrismaService.user.count.mockResolvedValue(1);
+      mockSupabaseAdmin.getAuthInfoByIds.mockResolvedValue(
+        new Map([[mockUserId, { lastSignInAt: null, invitedAt: '2026-06-01T00:00:00Z', emailConfirmedAt: null }]]),
+      );
+
+      const pending = await service.findAll(mockTenantId, { page: 1, limit: 20 });
+      expect(pending.data[0].status).toBe('pending');
+
+      mockSupabaseAdmin.getAuthInfoByIds.mockResolvedValue(new Map());
+      const unknown = await service.findAll(mockTenantId, { page: 1, limit: 20 });
+      expect(unknown.data[0].status).toBe('unknown');
     });
 
     it('should filter by search term', async () => {

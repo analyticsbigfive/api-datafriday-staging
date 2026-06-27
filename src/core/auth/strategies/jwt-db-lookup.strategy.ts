@@ -178,6 +178,7 @@ export class JwtDatabaseStrategy
         firstName: true,
         lastName: true,
         fullName: true,
+        phone: true,
         role: true, // legacy enum, conservé en fallback
         isSuperAdmin: true, // super-admin plateforme (cross-tenant)
         allSpacesAccess: true, // voit tous les espaces (présents et futurs)
@@ -215,6 +216,7 @@ export class JwtDatabaseStrategy
         firstName: null,
         lastName: null,
         fullName: null,
+        phone: null,
         tenantId: null,
         tenant: null,
         role: {
@@ -247,6 +249,7 @@ export class JwtDatabaseStrategy
       firstName: user.firstName,
       lastName: user.lastName,
       fullName: user.fullName,
+      phone: user.phone ?? null,
       tenantId: user.tenantId,
       tenant: user.tenant,
       role: {

@@ -56,6 +56,15 @@ export class CreateUserDto {
   role?: UserRole = UserRole.VIEWER;
 
   @ApiPropertyOptional({
+    description: 'Téléphone de contact',
+    example: '+33 6 12 34 56 78',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  phone?: string;
+
+  @ApiPropertyOptional({
     description: 'URL de l\'avatar',
     example: 'https://example.com/avatar.jpg',
   })

@@ -28,6 +28,7 @@ export interface CurrentUserData {
   firstName: string | null;
   lastName: string | null;
   fullName: string | null;
+  phone: string | null;
   tenantId: string | null;
   tenant: CurrentUserTenant | null;
   role: CurrentUserRole;

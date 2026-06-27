@@ -25,6 +25,14 @@ export class InviteUserDto {
   lastName?: string;
 
   @ApiPropertyOptional({
+    description: 'Téléphone de contact (pré-rempli ; optionnel)',
+    example: '+33 6 12 34 56 78',
+  })
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @ApiPropertyOptional({
     description: 'ID du rôle dynamique à attribuer (prioritaire sur `role`)',
   })
   @IsOptional()

@@ -88,6 +88,7 @@ export class MeController {
         const data: any = {};
         if (dto.firstName !== undefined) data.firstName = dto.firstName;
         if (dto.lastName !== undefined) data.lastName = dto.lastName;
+        if (dto.phone !== undefined) data.phone = dto.phone;
         if (dto.avatar !== undefined) data.avatar = dto.avatar;
 
         if (dto.firstName !== undefined || dto.lastName !== undefined) {
@@ -109,6 +110,7 @@ export class MeController {
                 firstName: true,
                 lastName: true,
                 fullName: true,
+                phone: true,
                 avatar: true,
                 tenantId: true,
             },

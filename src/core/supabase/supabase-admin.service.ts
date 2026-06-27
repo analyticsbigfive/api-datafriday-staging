@@ -8,6 +8,16 @@ import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 
 /**
+ * Connection-lifecycle info read from Supabase `auth.users` for a single user.
+ * `lastSignInAt === null` means the person has never logged in (still pending).
+ */
+export interface UserAuthInfo {
+  lastSignInAt: string | null;
+  invitedAt: string | null;
+  emailConfirmedAt: string | null;
+}
+
+/**
  * Thin wrapper around the Supabase Admin (service-role) API.
  *
  * Centralizes all privileged auth operations (create / invite / delete users)
@@ -128,6 +138,39 @@ export class SupabaseAdminService implements OnModuleInit {
       return null;
     }
     return data.user;
+  }
+
+  /**
+   * Bulk-fetch the auth status (connection lifecycle) of several users by id.
+   *
+   * Source of truth for "has this person ever logged in?" lives in Supabase
+   * (`auth.users`), not in our DB. Used to surface a real status / last-login on
+   * the users list. Returns an empty map when the admin client is disabled
+   * (local dev without keys) so callers degrade gracefully to "unknown".
+   *
+   * One `getUserById` per id (parallel) — fine for a paginated page (~20 ids).
+   */
+  async getAuthInfoByIds(ids: string[]): Promise<Map<string, UserAuthInfo>> {
+    const map = new Map<string, UserAuthInfo>();
+    if (!this.isEnabled() || ids.length === 0) {
+      return map;
+    }
+
+    const results = await Promise.all(
+      ids.map(async (id) => [id, await this.getUserById(id)] as const),
+    );
+
+    for (const [id, user] of results) {
+      if (user) {
+        map.set(id, {
+          lastSignInAt: user.last_sign_in_at ?? null,
+          invitedAt: user.invited_at ?? null,
+          emailConfirmedAt: user.email_confirmed_at ?? user.confirmed_at ?? null,
+        });
+      }
+    }
+
+    return map;
   }
 
   /**

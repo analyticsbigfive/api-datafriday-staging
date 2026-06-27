@@ -20,6 +20,12 @@ export class UpdateMeDto {
   @MaxLength(50)
   lastName?: string;
 
+  @ApiPropertyOptional({ description: 'Téléphone de contact', example: '+33 6 12 34 56 78' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  phone?: string;
+
   @ApiPropertyOptional({ description: "URL de l'avatar" })
   @IsOptional()
   @IsString()

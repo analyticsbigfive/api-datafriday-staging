@@ -15,6 +15,7 @@ describe('MeController', () => {
     firstName: 'John',
     lastName: 'Doe',
     fullName: 'John Doe',
+    phone: null,
     tenantId: 'tenant-123',
     tenant: {
       id: 'tenant-123',

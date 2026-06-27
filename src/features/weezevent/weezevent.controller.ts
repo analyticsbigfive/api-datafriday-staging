@@ -801,19 +801,25 @@ export class WeezeventController {
      */
     @Get('products/mappings')
     @ApiOperation({ summary: 'Lister les mappings produits Weezevent / menu items' })
+    @ApiQuery({ name: 'integrationId', required: false, description: 'Scoper par intégration — filtre la liste et accélère l\'agrégat salesPricing.' })
     @ApiResponse({ status: 200, description: 'Liste paginée des mappings de produits' })
     async getProductMappings(
         @CurrentUser() user: any,
         @Query('page') page: number = 1,
         @Query('perPage') perPage: number = 50,
+        @Query('integrationId') integrationId?: string,
     ) {
         const tenantId = user.tenantId;
         const p = Math.max(1, parseInt(String(page), 10) || 1);
         const pp = Math.min(Math.max(1, parseInt(String(perPage), 10) || 50), 500);
 
+        // Scoper par intégration filtre la liste ET permet de scoper l'agrégat ventes.
+        const where: any = { tenantId };
+        if (integrationId) where.weezeventProduct = { integrationId };
+
         const [mappings, total] = await Promise.all([
             this.prisma.weezeventProductMapping.findMany({
-                where: { tenantId },
+                where,
                 include: {
                     weezeventProduct: { include: { prices: true } },
                     menuItem: true,
@@ -822,13 +828,14 @@ export class WeezeventController {
                 skip: (p - 1) * pp,
                 take: pp,
             }),
-            this.prisma.weezeventProductMapping.count({ where: { tenantId } }),
+            this.prisma.weezeventProductMapping.count({ where }),
         ]);
 
         // Étape 3 Data Integration : on expose TOUT (le front décide quoi afficher) —
         // menuItem.pricing (catalogue) + weezeventProduct.pricing (référence Weezevent,
         // TVA + devise réelles) + weezeventProduct.salesPricing (réellement encaissé).
-        const data = await this.pricing.enrichMappingsPricing(mappings, tenantId);
+        // L'agrégat salesPricing est scopé à l'intégration si fournie (sinon tenant-wide).
+        const data = await this.pricing.enrichMappingsPricing(mappings, tenantId, { integrationId });
 
         return {
             data,

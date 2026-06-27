@@ -129,10 +129,28 @@ export class MenuItemPricingService {
     return null;
   }
 
-  /** Agrégats de ventes réelles par produit (depuis WeezeventTransactionItem). */
-  private async weezeventSalesByProduct(tenantId: string, productIds: string[]) {
+  /**
+   * Agrégats de ventes réelles par produit (depuis WeezeventTransactionItem).
+   * `opts.integrationId` / `opts.fromDate` / `opts.toDate` scopent l'agrégat : ils
+   * activent l'index `[tenantId, integrationId, transactionDate]` de WeezeventTransaction
+   * au lieu d'un seq scan sur tout l'historique (~12 s → quelques ms par intégration).
+   * ⚠️ N'utiliser `integrationId` que si les `productIds` appartiennent tous à cette
+   * intégration (sinon les ventes des autres intégrations sont exclues à tort).
+   */
+  private async weezeventSalesByProduct(
+    tenantId: string,
+    productIds: string[],
+    opts: { integrationId?: string; fromDate?: Date; toDate?: Date } = {},
+  ) {
     const ids = [...new Set(productIds.filter(Boolean))];
     if (!ids.length) return new Map<string, any>();
+    const conds: Prisma.Sql[] = [
+      Prisma.sql`t."tenantId" = ${tenantId}`,
+      Prisma.sql`ti."productId" IN (${Prisma.join(ids)})`,
+    ];
+    if (opts.integrationId) conds.push(Prisma.sql`t."integrationId" = ${opts.integrationId}`);
+    if (opts.fromDate) conds.push(Prisma.sql`t."transactionDate" >= ${opts.fromDate}`);
+    if (opts.toDate) conds.push(Prisma.sql`t."transactionDate" <= ${opts.toDate}`);
     const rows = await this.prisma.$queryRaw<any[]>(Prisma.sql`
       SELECT ti."productId" AS "productId",
         SUM(ti."quantity")::float8                                              AS qty,
@@ -143,7 +161,7 @@ export class MenuItemPricingService {
             / (1 + ti."vat" / 100.0))::float8                                   AS net_ht
       FROM "WeezeventTransactionItem" ti
       JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"
-      WHERE t."tenantId" = ${tenantId} AND ti."productId" IN (${Prisma.join(ids)})
+      WHERE ${Prisma.join(conds, ' AND ')}
       GROUP BY ti."productId"
     `);
     return new Map(rows.map((r) => [r.productId, r]));
@@ -183,13 +201,22 @@ export class MenuItemPricingService {
    * sans borne de date ni d'intégration. Le mettre à `false` pour les appelants qui ne lisent
    * que les paires produit↔menuItem (ex. chargement étape 3 Data Integration) : `salesPricing`
    * vaut alors `null` et on évite l'agrégat sur le chemin critique.
+   *
+   * `opts.integrationId` / `opts.fromDate` / `opts.toDate` (avec `includeSales`) scopent
+   * l'agrégat ventes pour le rendre rapide — à ne renseigner que si tous les mappings
+   * passés appartiennent à cette intégration (cf. `weezeventSalesByProduct`).
    */
   async enrichMappingsPricing(
     mappings: any[],
     tenantId: string,
-    opts: { includeSales?: boolean } = {},
+    opts: {
+      includeSales?: boolean;
+      integrationId?: string;
+      fromDate?: Date;
+      toDate?: Date;
+    } = {},
   ) {
-    const { includeSales = true } = opts;
+    const { includeSales = true, integrationId, fromDate, toDate } = opts;
     const tenantVatRate = await this.getTenantDefaultVatRate(tenantId);
     const salesByProduct = includeSales
       ? await this.weezeventSalesByProduct(
@@ -197,6 +224,7 @@ export class MenuItemPricingService {
           mappings
             .map((m) => m.weezeventProductId ?? m.weezeventProduct?.id)
             .filter(Boolean) as string[],
+          { integrationId, fromDate, toDate },
         )
       : new Map<string, any>();
 

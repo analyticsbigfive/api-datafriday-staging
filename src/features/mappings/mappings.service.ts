@@ -481,11 +481,25 @@ export class MappingsService {
     weezeventLocationId?: string,
     page = 1,
     limit = 200,
-    includeSales = false,
+    opts: {
+      includeSales?: boolean;
+      integrationId?: string;
+      fromDate?: Date;
+      toDate?: Date;
+    } = {},
   ) {
-    this.logger.log(`Fetching product mappings for tenant ${tenantId} (location=${weezeventLocationId ?? 'all'})`);
+    const { includeSales = false, integrationId, fromDate, toDate } = opts;
+    this.logger.log(
+      `Fetching product mappings for tenant ${tenantId} (location=${weezeventLocationId ?? 'all'}, integration=${integrationId ?? 'all'}, includeSales=${includeSales})`,
+    );
 
     const where: any = { tenantId };
+
+    // Scoper par intégration : filtre la liste ET permet de scoper l'agrégat ventes
+    // (sans quoi `integrationId` exclurait à tort les ventes des autres intégrations).
+    if (integrationId) {
+      where.weezeventProduct = { integrationId };
+    }
 
     if (weezeventLocationId) {
       // Filter by products sold at this location via transaction items
@@ -522,8 +536,13 @@ export class MappingsService {
     // (réellement encaissé) déclenche un agrégat lourd sur tout l'historique transactions
     // (~12 s/page en staging) → désactivé par défaut (includeSales=false) car le chargement
     // de l'étape 3 ne lit que les paires produit↔menuItem. Passer ?includeSales=true pour
-    // l'obtenir explicitement.
-    const enriched = await this.pricing.enrichMappingsPricing(data, tenantId, { includeSales });
+    // l'obtenir explicitement (rapide si scopé par ?integrationId / fenêtre de dates).
+    const enriched = await this.pricing.enrichMappingsPricing(data, tenantId, {
+      includeSales,
+      integrationId,
+      fromDate,
+      toDate,
+    });
 
     return {
       data: enriched,

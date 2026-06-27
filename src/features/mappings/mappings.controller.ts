@@ -330,7 +330,10 @@ export class MappingsController {
   @ApiQuery({ name: 'locationId', required: false, description: 'Filtrer par location Weezevent' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page (défaut: 1)', example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Résultats par page (max 1000, défaut: 200)', example: 200 })
-  @ApiQuery({ name: 'includeSales', required: false, type: Boolean, description: 'Inclure weezeventProduct.salesPricing (réellement encaissé). Coûteux (agrégat historique transactions) — désactivé par défaut.', example: false })
+  @ApiQuery({ name: 'integrationId', required: false, description: 'Scoper par intégration Weezevent — filtre la liste et accélère fortement l\'agrégat salesPricing.' })
+  @ApiQuery({ name: 'includeSales', required: false, type: Boolean, description: 'Inclure weezeventProduct.salesPricing (réellement encaissé). Coûteux sauf si scopé par integrationId/dates — désactivé par défaut.', example: false })
+  @ApiQuery({ name: 'fromDate', required: false, description: 'Borne basse (ISO) de la fenêtre des ventes agrégées (salesPricing).' })
+  @ApiQuery({ name: 'toDate', required: false, description: 'Borne haute (ISO) de la fenêtre des ventes agrégées (salesPricing).' })
   @ApiResponse({
     status: 200,
     description: 'Liste paginée des mappings product → menu item',
@@ -367,14 +370,21 @@ export class MappingsController {
     @Query('page') page = 1,
     @Query('limit') limit = 200,
     @Query('includeSales') includeSales?: string,
+    @Query('integrationId') integrationId?: string,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
   ) {
-    return this.mappingsService.getProductMappings(
-      user.tenantId,
-      locationId,
-      +page,
-      +limit,
-      includeSales === 'true' || includeSales === '1',
-    );
+    const parseDate = (v?: string) => {
+      if (!v) return undefined;
+      const d = new Date(v);
+      return Number.isNaN(d.getTime()) ? undefined : d;
+    };
+    return this.mappingsService.getProductMappings(user.tenantId, locationId, +page, +limit, {
+      includeSales: includeSales === 'true' || includeSales === '1',
+      integrationId,
+      fromDate: parseDate(fromDate),
+      toDate: parseDate(toDate),
+    });
   }
 
   @RequirePermissions('menu.integration.fb')

@@ -2,12 +2,15 @@ import {
   IsArray,
   ArrayNotEmpty,
   IsString,
+  IsOptional,
+  IsNumber,
+  IsPositive,
   ValidatorConstraint,
   ValidatorConstraintInterface,
   ValidationArguments,
   Validate,
 } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /**
  * Zones non numériques acceptées par `assign-floor` en plus d'un niveau d'étage entier.
@@ -57,4 +60,43 @@ export class AssignElementsToFloorDto {
   })
   @Validate(IsFloorLevelOrZone)
   level: AssignFloorLevel;
+
+  @ApiPropertyOptional({
+    description:
+      "ID de la configuration cible (celle créée à l'étape 1 ou dans le 3D Builder). " +
+      "Les shops sont assignés DANS cette configuration. Si omis, le backend retombe sur la " +
+      "configuration utilisateur principale (la plus ancienne, non-système) de l'espace — " +
+      "et ne crée JAMAIS de configuration « Weezevent Import » tant qu'une config utilisateur existe.",
+    example: 'cfg-abc123',
+  })
+  @IsOptional()
+  @IsString()
+  configId?: string;
+
+  @ApiPropertyOptional({
+    description: "Largeur (m) à utiliser si un nouveau floor/zone doit être créé pour cette assignation.",
+    example: 100,
+  })
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  width?: number;
+
+  @ApiPropertyOptional({
+    description: "Profondeur/longueur (m) à utiliser si un nouveau floor/zone doit être créé.",
+    example: 100,
+  })
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  length?: number;
+
+  @ApiPropertyOptional({
+    description: "Hauteur (m) à utiliser si un nouveau floor doit être créé.",
+    example: 4,
+  })
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  height?: number;
 }

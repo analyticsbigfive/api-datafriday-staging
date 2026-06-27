@@ -848,6 +848,7 @@ describe('SpacesService', () => {
       mockPrismaService.spaceElement = {
         findFirst: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
         create: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
@@ -860,9 +861,9 @@ describe('SpacesService', () => {
 
     it('A1 — assignElementsToFloorLevel("externalmerch") crée la zone ExternalMerch et y déplace les éléments', async () => {
       mockPrismaService.space.findFirst.mockResolvedValue({ id: spaceId, tenantId });
-      // findOrCreateImportConfig → config interne existante
+      // resolveTargetConfig → config utilisateur de l'espace
       mockPrismaService.config.findFirst
-        .mockResolvedValueOnce({ id: 'cfg-import', name: 'Weezevent Import', isSystem: true, spaceId })
+        .mockResolvedValueOnce({ id: 'cfg-user', name: 'Stade', isSystem: false, spaceId })
         // updateConfigDataOptimistic → lecture data/version
         .mockResolvedValue({ data: {}, version: 0 });
       mockPrismaService.externalMerch.findUnique.mockResolvedValue(null);
@@ -892,23 +893,45 @@ describe('SpacesService', () => {
       ).rejects.toThrow('level invalide');
     });
 
-    it('A6 — quickCreateElement crée la config interne avec isSystem=true', async () => {
+    it('A6 — quickCreateElement cible la config utilisateur (aucune config « Weezevent Import » créée)', async () => {
       mockPrismaService.space.findFirst.mockResolvedValue({ id: spaceId, tenantId });
-      // findOrCreateImportConfig → aucune config interne → create
+      // resolveTargetConfig → config utilisateur existante (isSystem=false) → réutilisée
       mockPrismaService.config.findFirst
-        .mockResolvedValueOnce(null) // pas de config interne
+        .mockResolvedValueOnce({ id: 'cfg-user', name: 'Configuration principale', isSystem: false, spaceId })
         .mockResolvedValue({ data: {}, version: 0 }); // updateConfigDataOptimistic
-      mockPrismaService.config.create.mockResolvedValue({ id: 'cfg-import', name: 'Weezevent Import', isSystem: true });
       mockPrismaService.floor.findFirst.mockResolvedValue(null);
-      mockPrismaService.floor.create.mockResolvedValue({ id: 'f-0', name: 'Import', level: 0, width: 200, height: 4, length: 200 });
+      mockPrismaService.floor.create.mockResolvedValue({ id: 'f-0', name: 'RDC', level: 0, width: 100, height: 4, length: 100 });
+      mockPrismaService.spaceElement.count.mockResolvedValue(0);
       mockPrismaService.spaceElement.create.mockResolvedValue({ id: 'el-1', name: 'Bar' });
 
       const res: any = await service.quickCreateElement(spaceId, tenantId, { name: 'Bar', type: 'fnb-beverages' });
 
       expect(res.id).toBe('el-1');
-      expect(mockPrismaService.config.create).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ isSystem: true }) }),
-      );
+      // Le shop est créé dans la config utilisateur, PAS dans une config interne auto-générée.
+      expect(mockPrismaService.config.create).not.toHaveBeenCalled();
+      expect(mockPrismaService.spaceElement.create).toHaveBeenCalled();
+    });
+
+    it('A6b — quickCreateElement échoue (400) si aucune config utilisateur, et ne crée AUCUNE config', async () => {
+      mockPrismaService.space.findFirst.mockResolvedValue({ id: spaceId, tenantId });
+      // resolveTargetConfig : aucune config utilisateur → throw, jamais de « Weezevent Import »
+      mockPrismaService.config.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.quickCreateElement(spaceId, tenantId, { name: 'Bar', type: 'fnb-beverages' }),
+      ).rejects.toThrow('Aucune configuration');
+      expect(mockPrismaService.config.create).not.toHaveBeenCalled();
+    });
+
+    it('A6c — assignElementsToFloorLevel échoue (400) si aucune config utilisateur, sans rien créer', async () => {
+      mockPrismaService.space.findFirst.mockResolvedValue({ id: spaceId, tenantId });
+      mockPrismaService.config.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.assignElementsToFloorLevel(spaceId, tenantId, ['el-1'], 0),
+      ).rejects.toThrow('Aucune configuration');
+      expect(mockPrismaService.config.create).not.toHaveBeenCalled();
+      expect(mockPrismaService.floor.create).not.toHaveBeenCalled();
     });
 
     it('A3 — getConfiguration renvoie data.externalMerch', async () => {

@@ -757,7 +757,8 @@ export class SpacesController {
   @ApiOperation({
     summary: 'Créer rapidement un shop dans un espace (import Weezevent)',
     description:
-      'Crée un SpaceElement dans la configuration "Weezevent Import" (créée si besoin). ' +
+      'Crée un SpaceElement dans la configuration utilisateur de l\'espace (celle de l\'étape 1 / du 3D Builder, la plus ancienne non-système). ' +
+      'Aucune configuration "Weezevent Import" n\'est créée tant qu\'une config utilisateur existe. ' +
       'Dimensions par défaut : floor 200m × 200m × 4m si aucun floor n\'existe encore, shop 2m × 2m × 2m. ' +
       'Pour un `type` F&B (fnb-food, fnb-beverages, fnb-bar, fnb-snack, fnb-icecream), `shopTypes` est ' +
       'automatiquement renseigné (food/beverages/beer) pour le filtre du 3D Builder.',
@@ -801,7 +802,12 @@ export class SpacesController {
     @CurrentTenant() tenantId: string,
     @Body() body: AssignElementsToFloorDto,
   ) {
-    return this.spacesService.assignElementsToFloorLevel(spaceId, tenantId, body.elementIds, body.level);
+    return this.spacesService.assignElementsToFloorLevel(spaceId, tenantId, body.elementIds, body.level, {
+      configId: body.configId,
+      width: body.width,
+      length: body.length,
+      height: body.height,
+    });
   }
 }
 
@@ -980,7 +986,8 @@ export class ConfigurationsController {
   @ApiOperation({
     summary: 'Créer rapidement un shop dans un espace (import Weezevent)',
     description:
-      'Crée un SpaceElement dans la configuration "Weezevent Import" (créée si besoin). ' +
+      'Crée un SpaceElement dans la configuration utilisateur de l\'espace (celle de l\'étape 1 / du 3D Builder, la plus ancienne non-système). ' +
+      'Aucune configuration "Weezevent Import" n\'est créée tant qu\'une config utilisateur existe. ' +
       'Dimensions par défaut : floor 200m × 200m × 4m si aucun floor n\'existe encore, shop 2m × 2m × 2m. ' +
       'Pour un `type` F&B (fnb-food, fnb-beverages, fnb-bar, fnb-snack, fnb-icecream), `shopTypes` est ' +
       'automatiquement renseigné (food/beverages/beer) pour le filtre du 3D Builder.',

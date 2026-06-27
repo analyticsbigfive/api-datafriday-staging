@@ -267,6 +267,23 @@ export class OnboardingService {
     email: string,
     dto: CreateOrganizationDto,
   ) {
+    // Un utilisateur déjà rattaché à une organisation (ex. invité) NE DOIT PAS
+    // pouvoir en créer une nouvelle : il rejoint celle à laquelle il appartient.
+    // Garde-fou serveur (le front masque déjà l'onboarding pour ces comptes).
+    const existing = await this.prisma.user.findUnique({
+      where: { id: supabaseUserId },
+      select: { tenantId: true },
+    });
+    const membership = await this.prisma.userTenant.findFirst({
+      where: { userId: supabaseUserId },
+      select: { id: true },
+    });
+    if (existing?.tenantId || membership) {
+      throw new ConflictException(
+        "Vous appartenez déjà à une organisation. Un compte invité rejoint son organisation et ne peut pas en créer une nouvelle.",
+      );
+    }
+
     // Generate unique slug from organization name
     const baseSlug = this.generateSlug(dto.organizationName);
     const slug = await this.ensureUniqueSlug(baseSlug);

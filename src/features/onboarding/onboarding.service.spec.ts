@@ -11,7 +11,11 @@ describe('OnboardingService', () => {
   const mockPrismaService = {
     user: {
       findFirst: jest.fn(),
+      findUnique: jest.fn(),
       create: jest.fn(),
+    },
+    userTenant: {
+      findFirst: jest.fn(),
     },
     tenant: {
       findUnique: jest.fn(),
@@ -63,6 +67,17 @@ describe('OnboardingService', () => {
       organizationEmail: 'contact@mycompany.com',
       organizationPhone: '+33123456789',
     };
+
+    it('rejects creating an org when the user already belongs to one (invited account)', async () => {
+      // Un invité a déjà un tenant → ne doit pas pouvoir créer une organisation.
+      // `Once` : n'affecte que cet appel (clearAllMocks ne réinitialise pas les impl).
+      mockPrismaService.user.findUnique.mockResolvedValueOnce({ tenantId: 'existing-tenant' });
+
+      await expect(
+        service.createOrganization(supabaseUserId, email, dto),
+      ).rejects.toThrow(ConflictException);
+      expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
+    });
 
     it('should create tenant and user successfully', async () => {
       // Mock: user doesn't exist

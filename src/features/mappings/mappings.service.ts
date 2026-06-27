@@ -481,6 +481,7 @@ export class MappingsService {
     weezeventLocationId?: string,
     page = 1,
     limit = 200,
+    includeSales = false,
   ) {
     this.logger.log(`Fetching product mappings for tenant ${tenantId} (location=${weezeventLocationId ?? 'all'})`);
 
@@ -516,10 +517,13 @@ export class MappingsService {
       this.prisma.weezeventProductMapping.count({ where }),
     ]);
 
-    // Étape 3 Data Integration : on expose TOUT (le front décide quoi afficher) —
-    // menuItem.pricing (catalogue) + weezeventProduct.pricing (référence Weezevent,
-    // TVA + devise réelles) + weezeventProduct.salesPricing (réellement encaissé).
-    const enriched = await this.pricing.enrichMappingsPricing(data, tenantId);
+    // menuItem.pricing (catalogue) + weezeventProduct.pricing (référence Weezevent, TVA +
+    // devise réelles) sont calculés en mémoire (peu coûteux). En revanche salesPricing
+    // (réellement encaissé) déclenche un agrégat lourd sur tout l'historique transactions
+    // (~12 s/page en staging) → désactivé par défaut (includeSales=false) car le chargement
+    // de l'étape 3 ne lit que les paires produit↔menuItem. Passer ?includeSales=true pour
+    // l'obtenir explicitement.
+    const enriched = await this.pricing.enrichMappingsPricing(data, tenantId, { includeSales });
 
     return {
       data: enriched,

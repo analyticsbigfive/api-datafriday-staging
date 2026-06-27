@@ -176,13 +176,29 @@ export class MenuItemPricingService {
    *  - `weezeventProduct.salesPricing` → prix RÉELLEMENT ENCAISSÉ (agrégé sur les ventes)
    *  - `weezeventProduct.prices`     → prix configurés en amont (déjà inclus par l'appelant)
    * Les appelants doivent inclure `weezeventProduct: { include: { prices: true } }`.
+   *
+   * `opts.includeSales` (défaut `true`) pilote le calcul de `salesPricing`. Cet agrégat
+   * (`weezeventSalesByProduct`) est COÛTEUX : un GROUP BY sur tout l'historique
+   * `WeezeventTransactionItem` (centaines de milliers de lignes, ~12 s mesurées en staging)
+   * sans borne de date ni d'intégration. Le mettre à `false` pour les appelants qui ne lisent
+   * que les paires produit↔menuItem (ex. chargement étape 3 Data Integration) : `salesPricing`
+   * vaut alors `null` et on évite l'agrégat sur le chemin critique.
    */
-  async enrichMappingsPricing(mappings: any[], tenantId: string) {
+  async enrichMappingsPricing(
+    mappings: any[],
+    tenantId: string,
+    opts: { includeSales?: boolean } = {},
+  ) {
+    const { includeSales = true } = opts;
     const tenantVatRate = await this.getTenantDefaultVatRate(tenantId);
-    const productIds = mappings
-      .map((m) => m.weezeventProductId ?? m.weezeventProduct?.id)
-      .filter(Boolean) as string[];
-    const salesByProduct = await this.weezeventSalesByProduct(tenantId, productIds);
+    const salesByProduct = includeSales
+      ? await this.weezeventSalesByProduct(
+          tenantId,
+          mappings
+            .map((m) => m.weezeventProductId ?? m.weezeventProduct?.id)
+            .filter(Boolean) as string[],
+        )
+      : new Map<string, any>();
 
     return mappings.map((m) => {
       const product = m.weezeventProduct;
@@ -194,7 +210,9 @@ export class MenuItemPricingService {
           ? {
               ...product,
               pricing: this.computePricing(product, null, currency),
-              salesPricing: this.computeSalesPricing(salesByProduct.get(product.id), currency),
+              salesPricing: includeSales
+                ? this.computeSalesPricing(salesByProduct.get(product.id), currency)
+                : null,
             }
           : product,
       };

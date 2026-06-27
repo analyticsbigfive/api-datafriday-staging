@@ -330,6 +330,7 @@ export class MappingsController {
   @ApiQuery({ name: 'locationId', required: false, description: 'Filtrer par location Weezevent' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page (défaut: 1)', example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Résultats par page (max 1000, défaut: 200)', example: 200 })
+  @ApiQuery({ name: 'includeSales', required: false, type: Boolean, description: 'Inclure weezeventProduct.salesPricing (réellement encaissé). Coûteux (agrégat historique transactions) — désactivé par défaut.', example: false })
   @ApiResponse({
     status: 200,
     description: 'Liste paginée des mappings product → menu item',
@@ -365,8 +366,15 @@ export class MappingsController {
     @Query('locationId') locationId?: string,
     @Query('page') page = 1,
     @Query('limit') limit = 200,
+    @Query('includeSales') includeSales?: string,
   ) {
-    return this.mappingsService.getProductMappings(user.tenantId, locationId, +page, +limit);
+    return this.mappingsService.getProductMappings(
+      user.tenantId,
+      locationId,
+      +page,
+      +limit,
+      includeSales === 'true' || includeSales === '1',
+    );
   }
 
   @RequirePermissions('menu.integration.fb')

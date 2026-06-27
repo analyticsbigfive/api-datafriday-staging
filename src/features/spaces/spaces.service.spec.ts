@@ -42,6 +42,9 @@ describe('SpacesService', () => {
       findMany: jest.fn(),
       findFirst: jest.fn(),
       upsert: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     floor: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -52,9 +55,29 @@ describe('SpacesService', () => {
     },
     forecourt: {
       findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn(),
       findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+    },
+    externalMerch: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
+    },
+    spaceElement: {
+      findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+    },
+    menuAssignment: {
+      findMany: jest.fn().mockResolvedValue([]),
+      createMany: jest.fn(),
+    },
+    weezeventLocationShopMapping: {
+      count: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     $transaction: jest.fn((callback) => callback(mockPrismaService)),
   };
@@ -495,11 +518,16 @@ describe('SpacesService', () => {
             tenantId,
           },
         },
-        orderBy: { createdAt: 'desc' },
+        // A5/A6 : configs utilisateur d'abord (isSystem=false), puis par ancienneté
+        orderBy: [
+          { isSystem: 'asc' },
+          { createdAt: 'asc' },
+        ],
         select: {
           id: true,
           name: true,
           capacity: true,
+          isSystem: true,
           createdAt: true,
           updatedAt: true,
           _count: {
@@ -803,6 +831,99 @@ describe('SpacesService', () => {
           expect(fullSql).toContain("'V'");
         }
       }
+    });
+  });
+
+  // ===== Correctifs Wizard Weezevent (A1/A3/A4/A6) =====
+  describe('Wizard Weezevent fixes', () => {
+    const tenantId = 'tenant-1';
+    const spaceId = 'space-1';
+
+    beforeEach(() => {
+      // resetAllMocks (et pas clearAllMocks) pour purger les files `...Once` laissées
+      // par les tests précédents qui pollueraient config.findFirst, puis ré-amorçage des défauts.
+      jest.resetAllMocks();
+      // Un test antérieur (getShopDetails) remplace mockPrismaService.spaceElement par un objet
+      // partiel ({ findMany } seul) → on restaure l'objet complet ici.
+      mockPrismaService.spaceElement = {
+        findFirst: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn(),
+        update: jest.fn(),
+        delete: jest.fn(),
+      } as any;
+      mockPrismaService.config.updateMany.mockResolvedValue({ count: 1 });
+      mockPrismaService.floor.findMany.mockResolvedValue([]);
+      mockPrismaService.menuAssignment.findMany.mockResolvedValue([]);
+      mockPrismaService.weezeventLocationShopMapping.findMany.mockResolvedValue([]);
+    });
+
+    it('A1 — assignElementsToFloorLevel("externalmerch") crée la zone ExternalMerch et y déplace les éléments', async () => {
+      mockPrismaService.space.findFirst.mockResolvedValue({ id: spaceId, tenantId });
+      // findOrCreateImportConfig → config interne existante
+      mockPrismaService.config.findFirst
+        .mockResolvedValueOnce({ id: 'cfg-import', name: 'Weezevent Import', isSystem: true, spaceId })
+        // updateConfigDataOptimistic → lecture data/version
+        .mockResolvedValue({ data: {}, version: 0 });
+      mockPrismaService.externalMerch.findUnique.mockResolvedValue(null);
+      mockPrismaService.externalMerch.create.mockResolvedValue({ id: 'em-1', name: 'Espace Externe', width: 200, length: 200 });
+      mockPrismaService.spaceElement.findFirst.mockResolvedValue({
+        id: 'el-1', floorId: 'f-0',
+        floor: { config: { space: { id: spaceId, tenantId } } },
+      });
+      mockPrismaService.spaceElement.update.mockResolvedValue({ id: 'el-1' });
+
+      const res: any = await service.assignElementsToFloorLevel(spaceId, tenantId, ['el-1'], 'externalmerch');
+
+      expect(res.kind).toBe('externalmerch');
+      expect(res.externalMerchId).toBe('em-1');
+      expect(res.updatedElementIds).toEqual(['el-1']);
+      expect(mockPrismaService.externalMerch.create).toHaveBeenCalled();
+      expect(mockPrismaService.spaceElement.update).toHaveBeenCalledWith({
+        where: { id: 'el-1' },
+        data: { floorId: null, forecourtId: null, externalMerchId: 'em-1' },
+      });
+    });
+
+    it('A4 — assignElementsToFloorLevel rejette un level non entier (BadRequestException)', async () => {
+      mockPrismaService.space.findFirst.mockResolvedValue({ id: spaceId, tenantId });
+      await expect(
+        service.assignElementsToFloorLevel(spaceId, tenantId, ['el-1'], 1.5 as any),
+      ).rejects.toThrow('level invalide');
+    });
+
+    it('A6 — quickCreateElement crée la config interne avec isSystem=true', async () => {
+      mockPrismaService.space.findFirst.mockResolvedValue({ id: spaceId, tenantId });
+      // findOrCreateImportConfig → aucune config interne → create
+      mockPrismaService.config.findFirst
+        .mockResolvedValueOnce(null) // pas de config interne
+        .mockResolvedValue({ data: {}, version: 0 }); // updateConfigDataOptimistic
+      mockPrismaService.config.create.mockResolvedValue({ id: 'cfg-import', name: 'Weezevent Import', isSystem: true });
+      mockPrismaService.floor.findFirst.mockResolvedValue(null);
+      mockPrismaService.floor.create.mockResolvedValue({ id: 'f-0', name: 'Import', level: 0, width: 200, height: 4, length: 200 });
+      mockPrismaService.spaceElement.create.mockResolvedValue({ id: 'el-1', name: 'Bar' });
+
+      const res: any = await service.quickCreateElement(spaceId, tenantId, { name: 'Bar', type: 'fnb-beverages' });
+
+      expect(res.id).toBe('el-1');
+      expect(mockPrismaService.config.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ isSystem: true }) }),
+      );
+    });
+
+    it('A3 — getConfiguration renvoie data.externalMerch', async () => {
+      mockPrismaService.config.findFirst.mockResolvedValue({
+        id: 'cfg-1', name: 'Stade', spaceId, capacity: 0, isSystem: false,
+        data: { floors: [], forecourt: null, externalMerch: { id: 'em-1', name: 'Espace Externe', elements: [] } },
+        createdAt: new Date(), updatedAt: new Date(),
+        space: { id: spaceId, name: 'Stade', tenantId },
+      });
+      mockPrismaService.floor.findMany.mockResolvedValue([]);
+
+      const res: any = await service.getConfiguration('cfg-1', tenantId);
+
+      expect(res.data.externalMerch).toEqual({ id: 'em-1', name: 'Espace Externe', elements: [] });
+      expect(res.isSystem).toBe(false);
     });
   });
 });

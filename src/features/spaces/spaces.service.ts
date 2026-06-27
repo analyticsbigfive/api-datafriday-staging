@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
@@ -8,6 +8,13 @@ import { QuerySpaceDto } from './dto/query-space.dto';
 import { WeezeventClientService } from '../weezevent/services/weezevent-client.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
+
+/**
+ * Nom de la configuration interne auto-générée par le backend lors de l'import Weezevent.
+ * Elle est désormais discriminée par `Config.isSystem = true` ; ce nom reste utilisé en
+ * fallback de compatibilité pour les configs créées avant la migration `isSystem`.
+ */
+export const WEEZEVENT_IMPORT_CONFIG_NAME = 'Weezevent Import';
 
 @Injectable()
 export class SpacesService {
@@ -289,14 +296,17 @@ export class SpacesService {
             name: true,
             spaceId: true,
             capacity: true,
+            isSystem: true,
             data: true,  // Include full configuration data (floors, forecourt, externalMerch)
             createdAt: true,
             updatedAt: true,
           },
-          // oldest first so user-created configs precede auto-generated "Weezevent Import"
-          orderBy: {
-            createdAt: 'asc',
-          },
+          // configs utilisateur d'abord (isSystem=false), puis par ancienneté, afin que
+          // l'import interne "Weezevent Import" ne soit jamais sélectionné par défaut.
+          orderBy: [
+            { isSystem: 'asc' },
+            { createdAt: 'asc' },
+          ],
         },
         _count: {
           select: {
@@ -730,13 +740,18 @@ export class SpacesService {
           tenantId, // Verify tenant access directly in query
         },
       },
-      orderBy: {
-        createdAt: 'desc',
-      },
+      // Configs utilisateur (isSystem=false) d'abord, puis par ancienneté : la
+      // config par défaut sélectionnée côté builder (configs[0]) est donc toujours
+      // une config utilisateur, jamais l'import interne « Weezevent Import ».
+      orderBy: [
+        { isSystem: 'asc' },
+        { createdAt: 'asc' },
+      ],
       select: {
         id: true,
         name: true,
         capacity: true,
+        isSystem: true,
         createdAt: true,
         updatedAt: true,
         // Don't include full data here - it's loaded separately when needed
@@ -1356,7 +1371,21 @@ export class SpacesService {
         }
       }
 
-      // 2b. Delete existing floors and their elements (cascade)
+      // 2b. Capture des MenuAssignment des éléments de cette config AVANT le delete
+      // (cascade Floor → SpaceElement → MenuAssignment). Ils ne sont pas sérialisés dans
+      // le JSON ; sans cette sauvegarde, delete+recreate les perdrait. Les ids d'éléments
+      // étant préservés à la recréation (`...(element.id ? { id } : {})`), on peut les ré-insérer.
+      const preservedAssignments = await tx.menuAssignment.findMany({
+        where: {
+          OR: [
+            { element: { floor: { configId: config.id } } },
+            { element: { forecourt: { configId: config.id } } },
+          ],
+        },
+        select: { elementId: true, menuItemId: true, enabled: true },
+      });
+
+      // 2c. Delete existing floors and their elements (cascade)
       await tx.floor.deleteMany({
         where: { configId: config.id },
       });
@@ -1559,6 +1588,27 @@ export class SpacesService {
         }
       }
 
+      // 5. Restaurer les MenuAssignment capturés en 2b pour les éléments recréés
+      // (ids préservés). Seuls ceux dont l'élément existe encore sont ré-insérés ;
+      // skipDuplicates respecte la contrainte @@unique([elementId, menuItemId]).
+      if (preservedAssignments.length > 0) {
+        const assignmentElementIds = [
+          ...new Set(preservedAssignments.map((a) => a.elementId).filter((id): id is string => !!id)),
+        ];
+        const stillExisting = await tx.spaceElement.findMany({
+          where: { id: { in: assignmentElementIds } },
+          select: { id: true },
+        });
+        const existingIds = new Set(stillExisting.map((e) => e.id));
+        const toRestore = preservedAssignments.filter((a) => a.elementId && existingIds.has(a.elementId));
+        if (toRestore.length > 0) {
+          await tx.menuAssignment.createMany({
+            data: toRestore.map((a) => ({ elementId: a.elementId!, menuItemId: a.menuItemId, enabled: a.enabled })),
+            skipDuplicates: true,
+          });
+        }
+      }
+
       return config;
     });
   }
@@ -1569,8 +1619,8 @@ export class SpacesService {
    * We map to the closest enum value or 'other' as fallback
    */
   private mapElementType(type: string): any {
-    if (!type) return 'other';
-    
+    if (!type || typeof type !== 'string') return 'other';
+
     // Direct mappings
     const directMap: Record<string, string> = {
       'shop': 'shop',
@@ -1730,6 +1780,7 @@ export class SpacesService {
         name: true,
         spaceId: true,
         capacity: true,
+        isSystem: true,
         data: true,
         createdAt: true,
         updatedAt: true,
@@ -1824,12 +1875,14 @@ export class SpacesService {
       name: config.name,
       spaceId: config.spaceId,
       capacity: config.capacity,
+      isSystem: (config as any).isSystem ?? false,
       createdAt: config.createdAt,
       updatedAt: config.updatedAt,
       space: config.space,
       data: {
         floors: jsonFloors,
         forecourt: jsonData?.forecourt || null,
+        externalMerch: jsonData?.externalMerch || null,
       },
     };
   }
@@ -1936,16 +1989,17 @@ export class SpacesService {
       include: {
         floor: { include: { config: { include: { space: true } } } },
         forecourt: { include: { config: { include: { space: true } } } },
+        externalMerch: { include: { config: { include: { space: true } } } },
       },
     });
 
     if (!element) {
-      throw new Error(`SpaceElement ${elementId} not found`);
+      throw new NotFoundException(`SpaceElement ${elementId} not found`);
     }
 
-    const space = element.floor?.config?.space ?? element.forecourt?.config?.space;
+    const space = element.floor?.config?.space ?? element.forecourt?.config?.space ?? element.externalMerch?.config?.space;
     if (!space || space.tenantId !== tenantId) {
-      throw new Error(`SpaceElement ${elementId} does not belong to tenant`);
+      throw new ForbiddenException(`SpaceElement ${elementId} does not belong to tenant`);
     }
 
     const updated = await this.prisma.spaceElement.update({
@@ -1963,28 +2017,72 @@ export class SpacesService {
   }
 
   /**
+   * Find (or create) the internal auto-generated import config for a space.
+   * Discriminée par `isSystem = true` (le nom `WEEZEVENT_IMPORT_CONFIG_NAME` reste
+   * accepté en fallback pour les configs créées avant la migration `isSystem`).
+   * Une seule config système par space : la plus ancienne est retournée si plusieurs existent.
+   */
+  private async findOrCreateImportConfig(spaceId: string) {
+    let config = await this.prisma.config.findFirst({
+      where: { spaceId, OR: [{ isSystem: true }, { name: WEEZEVENT_IMPORT_CONFIG_NAME }] },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!config) {
+      config = await this.prisma.config.create({
+        data: { spaceId, name: WEEZEVENT_IMPORT_CONFIG_NAME, isSystem: true, data: {} },
+      });
+    }
+    return config;
+  }
+
+  /**
+   * A21 — Read-modify-write de `config.data` avec verrou optimiste (champ `version`).
+   * `mutate` reçoit le `data` JSON courant (relu à chaque tentative) et retourne le nouveau `data`.
+   * L'écriture n'aboutit que si `version` n'a pas changé entre la lecture et l'écriture ;
+   * sinon on relit et on ré-applique `mutate` (jusqu'à `maxRetries`). À la dernière tentative,
+   * écriture inconditionnelle (last-write-wins) pour ne jamais perdre la mutation.
+   */
+  private async updateConfigDataOptimistic(
+    configId: string,
+    mutate: (currentData: any) => any | Promise<any>,
+    maxRetries = 3,
+  ): Promise<void> {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const fresh = await this.prisma.config.findFirst({
+        where: { id: configId },
+        select: { data: true, version: true },
+      });
+      if (!fresh) throw new NotFoundException(`Configuration ${configId} not found`);
+
+      const newData = await mutate((fresh.data as any) || {});
+      const isLastAttempt = attempt === maxRetries;
+
+      const res = await this.prisma.config.updateMany({
+        // Dernière tentative : on retombe sur un update inconditionnel (last-write-wins).
+        where: isLastAttempt ? { id: configId } : { id: configId, version: fresh.version },
+        data: { data: newData, version: { increment: 1 } },
+      });
+      if (res.count >= 1) return;
+      // Conflit concurrent (version a changé) → on retente.
+    }
+  }
+
+  /**
    * Quick-create a SpaceElement (shop) for a space without needing the floor plan editor.
    * Finds or creates a "Weezevent Import" config + floor, then creates the element there.
    */
   async quickCreateElement(spaceId: string, tenantId: string, dto: { name: string; type?: string }) {
     const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId } });
-    if (!space) throw new Error('Space not found or access denied');
+    if (!space) throw new NotFoundException('Space not found or access denied');
 
-    // Find or create the "Weezevent Import" configuration
-    let config = await this.prisma.config.findFirst({
-      where: { spaceId, name: 'Weezevent Import' },
-      include: { floors: true },
-    });
-
-    if (!config) {
-      config = await this.prisma.config.create({
-        data: { spaceId, name: 'Weezevent Import', data: {} },
-        include: { floors: true },
-      });
-    }
+    // Find or create the internal import configuration (isSystem)
+    const config = await this.findOrCreateImportConfig(spaceId);
 
     // Find or create a default floor in that config
-    let floor = config.floors?.[0];
+    let floor = await this.prisma.floor.findFirst({
+      where: { configId: config.id },
+      orderBy: { level: 'asc' },
+    });
     if (!floor) {
       floor = await this.prisma.floor.create({
         data: { configId: config.id, name: 'Import', level: 0, width: 200, height: 4, length: 200 },
@@ -2017,46 +2115,47 @@ export class SpacesService {
 
     // Sync config.data JSON so the Space Builder reads the new element without a full re-save.
     // getConfiguration() reads config.data exclusively — the relational rows are not enough.
-    const currentData = (config.data as any) || {};
-    const jsonFloors: any[] = Array.isArray(currentData.floors) ? [...currentData.floors] : [];
-    let jsonFloor = jsonFloors.find((f: any) => f.id === floor.id);
-    if (!jsonFloor) {
-      jsonFloor = {
-        id: floor.id,
-        name: floor.name,
-        level: floor.level ?? 0,
-        width: floor.width ?? 200,
-        height: floor.height ?? 4,
-        length: floor.length ?? 200,
-        elements: [],
-        cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
-        hole: { enabled: false, x: 0.5, y: 0.5, width: 10, length: 10, cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 } },
-      };
-      jsonFloors.push(jsonFloor);
-    }
-    if (!Array.isArray(jsonFloor.elements)) jsonFloor.elements = [];
-    jsonFloor.elements.push({
-      id: element.id,
-      name: element.name,
-      type: dto.type || 'shop',
-      x: 0,
-      y: 0,
-      width: 2,
-      height: 2,
-      depth: 2,
-      shopType: shopTypeTags,
-      storageType: [],
-      hospitalityType: [],
-      accessType: [],
-      entertainmentType: [],
-      entranceType: [],
-      kitchenType: [],
-      attributes: { originalType: dto.type || 'shop', importedFromWeezevent: true },
-      cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
-    });
-    await this.prisma.config.update({
-      where: { id: config.id },
-      data: { data: { ...currentData, floors: jsonFloors } },
+    await this.updateConfigDataOptimistic(config.id, (currentData) => {
+      const jsonFloors: any[] = Array.isArray(currentData.floors) ? [...currentData.floors] : [];
+      let jsonFloor = jsonFloors.find((f: any) => f.id === floor.id);
+      if (!jsonFloor) {
+        jsonFloor = {
+          id: floor.id,
+          name: floor.name,
+          level: floor.level ?? 0,
+          width: floor.width ?? 200,
+          height: floor.height ?? 4,
+          length: floor.length ?? 200,
+          elements: [],
+          cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
+          hole: { enabled: false, x: 0.5, y: 0.5, width: 10, length: 10, cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 } },
+        };
+        jsonFloors.push(jsonFloor);
+      }
+      if (!Array.isArray(jsonFloor.elements)) jsonFloor.elements = [];
+      // Idempotence : ne pas dupliquer l'élément s'il est déjà présent (retry / réécriture).
+      if (!jsonFloor.elements.find((e: any) => e.id === element.id)) {
+        jsonFloor.elements.push({
+          id: element.id,
+          name: element.name,
+          type: dto.type || 'shop',
+          x: 0,
+          y: 0,
+          width: 2,
+          height: 2,
+          depth: 2,
+          shopType: shopTypeTags,
+          storageType: [],
+          hospitalityType: [],
+          accessType: [],
+          entertainmentType: [],
+          entranceType: [],
+          kitchenType: [],
+          attributes: { originalType: dto.type || 'shop', importedFromWeezevent: true },
+          cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
+        });
+      }
+      return { ...currentData, floors: jsonFloors };
     });
 
     // Invalidate Redis cache so Space Builder fetches fresh config list on next load
@@ -2075,13 +2174,22 @@ export class SpacesService {
    * Assign a list of SpaceElements to a given floor level (or to the forecourt/"Parvis")
    * within the same space. Finds or creates a Floor/Forecourt in the "Weezevent Import" config.
    */
-  async assignElementsToFloorLevel(spaceId: string, tenantId: string, elementIds: string[], level: number | 'forecourt') {
+  async assignElementsToFloorLevel(spaceId: string, tenantId: string, elementIds: string[], level: number | 'forecourt' | 'externalmerch') {
     if (level === 'forecourt') {
       return this.assignElementsToForecourt(spaceId, tenantId, elementIds);
     }
+    if (level === 'externalmerch') {
+      return this.assignElementsToExternalMerch(spaceId, tenantId, elementIds);
+    }
+    // Garde défensive : tout `level` non géré ci-dessus doit être un entier (RDC=0,
+    // étages positifs, sous-sols négatifs). Le DTO valide déjà ce contrat — cette garde
+    // évite un 500 Prisma (`level` Int) si l'endpoint est appelé hors validation.
+    if (typeof level !== 'number' || !Number.isInteger(level)) {
+      throw new BadRequestException(`level invalide: ${String(level)} (entier, 'forecourt' ou 'externalmerch' attendu)`);
+    }
 
     const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId } });
-    if (!space) throw new Error('Space not found or access denied');
+    if (!space) throw new NotFoundException('Space not found or access denied');
 
     // Resolve floor name from level
     let floorName: string;
@@ -2089,15 +2197,8 @@ export class SpacesService {
     else if (level < 0) floorName = `Sous-sol ${Math.abs(level)}`;
     else floorName = `Étage ${level}`;
 
-    // Find or create the "Weezevent Import" config
-    let config = await this.prisma.config.findFirst({
-      where: { spaceId, name: 'Weezevent Import' },
-    });
-    if (!config) {
-      config = await this.prisma.config.create({
-        data: { spaceId, name: 'Weezevent Import', data: {} },
-      });
-    }
+    // Find or create the internal import config (isSystem)
+    const config = await this.findOrCreateImportConfig(spaceId);
 
     // Find or create the Floor at this level
     let floor = await this.prisma.floor.findFirst({
@@ -2120,106 +2221,105 @@ export class SpacesService {
         include: {
           floor: { include: { config: { include: { space: true } } } },
           forecourt: { include: { config: { include: { space: true } } } },
+          externalMerch: { include: { config: { include: { space: true } } } },
         },
       });
       if (!element) continue;
-      const elemSpace = element.floor?.config?.space ?? element.forecourt?.config?.space;
+      const elemSpace = element.floor?.config?.space ?? element.forecourt?.config?.space ?? element.externalMerch?.config?.space;
       if (!elemSpace || elemSpace.tenantId !== tenantId || elemSpace.id !== spaceId) continue;
 
       movedElements.push({ id: element.id, sourceFloorId: element.floorId ?? null });
 
       await this.prisma.spaceElement.update({
         where: { id: elementId },
-        data: { floorId: floor.id, forecourtId: null },
+        data: { floorId: floor.id, forecourtId: null, externalMerchId: null },
       });
       updated.push(elementId);
     }
 
     // Sync config.data JSON: move elements from their source floor to the target floor
     if (updated.length > 0) {
-      const freshConfig = await this.prisma.config.findFirst({ where: { id: config.id } });
-      const currentData = (freshConfig?.data as any) || {};
-      const jsonFloors: any[] = Array.isArray(currentData.floors) ? [...currentData.floors] : [];
+      await this.updateConfigDataOptimistic(config.id, async (currentData) => {
+        const jsonFloors: any[] = Array.isArray(currentData.floors) ? [...currentData.floors] : [];
 
-      // Remove moved elements from their source floors in the JSON
-      const movedIds = new Set(updated);
-      for (const jsonFloorEntry of jsonFloors) {
-        if (Array.isArray(jsonFloorEntry.elements)) {
-          jsonFloorEntry.elements = jsonFloorEntry.elements.filter((e: any) => !movedIds.has(e.id));
-        }
-      }
-
-      // Ensure the target floor entry exists in JSON
-      let targetJsonFloor = jsonFloors.find((f: any) => f.id === floor.id);
-      if (!targetJsonFloor) {
-        targetJsonFloor = {
-          id: floor.id,
-          name: floor.name,
-          level: floor.level ?? level,
-          width: floor.width ?? 200,
-          height: floor.height ?? 4,
-          length: floor.length ?? 200,
-          elements: [],
-          cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
-          hole: { enabled: false, x: 0.5, y: 0.5, width: 10, length: 10, cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 } },
-        };
-        jsonFloors.push(targetJsonFloor);
-      }
-      if (!Array.isArray(targetJsonFloor.elements)) targetJsonFloor.elements = [];
-
-      // Find element JSON entries from all floors (they were in JSON after quickCreateElement)
-      const allElements: any[] = [];
-      for (const jf of jsonFloors) {
-        if (Array.isArray(jf.elements)) allElements.push(...jf.elements);
-      }
-
-      for (const movedEl of movedElements) {
-        if (!updated.includes(movedEl.id)) continue;
-        // Reuse the existing JSON representation if available, otherwise create a minimal stub
-        const existing = allElements.find((e: any) => e.id === movedEl.id);
-        if (existing && !targetJsonFloor.elements.find((e: any) => e.id === movedEl.id)) {
-          targetJsonFloor.elements.push(existing);
-        } else if (!existing) {
-          const relElement = await this.prisma.spaceElement.findFirst({ where: { id: movedEl.id } });
-          if (relElement) {
-            const attrs = relElement.attributes as any;
-            targetJsonFloor.elements.push({
-              id: relElement.id,
-              name: relElement.name,
-              type: attrs?.originalType ?? 'shop',
-              x: relElement.x ?? 0,
-              y: relElement.y ?? 0,
-              width: relElement.width ?? 2,
-              height: relElement.height ?? 2,
-              depth: relElement.depth ?? 2,
-              shopType: (relElement as any).shopTypes ?? [],
-              storageType: (relElement as any).storageTypes ?? [],
-              hospitalityType: (relElement as any).hospitalityTypes ?? [],
-              accessType: (relElement as any).accessTypes ?? [],
-              entertainmentType: (relElement as any).entertainmentTypes ?? [],
-              entranceType: (relElement as any).entranceTypes ?? [],
-              kitchenType: (relElement as any).kitchenTypes ?? [],
-              attributes: attrs ?? {},
-              cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
-            });
+        // Remove moved elements from their source floors in the JSON
+        const movedIds = new Set(updated);
+        for (const jsonFloorEntry of jsonFloors) {
+          if (Array.isArray(jsonFloorEntry.elements)) {
+            jsonFloorEntry.elements = jsonFloorEntry.elements.filter((e: any) => !movedIds.has(e.id));
           }
         }
-      }
 
-      // Remove empty source floors from JSON to keep it clean
-      const cleanedJsonFloors = jsonFloors.filter(
-        (f: any) => f.id === floor.id || (Array.isArray(f.elements) && f.elements.length > 0),
-      );
+        // Ensure the target floor entry exists in JSON
+        let targetJsonFloor = jsonFloors.find((f: any) => f.id === floor.id);
+        if (!targetJsonFloor) {
+          targetJsonFloor = {
+            id: floor.id,
+            name: floor.name,
+            level: floor.level ?? level,
+            width: floor.width ?? 200,
+            height: floor.height ?? 4,
+            length: floor.length ?? 200,
+            elements: [],
+            cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
+            hole: { enabled: false, x: 0.5, y: 0.5, width: 10, length: 10, cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 } },
+          };
+          jsonFloors.push(targetJsonFloor);
+        }
+        if (!Array.isArray(targetJsonFloor.elements)) targetJsonFloor.elements = [];
 
-      await this.prisma.config.update({
-        where: { id: config.id },
-        data: { data: { ...currentData, floors: cleanedJsonFloors } },
+        // Find element JSON entries from all floors (they were in JSON after quickCreateElement)
+        const allElements: any[] = [];
+        for (const jf of jsonFloors) {
+          if (Array.isArray(jf.elements)) allElements.push(...jf.elements);
+        }
+
+        for (const movedEl of movedElements) {
+          if (!updated.includes(movedEl.id)) continue;
+          // Reuse the existing JSON representation if available, otherwise create a minimal stub
+          const existing = allElements.find((e: any) => e.id === movedEl.id);
+          if (existing && !targetJsonFloor.elements.find((e: any) => e.id === movedEl.id)) {
+            targetJsonFloor.elements.push(existing);
+          } else if (!existing) {
+            const relElement = await this.prisma.spaceElement.findFirst({ where: { id: movedEl.id } });
+            if (relElement) {
+              const attrs = relElement.attributes as any;
+              targetJsonFloor.elements.push({
+                id: relElement.id,
+                name: relElement.name,
+                type: attrs?.originalType ?? 'shop',
+                x: relElement.x ?? 0,
+                y: relElement.y ?? 0,
+                width: relElement.width ?? 2,
+                height: relElement.height ?? 2,
+                depth: relElement.depth ?? 2,
+                shopType: (relElement as any).shopTypes ?? [],
+                storageType: (relElement as any).storageTypes ?? [],
+                hospitalityType: (relElement as any).hospitalityTypes ?? [],
+                accessType: (relElement as any).accessTypes ?? [],
+                entertainmentType: (relElement as any).entertainmentTypes ?? [],
+                entranceType: (relElement as any).entranceTypes ?? [],
+                kitchenType: (relElement as any).kitchenTypes ?? [],
+                attributes: attrs ?? {},
+                cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
+              });
+            }
+          }
+        }
+
+        // Remove empty source floors from JSON to keep it clean
+        const cleanedJsonFloors = jsonFloors.filter(
+          (f: any) => f.id === floor.id || (Array.isArray(f.elements) && f.elements.length > 0),
+        );
+
+        return { ...currentData, floors: cleanedJsonFloors };
       });
 
       await this.invalidateSpaceCache(tenantId, spaceId);
     }
 
-    return { floorId: floor.id, floorName, level, updatedElementIds: updated };
+    // Réponse en union discriminée (`kind`) cohérente entre floor / forecourt / externalmerch.
+    return { kind: 'floor' as const, floorId: floor.id, floorName, level, updatedElementIds: updated };
   }
 
   /**
@@ -2228,17 +2328,10 @@ export class SpacesService {
    */
   private async assignElementsToForecourt(spaceId: string, tenantId: string, elementIds: string[]) {
     const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId } });
-    if (!space) throw new Error('Space not found or access denied');
+    if (!space) throw new NotFoundException('Space not found or access denied');
 
-    // Find or create the "Weezevent Import" config
-    let config = await this.prisma.config.findFirst({
-      where: { spaceId, name: 'Weezevent Import' },
-    });
-    if (!config) {
-      config = await this.prisma.config.create({
-        data: { spaceId, name: 'Weezevent Import', data: {} },
-      });
-    }
+    // Find or create the internal import config (isSystem)
+    const config = await this.findOrCreateImportConfig(spaceId);
 
     // Find or create the Forecourt for this config
     let forecourt = await this.prisma.forecourt.findUnique({
@@ -2260,25 +2353,25 @@ export class SpacesService {
         include: {
           floor: { include: { config: { include: { space: true } } } },
           forecourt: { include: { config: { include: { space: true } } } },
+          externalMerch: { include: { config: { include: { space: true } } } },
         },
       });
       if (!element) continue;
-      const elemSpace = element.floor?.config?.space ?? element.forecourt?.config?.space;
+      const elemSpace = element.floor?.config?.space ?? element.forecourt?.config?.space ?? element.externalMerch?.config?.space;
       if (!elemSpace || elemSpace.tenantId !== tenantId || elemSpace.id !== spaceId) continue;
 
       movedElements.push({ id: element.id });
 
       await this.prisma.spaceElement.update({
         where: { id: elementId },
-        data: { floorId: null, forecourtId: forecourt.id },
+        data: { floorId: null, forecourtId: forecourt.id, externalMerchId: null },
       });
       updated.push(elementId);
     }
 
     // Sync config.data JSON: move elements from their source floor(s) to the forecourt
     if (updated.length > 0) {
-      const freshConfig = await this.prisma.config.findFirst({ where: { id: config.id } });
-      const currentData = (freshConfig?.data as any) || {};
+      await this.updateConfigDataOptimistic(config.id, async (currentData) => {
       const jsonFloors: any[] = Array.isArray(currentData.floors) ? [...currentData.floors] : [];
       const movedIds = new Set(updated);
 
@@ -2346,15 +2439,143 @@ export class SpacesService {
         (f: any) => Array.isArray(f.elements) && f.elements.length > 0,
       );
 
-      await this.prisma.config.update({
-        where: { id: config.id },
-        data: { data: { ...currentData, floors: cleanedJsonFloors, forecourt: jsonForecourt } },
+        return { ...currentData, floors: cleanedJsonFloors, forecourt: jsonForecourt };
       });
 
       await this.invalidateSpaceCache(tenantId, spaceId);
     }
 
-    return { forecourtId: forecourt.id, forecourtName: forecourt.name, updatedElementIds: updated };
+    return { kind: 'forecourt' as const, forecourtId: forecourt.id, forecourtName: forecourt.name, level: null, updatedElementIds: updated };
+  }
+
+  /**
+   * Assign a list of SpaceElements to the "External Merch" zone of the element's
+   * internal import config. Miroir de assignElementsToForecourt pour la zone externalMerch.
+   */
+  private async assignElementsToExternalMerch(spaceId: string, tenantId: string, elementIds: string[]) {
+    const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId } });
+    if (!space) throw new NotFoundException('Space not found or access denied');
+
+    // Find or create the internal import config (isSystem)
+    const config = await this.findOrCreateImportConfig(spaceId);
+
+    // Find or create the ExternalMerch zone for this config
+    let externalMerch = await this.prisma.externalMerch.findUnique({
+      where: { configId: config.id },
+    });
+    if (!externalMerch) {
+      externalMerch = await this.prisma.externalMerch.create({
+        data: { configId: config.id, name: 'Espace Externe', width: 200, length: 200 },
+      });
+    }
+
+    // Verify all elements belong to this tenant's space, then move them to the external merch zone
+    const updated: string[] = [];
+    const movedElements: { id: string }[] = [];
+
+    for (const elementId of elementIds) {
+      const element = await this.prisma.spaceElement.findFirst({
+        where: { id: elementId },
+        include: {
+          floor: { include: { config: { include: { space: true } } } },
+          forecourt: { include: { config: { include: { space: true } } } },
+          externalMerch: { include: { config: { include: { space: true } } } },
+        },
+      });
+      if (!element) continue;
+      const elemSpace = element.floor?.config?.space ?? element.forecourt?.config?.space ?? element.externalMerch?.config?.space;
+      if (!elemSpace || elemSpace.tenantId !== tenantId || elemSpace.id !== spaceId) continue;
+
+      movedElements.push({ id: element.id });
+
+      await this.prisma.spaceElement.update({
+        where: { id: elementId },
+        data: { floorId: null, forecourtId: null, externalMerchId: externalMerch.id },
+      });
+      updated.push(elementId);
+    }
+
+    // Sync config.data JSON: move elements from their source zone(s) to externalMerch
+    if (updated.length > 0) {
+      await this.updateConfigDataOptimistic(config.id, async (currentData) => {
+      const jsonFloors: any[] = Array.isArray(currentData.floors) ? [...currentData.floors] : [];
+      const movedIds = new Set(updated);
+
+      // Collect existing JSON entries for moved elements (to preserve dimensions/types)
+      const allElements: any[] = [];
+      for (const jf of jsonFloors) {
+        if (Array.isArray(jf.elements)) allElements.push(...jf.elements);
+      }
+      if (Array.isArray(currentData.forecourt?.elements)) allElements.push(...currentData.forecourt.elements);
+
+      // Remove moved elements from their source floors / forecourt in the JSON
+      for (const jsonFloorEntry of jsonFloors) {
+        if (Array.isArray(jsonFloorEntry.elements)) {
+          jsonFloorEntry.elements = jsonFloorEntry.elements.filter((e: any) => !movedIds.has(e.id));
+        }
+      }
+      const jsonForecourt = currentData.forecourt
+        ? { ...currentData.forecourt, elements: (currentData.forecourt.elements || []).filter((e: any) => !movedIds.has(e.id)) }
+        : currentData.forecourt ?? null;
+
+      // Ensure the externalMerch entry exists in JSON
+      let jsonExternalMerch = currentData.externalMerch;
+      if (!jsonExternalMerch) {
+        jsonExternalMerch = {
+          id: externalMerch.id,
+          name: externalMerch.name,
+          width: externalMerch.width ?? 200,
+          length: externalMerch.length ?? 200,
+          elements: [],
+          cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
+        };
+      }
+      if (!Array.isArray(jsonExternalMerch.elements)) jsonExternalMerch.elements = [];
+
+      for (const movedEl of movedElements) {
+        if (jsonExternalMerch.elements.find((e: any) => e.id === movedEl.id)) continue;
+        const existing = allElements.find((e: any) => e.id === movedEl.id);
+        if (existing) {
+          jsonExternalMerch.elements.push(existing);
+        } else {
+          const relElement = await this.prisma.spaceElement.findFirst({ where: { id: movedEl.id } });
+          if (relElement) {
+            const attrs = relElement.attributes as any;
+            jsonExternalMerch.elements.push({
+              id: relElement.id,
+              name: relElement.name,
+              type: attrs?.originalType ?? 'shop',
+              x: relElement.x ?? 0,
+              y: relElement.y ?? 0,
+              width: relElement.width ?? 2,
+              height: relElement.height ?? 2,
+              depth: relElement.depth ?? 2,
+              shopType: (relElement as any).shopTypes ?? [],
+              storageType: (relElement as any).storageTypes ?? [],
+              hospitalityType: (relElement as any).hospitalityTypes ?? [],
+              accessType: (relElement as any).accessTypes ?? [],
+              entertainmentType: (relElement as any).entertainmentTypes ?? [],
+              entranceType: (relElement as any).entranceTypes ?? [],
+              kitchenType: (relElement as any).kitchenTypes ?? [],
+              attributes: attrs ?? {},
+              cornerRadius: { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 },
+            });
+          }
+        }
+      }
+
+      // Remove now-empty source floors from JSON to keep it clean
+      const cleanedJsonFloors = jsonFloors.filter(
+        (f: any) => Array.isArray(f.elements) && f.elements.length > 0,
+      );
+
+        return { ...currentData, floors: cleanedJsonFloors, forecourt: jsonForecourt, externalMerch: jsonExternalMerch };
+      });
+
+      await this.invalidateSpaceCache(tenantId, spaceId);
+    }
+
+    return { kind: 'externalmerch' as const, externalMerchId: externalMerch.id, externalMerchName: externalMerch.name, level: null, updatedElementIds: updated };
   }
 
   /**
@@ -2374,14 +2595,15 @@ export class SpacesService {
       include: {
         floor: { include: { config: { include: { space: true } } } },
         forecourt: { include: { config: { include: { space: true } } } },
+        externalMerch: { include: { config: { include: { space: true } } } },
       },
     });
     if (!element) return false;
 
-    const space = element.floor?.config?.space ?? element.forecourt?.config?.space;
+    const space = element.floor?.config?.space ?? element.forecourt?.config?.space ?? element.externalMerch?.config?.space;
     if (!space || space.tenantId !== tenantId) return false;
 
-    const config = element.floor?.config ?? element.forecourt?.config;
+    const config = element.floor?.config ?? element.forecourt?.config ?? element.externalMerch?.config;
     if (!config) return false;
 
     await this.prisma.spaceElement.delete({ where: { id: elementId } });
@@ -2407,10 +2629,17 @@ export class SpacesService {
       if (jsonForecourt.elements.length !== before) changed = true;
     }
 
+    const jsonExternalMerch = currentData.externalMerch;
+    if (jsonExternalMerch && Array.isArray(jsonExternalMerch.elements)) {
+      const before = jsonExternalMerch.elements.length;
+      jsonExternalMerch.elements = jsonExternalMerch.elements.filter((e: any) => e.id !== elementId);
+      if (jsonExternalMerch.elements.length !== before) changed = true;
+    }
+
     if (changed) {
       await this.prisma.config.update({
         where: { id: config.id },
-        data: { data: { ...currentData, floors: jsonFloors, forecourt: jsonForecourt ?? null } },
+        data: { data: { ...currentData, floors: jsonFloors, forecourt: jsonForecourt ?? null, externalMerch: jsonExternalMerch ?? null }, version: { increment: 1 } },
       });
     }
 

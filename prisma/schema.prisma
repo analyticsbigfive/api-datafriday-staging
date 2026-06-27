@@ -481,13 +481,16 @@ model Config {
   spaceId   String
   capacity  Int?
   data      Json?
+  isSystem  Boolean  @default(false) // true = config auto-générée par le backend (import Weezevent), masquée côté UI
+  version   Int      @default(0) // verrou optimiste pour la synchronisation de `data` (JSON) concurrente
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  space     Space      @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  floors    Floor[]
-  forecourt Forecourt?
-  stations  Station[]
+  space         Space          @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  floors        Floor[]
+  forecourt     Forecourt?
+  externalMerch ExternalMerch?
+  stations      Station[]
 
   @@index([spaceId])
 }
@@ -515,10 +518,11 @@ model Floor {
 // Polymorphic: belongs to either a Floor or a Forecourt (one must be set)
 
 model SpaceElement {
-  id          String      @id @default(cuid())
-  floorId     String? // FK to Floor (if element is inside a floor)
-  forecourtId String? // FK to Forecourt (if element is in forecourt)
-  name        String
+  id              String      @id @default(cuid())
+  floorId         String? // FK to Floor (if element is inside a floor)
+  forecourtId     String? // FK to Forecourt (if element is in forecourt)
+  externalMerchId String? // FK to ExternalMerch (if element is in the external merch zone)
+  name            String
   type        ElementType
   x           Float
   y           Float
@@ -552,6 +556,7 @@ model SpaceElement {
   // Relations
   floor           Floor?              @relation(fields: [floorId], references: [id], onDelete: Cascade)
   forecourt       Forecourt?          @relation(fields: [forecourtId], references: [id], onDelete: Cascade)
+  externalMerch   ExternalMerch?      @relation(fields: [externalMerchId], references: [id], onDelete: Cascade)
   performance     ElementPerformance?
   staffPositions  ElementStaff[]
   inventoryItems  ElementInventory[]
@@ -559,6 +564,7 @@ model SpaceElement {
 
   @@index([floorId])
   @@index([forecourtId])
+  @@index([externalMerchId])
   @@index([type])
   @@index([floorId, type]) // Composite: shop queries filter by floor + type
   @@index([forecourtId, type]) // Composite: shop queries filter by forecourt + type
@@ -619,6 +625,18 @@ model ElementInventory {
 }
 
 model Forecourt {
+  id       String @id @default(cuid())
+  configId String @unique
+  name     String
+  width    Float
+  length   Float
+
+  config   Config         @relation(fields: [configId], references: [id], onDelete: Cascade)
+  elements SpaceElement[]
+}
+
+// Zone "External Merch" (merchandising extérieur), miroir de Forecourt.
+model ExternalMerch {
   id       String @id @default(cuid())
   configId String @unique
   name     String

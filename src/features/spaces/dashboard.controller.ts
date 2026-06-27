@@ -22,7 +22,9 @@ import {
 
 @ApiTags('Space Dashboard')
 @ApiBearerAuth('supabase-jwt')
-@Controller('api/v1/spaces/:spaceId/dashboard')
+// A13 : le préfixe global 'api/v1' est déjà appliqué via setGlobalPrefix (main.ts).
+// Hardcoder 'api/v1' ici produisait des routes en /api/v1/api/v1/... (404 pour les clients).
+@Controller('spaces/:spaceId/dashboard')
 @UseGuards(JwtDatabaseGuard)
 export class DashboardController {
   constructor(

@@ -31,6 +31,8 @@ import { CreateConfigDto } from './dto/create-config.dto';
 import { UpdateSpaceImageDto } from './dto/update-space-image.dto';
 import { GrantSpaceAccessDto } from './dto/grant-space-access.dto';
 import { UpdateSpaceElementDto } from './dto/update-space-element.dto';
+import { AssignElementsToFloorDto } from './dto/assign-floor.dto';
+import { QuickCreateElementDto } from './dto/quick-create-element.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RolesGuard } from '../../core/auth/guards/roles.guard';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
@@ -761,7 +763,7 @@ export class SpacesController {
       'automatiquement renseigné (food/beverages/beer) pour le filtre du 3D Builder.',
   })
   @ApiParam({ name: 'id', description: 'ID de l\'espace' })
-  @ApiBody({ schema: { type: 'object', properties: { name: { type: 'string' }, type: { type: 'string', example: 'fnb-beverages', enum: ['shop', 'fnb-food', 'fnb-beverages', 'fnb-bar', 'fnb-snack', 'fnb-icecream', 'merchshop'] } }, required: ['name'] } })
+  @ApiBody({ type: QuickCreateElementDto })
   @ApiResponse({
     status: 201,
     description: 'Shop créé',
@@ -779,7 +781,7 @@ export class SpacesController {
   async quickCreateElement(
     @Param('id') spaceId: string,
     @CurrentUser() user: any,
-    @Body() body: { name: string; type?: string },
+    @Body() body: QuickCreateElementDto,
   ) {
     return this.spacesService.quickCreateElement(spaceId, user.tenantId, body);
   }
@@ -790,14 +792,14 @@ export class SpacesController {
   @Post(':id/assign-floor')
   @RequirePermissions('space.edit')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Assigner des shops à un étage ou au parvis' })
+  @ApiOperation({ summary: 'Assigner des shops à un étage, au parvis ou à la zone External Merch' })
   @ApiParam({ name: 'id', description: 'ID de l\'espace' })
-  @ApiBody({ schema: { type: 'object', properties: { elementIds: { type: 'array', items: { type: 'string' } }, level: { oneOf: [{ type: 'integer' }, { type: 'string', enum: ['forecourt'] }], example: 1 } }, required: ['elementIds', 'level'] } })
-  @ApiResponse({ status: 200, description: 'Shops assignés à l\'étage ou au parvis' })
+  @ApiBody({ type: AssignElementsToFloorDto })
+  @ApiResponse({ status: 200, description: 'Shops assignés à l\'étage / parvis / external merch' })
   async assignElementsToFloor(
     @Param('id') spaceId: string,
     @CurrentTenant() tenantId: string,
-    @Body() body: { elementIds: string[]; level: number | 'forecourt' },
+    @Body() body: AssignElementsToFloorDto,
   ) {
     return this.spacesService.assignElementsToFloorLevel(spaceId, tenantId, body.elementIds, body.level);
   }

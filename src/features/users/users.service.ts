@@ -9,7 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../core/database/prisma.service';
 import { JwtDatabaseStrategy } from '../../core/auth/strategies/jwt-db-lookup.strategy';
-import { SupabaseAdminService } from '../../core/supabase/supabase-admin.service';
+import { SupabaseAdminService, UserAuthInfo } from '../../core/supabase/supabase-admin.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { QueryUserDto } from './dto/query-user.dto';
@@ -135,6 +135,7 @@ export class UsersService {
             firstName: dto.firstName,
             lastName: dto.lastName,
             fullName,
+            phone: dto.phone,
             role,
             roleId,
             avatar: dto.avatar,
@@ -223,8 +224,12 @@ export class UsersService {
       this.prisma.user.count({ where }),
     ]);
 
+    // Enrichir avec le statut de connexion (Supabase) : "active" si déjà connecté,
+    // "pending" si invité jamais connecté, "unknown" si l'info est indisponible.
+    const authInfo = await this.supabaseAdmin.getAuthInfoByIds(users.map((u) => u.id));
+
     return {
-      data: users.map(u => this.sanitizeUser(u)),
+      data: users.map((u) => this.sanitizeUser(this.withAuthStatus(u, authInfo.get(u.id)))),
       meta: {
         total,
         page,
@@ -282,7 +287,9 @@ export class UsersService {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
 
-    return this.sanitizeUser(user);
+    const authInfo = (await this.supabaseAdmin.getAuthInfoByIds([id])).get(id);
+
+    return this.sanitizeUser(this.withAuthStatus(user, authInfo));
   }
 
   /**
@@ -321,6 +328,7 @@ export class UsersService {
     if (dto.email) updateData.email = dto.email;
     if (dto.firstName) updateData.firstName = dto.firstName;
     if (dto.lastName) updateData.lastName = dto.lastName;
+    if (dto.phone !== undefined) updateData.phone = dto.phone;
     if (dto.role) updateData.role = dto.role;
     if (dto.avatar !== undefined) updateData.avatar = dto.avatar;
 
@@ -573,7 +581,7 @@ export class UsersService {
     const firstName = dto.firstName?.trim() || 'Invited';
     const lastName = dto.lastName?.trim() || 'User';
     const fullName = `${firstName} ${lastName}`.trim();
-    const profile = { email: dto.email, firstName, lastName, fullName, role, roleId };
+    const profile = { email: dto.email, firstName, lastName, fullName, phone: dto.phone ?? null, role, roleId };
     const spaceOpts = { allSpaces: dto.allSpaces, spaceIds: dto.spaceIds };
 
     // Does this email already have a Supabase auth account?
@@ -611,13 +619,89 @@ export class UsersService {
   }
 
   /**
+   * Re-send the invitation email to a user who was invited but never logged in.
+   *
+   * Supabase's `inviteUserByEmail` (the only primitive that actually *sends* an
+   * email) refuses an existing account, so we can't just call it twice. Instead,
+   * for a still-pending user we tear down the stale auth+DB records (capturing
+   * role + space scope first) and run a fresh invite — preserving their access.
+   *
+   * Guard rails:
+   *  - the user must exist in this tenant (404 otherwise);
+   *  - if they have already signed in → 409 (re-invite is pointless; tell them to
+   *    use "forgot password");
+   *  - if the account is attached to several organizations → 409 (recreating the
+   *    id would break the other memberships; use password reset instead).
+   */
+  async reinvite(id: string, tenantId: string, invitedBy: string) {
+    if (!this.supabaseAdmin.isEnabled()) {
+      throw new BadRequestException(
+        'La réinvitation nécessite la configuration Supabase Admin (SUPABASE_SERVICE_ROLE_KEY).',
+      );
+    }
+
+    const user = await this.prisma.user.findFirst({ where: { id, tenantId } });
+    if (!user) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+
+    // Already active? (signed in at least once) → re-invite is a no-op.
+    const authUser = await this.supabaseAdmin.getUserById(id);
+    if (authUser?.last_sign_in_at) {
+      throw new ConflictException(
+        "Cet utilisateur s'est déjà connecté — la réinvitation est inutile. Il peut utiliser « mot de passe oublié ».",
+      );
+    }
+
+    // Recreating the Supabase id is only safe when this is the user's sole org.
+    const membershipCount = await this.prisma.userTenant.count({ where: { userId: id } });
+    if (membershipCount > 1) {
+      throw new ConflictException(
+        'Ce compte est rattaché à plusieurs organisations — utilisez la réinitialisation de mot de passe plutôt que la réinvitation.',
+      );
+    }
+
+    // Preserve role + explicit space access across the fresh invite.
+    const spaceAccess = await this.prisma.userSpaceAccess.findMany({
+      where: { userId: id, space: { tenantId } },
+      select: { spaceId: true },
+    });
+    const inviteDto: InviteUserDto = {
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      phone: user.phone ?? undefined,
+      roleId: user.roleId ?? undefined,
+      role: user.roleId ? undefined : user.role,
+      allSpaces: user.allSpacesAccess,
+      spaceIds: user.allSpacesAccess ? undefined : spaceAccess.map((s) => s.spaceId),
+    };
+
+    // Tear down the stale pending records (DB cascade removes membership + space
+    // access + pins), then send a brand-new invitation email.
+    await this.supabaseAdmin.deleteUser(id);
+    await this.prisma.user.delete({ where: { id } });
+    await this.jwtDatabaseStrategy.invalidateUserCache(id);
+
+    const result = await this.invite(tenantId, inviteDto, invitedBy);
+
+    this.logger.log(`User ${user.email} re-invited for tenant ${tenantId} by ${invitedBy}`);
+
+    return {
+      success: true,
+      message: `Invitation renvoyée à ${user.email}`,
+      user: result.user,
+    };
+  }
+
+  /**
    * Attach an EXISTING Supabase account to a tenant. Never duplicates the User
    * row (User.id = Supabase id is the primary key).
    */
   private async attachExistingAccountToTenant(
     supabaseUserId: string,
     tenantId: string,
-    profile: { email: string; firstName: string; lastName: string; fullName: string; role: UserRole; roleId: string | null },
+    profile: { email: string; firstName: string; lastName: string; fullName: string; phone?: string | null; role: UserRole; roleId: string | null },
     spaceOpts: { allSpaces?: boolean; spaceIds?: string[] } = {},
   ) {
     const dbUser = await this.prisma.user.findUnique({ where: { id: supabaseUserId } });
@@ -653,7 +737,7 @@ export class UsersService {
   private async createMembership(
     userId: string,
     tenantId: string,
-    profile: { email: string; firstName: string; lastName: string; fullName: string; role: UserRole; roleId: string | null },
+    profile: { email: string; firstName: string; lastName: string; fullName: string; phone?: string | null; role: UserRole; roleId: string | null },
     spaceOpts: { allSpaces?: boolean; spaceIds?: string[] } = {},
   ) {
     return this.prisma.$transaction(async (tx) => {
@@ -664,6 +748,7 @@ export class UsersService {
           firstName: profile.firstName,
           lastName: profile.lastName,
           fullName: profile.fullName,
+          phone: profile.phone ?? null,
           role: profile.role,
           roleId: profile.roleId,
           tenantId,
@@ -796,6 +881,25 @@ export class UsersService {
     });
 
     return { success: true, message: 'Space access revoked' };
+  }
+
+  /**
+   * Attach the connection lifecycle (`status` + timestamps) read from Supabase.
+   * - `active`  : the user has logged in at least once;
+   * - `pending` : invited / created but never signed in;
+   * - `unknown` : Supabase info unavailable (admin client off, or no auth row).
+   */
+  private withAuthStatus(user: any, info?: UserAuthInfo) {
+    if (!info) {
+      return { ...user, status: 'unknown', lastSignInAt: null, invitedAt: null, emailConfirmedAt: null };
+    }
+    return {
+      ...user,
+      status: info.lastSignInAt ? 'active' : 'pending',
+      lastSignInAt: info.lastSignInAt,
+      invitedAt: info.invitedAt,
+      emailConfirmedAt: info.emailConfirmedAt,
+    };
   }
 
   /**

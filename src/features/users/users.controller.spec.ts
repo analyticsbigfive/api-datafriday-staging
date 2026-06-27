@@ -33,6 +33,7 @@ describe('UsersController', () => {
     update: jest.fn(),
     remove: jest.fn(),
     invite: jest.fn(),
+    reinvite: jest.fn(),
     changeRole: jest.fn(),
   };
 

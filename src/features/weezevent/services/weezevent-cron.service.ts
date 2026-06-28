@@ -187,11 +187,15 @@ export class WeezeventCronService implements OnModuleInit {
     async monitorDataIntegrationIntegrity(): Promise<void> {
         if (!this.isEnabled) return;
         try {
-            const [danglingShop, deadMenuItemMappings, dupProducts, dupLocations] = await Promise.all([
+            const [danglingShop, locDanglingShop, deadMenuItemMappings, dupProducts, dupLocations] = await Promise.all([
                 this.prisma.$queryRaw<{ n: bigint }[]>`
                     SELECT count(*)::bigint AS n FROM "WeezeventLocationShopMapping" m
                     LEFT JOIN "SpaceElement" se ON se.id = m."spaceElementId"
                     WHERE se.id IS NULL`,
+                this.prisma.$queryRaw<{ n: bigint }[]>`
+                    SELECT count(*)::bigint AS n FROM "WeezeventLocationShopMapping" m
+                    LEFT JOIN "WeezeventLocation" l ON l.id = m."weezeventLocationId"
+                    WHERE l.id IS NULL`,
                 this.prisma.$queryRaw<{ n: bigint }[]>`
                     SELECT count(*)::bigint AS n FROM "WeezeventProductMapping" m
                     JOIN "MenuItem" mi ON mi.id = m."menuItemId"
@@ -206,14 +210,16 @@ export class WeezeventCronService implements OnModuleInit {
                       GROUP BY "tenantId", "weezeventId" HAVING count(*) > 1) d`,
             ]);
             const dangling = Number(danglingShop[0]?.n ?? 0);
+            const locDangling = Number(locDanglingShop[0]?.n ?? 0);
             const deadItems = Number(deadMenuItemMappings[0]?.n ?? 0);
             const dProd = Number(dupProducts[0]?.n ?? 0);
             const dLoc = Number(dupLocations[0]?.n ?? 0);
             const msg =
-                `Data Integration integrity — dangling shop mappings=${dangling}, ` +
+                `Data Integration integrity — dangling shop(element)=${dangling}, shop(location)=${locDangling}, ` +
                 `mappings→deleted menuItem=${deadItems}, duplicate product groups=${dProd}, ` +
                 `duplicate location groups=${dLoc}`;
-            if (dangling > 0 || deadItems > 0) {
+            // Doublons intégrations/locations = intentionnel (multi-intégrations voulues) → pas d'alerte dessus.
+            if (dangling > 0 || locDangling > 0 || deadItems > 0) {
                 this.logger.warn(`⚠️ ${msg}`);
             } else {
                 this.logger.log(`✅ ${msg}`);

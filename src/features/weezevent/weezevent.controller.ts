@@ -295,6 +295,56 @@ export class WeezeventController {
     }
 
     /**
+     * État d'intégrité Data Integration du tenant courant — à la demande (le cron quotidien
+     * logge l'équivalent global). Permet de VOIR tout de suite si des mappings sont cassés
+     * (PDV/Menu Items démappés en silence) sans attendre les logs serveur.
+     */
+    @RequirePermissions('menu.integration.fb')
+    @Get('integrity')
+    @ApiOperation({ summary: "État d'intégrité Data Integration (mappings cassés, doublons) du tenant" })
+    @ApiResponse({ status: 200, description: "Compteurs d'intégrité — healthy=true si tout est à 0" })
+    async getDataIntegrationIntegrity(@CurrentUser() user: any) {
+        const tenantId = user.tenantId;
+        // ⚠️ $queryRaw n'est PAS intercepté par l'isolation Prisma (CLS) → scope manuel par tenantId.
+        const [elem, loc, deadItems, dupProd, dupLoc] = await Promise.all([
+            this.prisma.$queryRaw<{ n: bigint }[]>`
+                SELECT count(*)::bigint AS n FROM "WeezeventLocationShopMapping" m
+                LEFT JOIN "SpaceElement" se ON se.id = m."spaceElementId"
+                WHERE m."tenantId" = ${tenantId} AND se.id IS NULL`,
+            this.prisma.$queryRaw<{ n: bigint }[]>`
+                SELECT count(*)::bigint AS n FROM "WeezeventLocationShopMapping" m
+                LEFT JOIN "WeezeventLocation" l ON l.id = m."weezeventLocationId"
+                WHERE m."tenantId" = ${tenantId} AND l.id IS NULL`,
+            this.prisma.$queryRaw<{ n: bigint }[]>`
+                SELECT count(*)::bigint AS n FROM "WeezeventProductMapping" m
+                JOIN "MenuItem" mi ON mi.id = m."menuItemId"
+                WHERE m."tenantId" = ${tenantId} AND mi."deletedAt" IS NOT NULL`,
+            this.prisma.$queryRaw<{ n: bigint }[]>`
+                SELECT count(*)::bigint AS n FROM (
+                  SELECT 1 FROM "WeezeventProduct" WHERE "tenantId" = ${tenantId}
+                  GROUP BY "weezeventId" HAVING count(*) > 1) d`,
+            this.prisma.$queryRaw<{ n: bigint }[]>`
+                SELECT count(*)::bigint AS n FROM (
+                  SELECT 1 FROM "WeezeventLocation" WHERE "tenantId" = ${tenantId}
+                  GROUP BY "weezeventId" HAVING count(*) > 1) d`,
+        ]);
+        const num = (r: { n: bigint }[]) => Number(r[0]?.n ?? 0);
+        const shopElementDanglings = num(elem);
+        const shopLocationDanglings = num(loc);
+        const mappingsToDeletedItems = num(deadItems);
+        return {
+            tenantId,
+            healthy: shopElementDanglings === 0 && shopLocationDanglings === 0 && mappingsToDeletedItems === 0,
+            shopElementDanglings,
+            shopLocationDanglings,
+            mappingsToDeletedItems,
+            // Informatif : doublons attendus si multi-intégrations volontaires (pas une alerte).
+            duplicateProductGroups: num(dupProd),
+            duplicateLocationGroups: num(dupLoc),
+        };
+    }
+
+    /**
      * Reset sync state (force full sync next time)
      */
     @RequirePermissions('menu.integration.fb')

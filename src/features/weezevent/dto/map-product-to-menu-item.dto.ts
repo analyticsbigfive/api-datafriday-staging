@@ -17,4 +17,12 @@ export class MapProductToMenuItemDto {
   @IsNumber()
   @Type(() => Number)
   confidence?: number;
+
+  @ApiPropertyOptional({
+    description:
+      "Espace DataFriday courant : si fourni, le menu item mappé y est rattaché (ajout idempotent dans spaceIds).",
+  })
+  @IsOptional()
+  @IsString()
+  spaceId?: string;
 }

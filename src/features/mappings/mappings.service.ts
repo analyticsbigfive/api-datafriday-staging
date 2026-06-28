@@ -568,6 +568,37 @@ export class MappingsService {
     }
   }
 
+  /**
+   * Rattache un espace aux menu items qui viennent d'être mappés. Un mapping
+   * produit↔menuItem ne porte aucun espace ; sans cette écriture, l'article
+   * reste « mappé mais sans espace » et le select « Espace » de sa fiche est vide.
+   * Le wizard est l'unique endroit qui connaît l'espace courant → on l'ajoute ici.
+   * `array_append` + garde `NOT (... = ANY)` = idempotent (aucun doublon d'espace,
+   * ne touche pas les items déjà rattachés). Le raw n'est pas scopé par le CLS
+   * tenant → on filtre explicitement par `tenantId`.
+   */
+  private async attachSpaceToMenuItems(
+    tenantId: string,
+    menuItemIds: string[],
+    spaceId: string,
+  ): Promise<number> {
+    const ids = [...new Set(menuItemIds.filter(Boolean))];
+    if (!spaceId || ids.length === 0) return 0;
+    const updated = await this.prisma.$executeRaw`
+      UPDATE "public"."MenuItem"
+      SET "spaceIds" = array_append("spaceIds", ${spaceId}),
+          "updatedAt" = NOW()
+      WHERE "tenantId" = ${tenantId}
+        AND "deletedAt" IS NULL
+        AND "id" IN (${Prisma.join(ids)})
+        AND NOT (${spaceId} = ANY("spaceIds"))
+    `;
+    if (updated > 0) {
+      this.logger.log(`Attached space ${spaceId} to ${updated} menu item(s) via product mapping`);
+    }
+    return updated;
+  }
+
   async bulkProductMappings(dto: BulkProductMappingDto, tenantId: string, userId: string) {
     const uniqueMappings = Array.from(
       new Map(dto.mappings.map((m) => [m.weezeventProductId, m])).values(),
@@ -648,6 +679,15 @@ export class MappingsService {
           }
         }
       }
+    }
+
+    // Rattache l'espace courant du wizard aux items effectivement mappés (idempotent).
+    if (dto.spaceId) {
+      await this.attachSpaceToMenuItems(
+        tenantId,
+        successes.map((s: any) => s.menuItemId),
+        dto.spaceId,
+      );
     }
 
     return {

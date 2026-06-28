@@ -840,6 +840,20 @@ export class WeezeventController {
             },
         });
 
+        // Rattache l'espace courant du wizard au menu item mappé (idempotent).
+        // Un mapping ne porte pas d'espace ; sans ça l'article reste « mappé sans espace ».
+        if (body.spaceId) {
+            await this.prisma.$executeRaw`
+                UPDATE "public"."MenuItem"
+                SET "spaceIds" = array_append("spaceIds", ${body.spaceId}),
+                    "updatedAt" = NOW()
+                WHERE "tenantId" = ${tenantId}
+                  AND "deletedAt" IS NULL
+                  AND "id" = ${body.menuItemId}
+                  AND NOT (${body.spaceId} = ANY("spaceIds"))
+            `;
+        }
+
         return {
             success: true,
             mapping,

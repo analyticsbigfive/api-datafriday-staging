@@ -75,4 +75,12 @@ export class BulkProductMappingDto {
   @ValidateNested({ each: true })
   @Type(() => CreateProductMappingDto)
   mappings: CreateProductMappingDto[];
+
+  @ApiPropertyOptional({
+    description:
+      "Espace DataFriday courant du wizard. Si fourni, chaque menu item mappé y est rattaché (ajout idempotent dans MenuItem.spaceIds). C'est le seul moment où l'on connaît l'espace d'un item : un mapping produit↔menuItem ne porte aucun espace par lui-même.",
+  })
+  @IsOptional()
+  @IsString()
+  spaceId?: string;
 }

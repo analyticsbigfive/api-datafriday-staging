@@ -1231,6 +1231,108 @@ export class SpacesService {
   /**
    * Create or update a configuration with normalized tables
    */
+  /**
+   * Reconcile un élément de plan (UPSERT par id) au lieu de delete+recreate.
+   * Clé du fix « PDV démappés » : si le client renvoie `element.id`, la row est mise à jour EN
+   * PLACE → `SpaceElement.id` reste IMMUABLE, donc `WeezeventLocationShopMapping.spaceElementId`
+   * et les `MenuAssignment` restent valides. Sans id → vrai nouvel élément (create).
+   * Les données filles (performance/staff/inventory) ne sont remplacées QUE si le payload les
+   * fournit (sinon préservées — l'ancien delete+recreate les perdait silencieusement).
+   */
+  private async reconcileElement(
+    tx: any,
+    element: any,
+    parent: { floorId?: string | null; forecourtId?: string | null },
+    seenElementIds: Set<string>,
+    existingElementIds: Set<string>,
+  ) {
+    const originalType = element.type;
+    const data: any = {
+      floorId: parent.floorId ?? null,
+      forecourtId: parent.forecourtId ?? null,
+      externalMerchId: null,
+      name: element.name || 'Element',
+      type: this.mapElementType(element.type),
+      x: element.x || 0,
+      y: element.y || 0,
+      width: element.width || 80,
+      height: element.height || 60,
+      depth: element.depth || element.height || 60,
+      height3d: element.height3d || 25,
+      rotation: element.rotation || 0,
+      image: element.image || null,
+      notes: element.notes || null,
+      capacity: element.capacity || null,
+      cornerRadiusTL: element.cornerRadius?.topLeft || 0,
+      cornerRadiusTR: element.cornerRadius?.topRight || 0,
+      cornerRadiusBL: element.cornerRadius?.bottomLeft || 0,
+      cornerRadiusBR: element.cornerRadius?.bottomRight || 0,
+      shopTypes: element.shopType || [],
+      storageTypes: element.storageType || [],
+      hospitalityTypes: element.hospitalityType || [],
+      accessTypes: element.accessType || [],
+      entertainmentTypes: element.entertainmentType || [],
+      entranceTypes: element.entranceType || [],
+      kitchenTypes: element.kitchenType || [],
+      tags: element.tags || [],
+      attributes: { ...element.attributes, originalType },
+    };
+
+    // UPDATE en place UNIQUEMENT si l'id appartient déjà à CETTE config (id immuable → mappings
+    // préservés). Un id absent (nouvel élément) ou étranger à la config → CREATE avec un id frais,
+    // pour ne jamais déplacer par erreur l'élément d'une autre config (l'id client est ignoré).
+    const createdElement = element.id && existingElementIds.has(element.id)
+      ? await tx.spaceElement.update({ where: { id: element.id }, data })
+      : await tx.spaceElement.create({ data });
+    element.id = createdElement.id;
+    seenElementIds.add(createdElement.id);
+
+    if (element.performance) {
+      await tx.elementPerformance.deleteMany({ where: { elementId: createdElement.id } });
+      await tx.elementPerformance.create({
+        data: {
+          elementId: createdElement.id,
+          revenue: element.performance.revenue || 0,
+          numberOfPOS: element.performance.numberOfPOS || 0,
+          numberOfTransactions: element.performance.numberOfTransactions || 0,
+          transactionsPerMinute: element.performance.transactionsPerMinute || 0,
+          staffCost: element.performance.staffCost || 0,
+          revenuePerEmployee: element.performance.revenuePerEmployee || 0,
+        },
+      });
+    }
+
+    if (Array.isArray(element.staffPositions) && element.staffPositions.length > 0) {
+      await tx.elementStaff.deleteMany({ where: { elementId: createdElement.id } });
+      await tx.elementStaff.createMany({
+        data: element.staffPositions.map((pos: any) => ({
+          elementId: createdElement.id,
+          position: pos.position,
+          count: pos.count || 1,
+          hourlyRate: pos.hourlyRate || null,
+        })),
+      });
+    }
+
+    if (Array.isArray(element.inventoryItems) && element.inventoryItems.length > 0) {
+      await tx.elementInventory.deleteMany({ where: { elementId: createdElement.id } });
+      await tx.elementInventory.createMany({
+        data: element.inventoryItems.map((item: any) => ({
+          elementId: createdElement.id,
+          name: item.name,
+          quantity: item.quantity || 0,
+          unit: item.unit || null,
+          minStock: item.minStock || null,
+          maxStock: item.maxStock || null,
+          isCustom: item.isCustom !== false,
+          menuItemId: item.menuItemId || null,
+        })),
+      });
+    }
+
+    return createdElement;
+  }
+
   async saveConfiguration(dto: any, tenantId: string) {
     // Verify space exists and belongs to tenant
     await this.findOne(dto.spaceId, tenantId);
@@ -1388,213 +1490,122 @@ export class SpacesService {
         select: { elementId: true, menuItemId: true, enabled: true },
       });
 
-      // 2c. Delete existing floors and their elements (cascade)
-      await tx.floor.deleteMany({
+      // 2c. RECONCILE (plus de delete+recreate). C'est LA correction du bug « PDV démappés » :
+      // `SpaceElement.id` devient IMMUABLE, donc WeezeventLocationShopMapping.spaceElementId
+      // (String SANS FK → dangling silencieux) et les MenuAssignment restent valides au lieu
+      // d'être orphelinés à chaque sauvegarde. On charge l'état existant pour pruner après coup.
+      const existingFloorsForReconcile = await tx.floor.findMany({
         where: { configId: config.id },
+        include: { elements: { select: { id: true } } },
       });
+      const existingForecourtsForReconcile = await tx.forecourt.findMany({
+        where: { configId: config.id },
+        include: { elements: { select: { id: true } } },
+      });
+      const existingElementIds: string[] = [
+        ...existingFloorsForReconcile.flatMap((f: any) => f.elements.map((e: any) => e.id)),
+        ...existingForecourtsForReconcile.flatMap((fc: any) => fc.elements.map((e: any) => e.id)),
+      ];
+      // Éléments protégés (porteurs d'un mapping Weezevent) : JAMAIS supprimés, même absents
+      // du payload — sinon le mapping deviendrait orphelin.
+      const protectedElementIds = new Set<string>(
+        existingElementIds.length > 0
+          ? (
+              await tx.weezeventLocationShopMapping.findMany({
+                where: { spaceElementId: { in: existingElementIds } },
+                select: { spaceElementId: true },
+              })
+            ).map((m: any) => m.spaceElementId)
+          : [],
+      );
+      const existingElementIdSet = new Set<string>(existingElementIds);
+      const seenFloorIds = new Set<string>();
+      const seenForecourtIds = new Set<string>();
+      const seenElementIds = new Set<string>();
 
-      // 3. Create floors with their elements
+      // 3. Reconcile floors + their elements (UPSERT en place — ids préservés)
       for (const floor of floors) {
-        const createdFloor = await tx.floor.create({
-          data: {
-            ...(floor.id ? { id: floor.id } : {}),
-            configId: config.id,
-            name: floor.name,
-            level: floor.level || 0,
-            width: floor.width || 800,
-            height: floor.height || 600,
-            length: floor.length || 100,
-            cornerRadius: floor.cornerRadius || null,
-          } as any,
-        });
-        // Keep the JSON floor id in sync with the relational row so getConfiguration
-        // never sees two floors at the same level (root cause of shops vanishing in the
-        // Space Builder). When `floor.id` was absent, Prisma generated one — adopt it.
+        const floorData = {
+          configId: config.id,
+          name: floor.name,
+          level: floor.level || 0,
+          width: floor.width || 800,
+          height: floor.height || 600,
+          length: floor.length || 100,
+          cornerRadius: floor.cornerRadius || null,
+        };
+        // Match par id (échoté par le client) → UPDATE ; sinon par niveau pour adopter la row
+        // existante au lieu d'en créer une 2ᵉ au même level ; sinon CREATE.
+        let dbFloor = floor.id
+          ? existingFloorsForReconcile.find((f: any) => f.id === floor.id)
+          : undefined;
+        if (!dbFloor) {
+          dbFloor = existingFloorsForReconcile.find(
+            (f: any) => !seenFloorIds.has(f.id) && (f.level ?? 0) === (floor.level || 0),
+          );
+        }
+        // CREATE : id généré par Prisma — on n'honore jamais un `floor.id` étranger à cette config
+        // (sinon collision de PK lors d'une duplication d'espace qui réutilise les ids d'origine).
+        // Si `floor.id` appartenait à la config, `dbFloor` l'aurait déjà matché → UPDATE.
+        const createdFloor = dbFloor
+          ? await tx.floor.update({ where: { id: dbFloor.id }, data: floorData as any })
+          : await tx.floor.create({ data: floorData as any });
+        // Keep the JSON floor id in sync with the relational row (getConfiguration dedup par level).
         floor.id = createdFloor.id;
+        seenFloorIds.add(createdFloor.id);
 
-        // Create elements for this floor
-        const elements = floor.elements || [];
-        for (const element of elements) {
-          // Map frontend type to enum, but store original in attributes
-          const elementType = this.mapElementType(element.type);
-          const originalType = element.type; // Keep the original like 'fnb-food'
-          
-          const createdElement = await tx.spaceElement.create({
-            data: {
-              ...(element.id ? { id: element.id } : {}),
-              floorId: createdFloor.id,
-              name: element.name || 'Element',
-              type: elementType,
-              x: element.x || 0,
-              y: element.y || 0,
-              width: element.width || 80,
-              height: element.height || 60,
-              depth: element.depth || element.height || 60,
-              height3d: element.height3d || 25,
-              rotation: element.rotation || 0,
-              image: element.image || null,
-              notes: element.notes || null,
-              capacity: element.capacity || null,
-              cornerRadiusTL: element.cornerRadius?.topLeft || 0,
-              cornerRadiusTR: element.cornerRadius?.topRight || 0,
-              cornerRadiusBL: element.cornerRadius?.bottomLeft || 0,
-              cornerRadiusBR: element.cornerRadius?.bottomRight || 0,
-              shopTypes: element.shopType || [],
-              storageTypes: element.storageType || [],
-              hospitalityTypes: element.hospitalityType || [],
-              accessTypes: element.accessType || [],
-              entertainmentTypes: element.entertainmentType || [],
-              entranceTypes: element.entranceType || [],
-              kitchenTypes: element.kitchenType || [],
-              tags: element.tags || [],
-              // Store original type and other attributes
-              attributes: { ...element.attributes, originalType },
-            } as any,
-          });
-          // Sync the JSON element id with the relational row (see floor.id note above).
-          element.id = createdElement.id;
-
-          // Create performance data if exists
-          if (element.performance) {
-            await tx.elementPerformance.create({
-              data: {
-                elementId: createdElement.id,
-                revenue: element.performance.revenue || 0,
-                numberOfPOS: element.performance.numberOfPOS || 0,
-                numberOfTransactions: element.performance.numberOfTransactions || 0,
-                transactionsPerMinute: element.performance.transactionsPerMinute || 0,
-                staffCost: element.performance.staffCost || 0,
-                revenuePerEmployee: element.performance.revenuePerEmployee || 0,
-              },
-            });
-          }
-
-          // Create staff positions if exist
-          if (element.staffPositions && element.staffPositions.length > 0) {
-            await tx.elementStaff.createMany({
-              data: element.staffPositions.map((pos: any) => ({
-                elementId: createdElement.id,
-                position: pos.position,
-                count: pos.count || 1,
-                hourlyRate: pos.hourlyRate || null,
-              })),
-            });
-          }
-
-          // Create inventory items if exist
-          if (element.inventoryItems && element.inventoryItems.length > 0) {
-            await tx.elementInventory.createMany({
-              data: element.inventoryItems.map((item: any) => ({
-                elementId: createdElement.id,
-                name: item.name,
-                quantity: item.quantity || 0,
-                unit: item.unit || null,
-                minStock: item.minStock || null,
-                maxStock: item.maxStock || null,
-                isCustom: item.isCustom !== false,
-                menuItemId: item.menuItemId || null,
-              })),
-            });
-          }
+        for (const element of floor.elements || []) {
+          await this.reconcileElement(tx, element, { floorId: createdFloor.id }, seenElementIds, existingElementIdSet);
         }
       }
 
-      // 4. Handle forecourt if exists
+      // 4. Reconcile forecourt (UPSERT en place — id préservé)
       if (forecourt) {
-        // Delete existing forecourt
-        await tx.forecourt.deleteMany({
-          where: { configId: config.id },
-        });
-
-        const createdForecourt = await tx.forecourt.create({
-          data: {
-            ...(forecourt.id ? { id: forecourt.id } : {}),
-            configId: config.id,
-            name: forecourt.name || 'Parvis',
-            width: forecourt.width || 1000,
-            length: forecourt.length || 500,
-          } as any,
-        });
+        const forecourtData = {
+          configId: config.id,
+          name: forecourt.name || 'Parvis',
+          width: forecourt.width || 1000,
+          length: forecourt.length || 500,
+        };
+        let dbForecourt = forecourt.id
+          ? existingForecourtsForReconcile.find((fc: any) => fc.id === forecourt.id)
+          : existingForecourtsForReconcile.find((fc: any) => !seenForecourtIds.has(fc.id));
+        // CREATE : id généré (jamais d'id forecourt étranger — cf. note floors ci-dessus).
+        const createdForecourt = dbForecourt
+          ? await tx.forecourt.update({ where: { id: dbForecourt.id }, data: forecourtData as any })
+          : await tx.forecourt.create({ data: forecourtData as any });
         forecourt.id = createdForecourt.id;
+        seenForecourtIds.add(createdForecourt.id);
 
-        // Create forecourt elements
-        const forecourtElements = forecourt.elements || [];
-        for (const element of forecourtElements) {
-          const elementType = this.mapElementType(element.type);
-          const originalType = element.type; // Keep the original type
-          
-          const createdElement = await tx.spaceElement.create({
-            data: {
-              ...(element.id ? { id: element.id } : {}),
-              forecourtId: createdForecourt.id,
-              name: element.name || 'Element',
-              type: elementType,
-              x: element.x || 0,
-              y: element.y || 0,
-              width: element.width || 80,
-              height: element.height || 60,
-              depth: element.depth || 60,
-              height3d: element.height3d || 25,
-              rotation: element.rotation || 0,
-              image: element.image || null,
-              notes: element.notes || null,
-              capacity: element.capacity || null,
-              cornerRadiusTL: element.cornerRadius?.topLeft || 0,
-              cornerRadiusTR: element.cornerRadius?.topRight || 0,
-              cornerRadiusBL: element.cornerRadius?.bottomLeft || 0,
-              cornerRadiusBR: element.cornerRadius?.bottomRight || 0,
-              shopTypes: element.shopType || [],
-              storageTypes: element.storageType || [],
-              hospitalityTypes: element.hospitalityType || [],
-              accessTypes: element.accessType || [],
-              entertainmentTypes: element.entertainmentType || [],
-              entranceTypes: element.entranceType || [],
-              kitchenTypes: element.kitchenType || [],
-              tags: element.tags || [],
-              attributes: { ...element.attributes, originalType },
-            } as any,
-          });
-          element.id = createdElement.id;
+        // Reconcile forecourt elements
+        for (const element of forecourt.elements || []) {
+          await this.reconcileElement(tx, element, { forecourtId: createdForecourt.id }, seenElementIds, existingElementIdSet);
+        }
+      }
 
-          // Create performance, staff, inventory for forecourt elements
-          if (element.performance) {
-            await tx.elementPerformance.create({
-              data: {
-                elementId: createdElement.id,
-                revenue: element.performance.revenue || 0,
-                numberOfPOS: element.performance.numberOfPOS || 0,
-                numberOfTransactions: element.performance.numberOfTransactions || 0,
-                transactionsPerMinute: element.performance.transactionsPerMinute || 0,
-                staffCost: element.performance.staffCost || 0,
-                revenuePerEmployee: element.performance.revenuePerEmployee || 0,
-              },
-            });
-          }
-
-          if (element.staffPositions && element.staffPositions.length > 0) {
-            await tx.elementStaff.createMany({
-              data: element.staffPositions.map((pos: any) => ({
-                elementId: createdElement.id,
-                position: pos.position,
-                count: pos.count || 1,
-                hourlyRate: pos.hourlyRate || null,
-              })),
-            });
-          }
-
-          if (element.inventoryItems && element.inventoryItems.length > 0) {
-            await tx.elementInventory.createMany({
-              data: element.inventoryItems.map((item: any) => ({
-                elementId: createdElement.id,
-                name: item.name,
-                quantity: item.quantity || 0,
-                unit: item.unit || null,
-                minStock: item.minStock || null,
-                maxStock: item.maxStock || null,
-                isCustom: item.isCustom !== false,
-                menuItemId: item.menuItemId || null,
-              })),
-            });
+      // 4b. PRUNE : supprimer les éléments réellement retirés du payload, en épargnant TOUJOURS
+      // les éléments protégés (mapping Weezevent) — remplace le delete global d'avant tout en
+      // garantissant qu'aucun mapping ne devient orphelin.
+      const elementsToDelete = existingElementIds.filter(
+        (id) => !seenElementIds.has(id) && !protectedElementIds.has(id),
+      );
+      if (elementsToDelete.length > 0) {
+        await tx.spaceElement.deleteMany({ where: { id: { in: elementsToDelete } } });
+      }
+      // Floors absents du payload : supprimés seulement s'ils ne retiennent aucun élément protégé.
+      for (const f of existingFloorsForReconcile) {
+        if (seenFloorIds.has(f.id)) continue;
+        if (!f.elements.some((e: any) => protectedElementIds.has(e.id))) {
+          await tx.floor.delete({ where: { id: f.id } });
+        }
+      }
+      // Forecourts : ne pruner que si le payload gère le forecourt (forecourt non-null),
+      // pour préserver le comportement « null = ne pas toucher au parvis existant ».
+      if (forecourt) {
+        for (const fc of existingForecourtsForReconcile) {
+          if (seenForecourtIds.has(fc.id)) continue;
+          if (!fc.elements.some((e: any) => protectedElementIds.has(e.id))) {
+            await tx.forecourt.delete({ where: { id: fc.id } });
           }
         }
       }

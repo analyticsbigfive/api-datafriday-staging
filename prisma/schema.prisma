@@ -562,6 +562,7 @@ model SpaceElement {
   staffPositions  ElementStaff[]
   inventoryItems  ElementInventory[]
   menuAssignments MenuAssignment[]
+  weezeventShopMappings WeezeventLocationShopMapping[]
 
   @@index([floorId])
   @@index([forecourtId])
@@ -1945,6 +1946,12 @@ model WeezeventLocationShopMapping {
   spaceElementId      String
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
+
+  // Intégrité référentielle : le mapping ne peut plus pointer vers un SpaceElement inexistant
+  // (cause des « PDV démappés » silencieux). onDelete: Cascade = quand un shop est RÉELLEMENT
+  // supprimé (espace/config supprimé), son mapping part avec ; le save de config (reconcile)
+  // ne supprime plus jamais un élément mappé, donc aucun mapping légitime n'est perdu.
+  spaceElement SpaceElement @relation(fields: [spaceElementId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, weezeventLocationId])
   @@index([tenantId, spaceElementId])

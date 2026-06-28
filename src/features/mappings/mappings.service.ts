@@ -550,12 +550,33 @@ export class MappingsService {
     };
   }
 
+  /**
+   * Garantie « si c'est mappé, c'est visible » : remapper un produit vers un MenuItem qui a
+   * été soft-deleted (ex. bulk-delete utilisateur puis ré-import) le réactive, afin qu'il
+   * réapparaisse dans la liste Menu Items et le menu déroulant au lieu de laisser un mapping
+   * pointant vers un article fantôme. Idempotent et borné au tenant.
+   */
+  private async resurrectSoftDeletedMenuItems(tenantId: string, menuItemIds: string[]) {
+    const ids = [...new Set(menuItemIds.filter(Boolean))];
+    if (ids.length === 0) return;
+    const revived = await this.prisma.menuItem.updateMany({
+      where: { tenantId, id: { in: ids }, deletedAt: { not: null } },
+      data: { deletedAt: null },
+    });
+    if (revived.count > 0) {
+      this.logger.log(`Resurrected ${revived.count} soft-deleted menu item(s) referenced by a new mapping`);
+    }
+  }
+
   async bulkProductMappings(dto: BulkProductMappingDto, tenantId: string, userId: string) {
     const uniqueMappings = Array.from(
       new Map(dto.mappings.map((m) => [m.weezeventProductId, m])).values(),
     );
     const total = uniqueMappings.length;
     this.logger.log(`Bulk mapping ${total} product-menu item pairs (chunk=${this.BULK_CHUNK_SIZE})`);
+
+    // Réactive les MenuItems soft-deleted ciblés avant de (re)créer les mappings.
+    await this.resurrectSoftDeletedMenuItems(tenantId, uniqueMappings.map((m) => m.menuItemId));
 
     const successes: any[] = [];
     const errors: { weezeventProductId: string; error: string }[] = [];

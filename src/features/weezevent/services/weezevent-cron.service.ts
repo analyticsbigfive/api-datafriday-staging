@@ -176,6 +176,53 @@ export class WeezeventCronService implements OnModuleInit {
     /**
      * Get all tenants with Weezevent enabled
      */
+    /**
+     * Surveillance quotidienne de l'intégrité Data Integration (la « surveillance synchro »
+     * demandée par l'équipe). Logge un récap et alerte (warn) si des incohérences réapparaissent :
+     *  - mappings shop dangling (spaceElementId orphelin) → doit rester 0 (FK + reconcile)
+     *  - mappings produit vers un MenuItem soft-deleted → doit rester 0 (cleanup au remove())
+     *  - doublons WeezeventProduct/Location (même weezeventId sous plusieurs intégrations)
+     */
+    @Cron('0 6 * * *')
+    async monitorDataIntegrationIntegrity(): Promise<void> {
+        if (!this.isEnabled) return;
+        try {
+            const [danglingShop, deadMenuItemMappings, dupProducts, dupLocations] = await Promise.all([
+                this.prisma.$queryRaw<{ n: bigint }[]>`
+                    SELECT count(*)::bigint AS n FROM "WeezeventLocationShopMapping" m
+                    LEFT JOIN "SpaceElement" se ON se.id = m."spaceElementId"
+                    WHERE se.id IS NULL`,
+                this.prisma.$queryRaw<{ n: bigint }[]>`
+                    SELECT count(*)::bigint AS n FROM "WeezeventProductMapping" m
+                    JOIN "MenuItem" mi ON mi.id = m."menuItemId"
+                    WHERE mi."deletedAt" IS NOT NULL`,
+                this.prisma.$queryRaw<{ n: bigint }[]>`
+                    SELECT count(*)::bigint AS n FROM (
+                      SELECT 1 FROM "WeezeventProduct"
+                      GROUP BY "tenantId", "weezeventId" HAVING count(*) > 1) d`,
+                this.prisma.$queryRaw<{ n: bigint }[]>`
+                    SELECT count(*)::bigint AS n FROM (
+                      SELECT 1 FROM "WeezeventLocation"
+                      GROUP BY "tenantId", "weezeventId" HAVING count(*) > 1) d`,
+            ]);
+            const dangling = Number(danglingShop[0]?.n ?? 0);
+            const deadItems = Number(deadMenuItemMappings[0]?.n ?? 0);
+            const dProd = Number(dupProducts[0]?.n ?? 0);
+            const dLoc = Number(dupLocations[0]?.n ?? 0);
+            const msg =
+                `Data Integration integrity — dangling shop mappings=${dangling}, ` +
+                `mappings→deleted menuItem=${deadItems}, duplicate product groups=${dProd}, ` +
+                `duplicate location groups=${dLoc}`;
+            if (dangling > 0 || deadItems > 0) {
+                this.logger.warn(`⚠️ ${msg}`);
+            } else {
+                this.logger.log(`✅ ${msg}`);
+            }
+        } catch (err) {
+            this.logger.error(`Integrity monitor failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+    }
+
     private async getWeezeventEnabledTenants() {
         return this.prisma.tenant.findMany({
             where: {

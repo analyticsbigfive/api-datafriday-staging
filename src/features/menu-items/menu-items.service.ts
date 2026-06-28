@@ -703,6 +703,14 @@ export class MenuItemsService {
     await this.findOne(id, tenantId);
     try {
       const result = await this.prisma.menuItem.update({ where: { id }, data: { deletedAt: new Date() } });
+      // Invariant : un MenuItem soft-deleted ne doit JAMAIS rester référencé par un mapping
+      // Weezevent → sinon la Data Integration affiche un mapping vers un article disparu de la
+      // liste (champ vide, non remappable). On supprime donc les mappings produit liés.
+      // (Le soft-delete ne déclenche pas le cascade FK qui n'agit qu'au hard-delete.)
+      const purged = await this.prisma.weezeventProductMapping.deleteMany({ where: { tenantId, menuItemId: id } });
+      if (purged.count > 0) {
+        this.logger.log(`Removed ${purged.count} Weezevent product mapping(s) pointing to soft-deleted menu item ${id}`);
+      }
       this.logger.log(`Menu item ${id} soft-deleted`);
       await this.invalidateCache(tenantId);
       return result;

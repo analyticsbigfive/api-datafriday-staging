@@ -85,10 +85,12 @@ export class SupabaseAdminService implements OnModuleInit {
     });
 
     if (error || !data?.user) {
-      this.logger.error(`createUser failed for ${params.email}: ${error?.message}`);
-      throw new InternalServerErrorException(
-        `Supabase user creation failed: ${error?.message ?? 'unknown error'}`,
+      const detail = this.describeAuthError(error);
+      this.logger.error(
+        `createUser failed for ${params.email}: ${detail}`,
+        error ? JSON.stringify(error, Object.getOwnPropertyNames(error)) : undefined,
       );
+      throw new InternalServerErrorException(`Supabase user creation failed: ${detail}`);
     }
 
     return data.user;
@@ -111,13 +113,38 @@ export class SupabaseAdminService implements OnModuleInit {
     );
 
     if (error || !data?.user) {
-      this.logger.error(`inviteUserByEmail failed for ${email}: ${error?.message}`);
-      throw new InternalServerErrorException(
-        `Supabase invitation failed: ${error?.message ?? 'unknown error'}`,
+      const detail = this.describeAuthError(error);
+      // Log complet (status/code/name + sérialisation des props non-énumérables) :
+      // un `error.message` vide ici = quasi toujours un échec d'ENVOI d'email côté
+      // Supabase (SMTP non configuré dans le dashboard, ou rate limit de l'email
+      // intégré dépassé). Vérifier Supabase → Auth → Logs / Rate limits / SMTP.
+      this.logger.error(
+        `inviteUserByEmail failed for ${email}: ${detail}`,
+        error ? JSON.stringify(error, Object.getOwnPropertyNames(error)) : undefined,
       );
+      throw new InternalServerErrorException(`Supabase invitation failed: ${detail}`);
     }
 
     return data.user;
+  }
+
+  /**
+   * Construit un message d'erreur exploitable à partir d'une AuthError Supabase
+   * (dont le `.message` est parfois vide quand GoTrue renvoie un 500 opaque,
+   * typiquement sur échec d'envoi d'email / rate limit).
+   */
+  private describeAuthError(error: unknown): string {
+    if (!error) return 'no user returned';
+    const e = error as { name?: string; status?: number; code?: string; message?: string };
+    const parts = [
+      e.name ?? 'AuthError',
+      e.status != null ? `status=${e.status}` : null,
+      e.code ? `code=${e.code}` : null,
+      e.message
+        ? `message=${e.message}`
+        : 'message=(vide — souvent un échec d’envoi d’email Supabase : SMTP absent ou rate limit dépassé)',
+    ].filter(Boolean);
+    return parts.join(' ');
   }
 
   /**

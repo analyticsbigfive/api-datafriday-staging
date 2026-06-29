@@ -147,14 +147,12 @@ export class AnalyseService {
         COALESCE(mi.name, ti."productName")                                         AS "menuItemName",
         SUM(ti.quantity)::integer                                                    AS quantity,
         COUNT(DISTINCT t.id)::integer                                               AS "transactionCount",
-        SUM(ti."unitPrice" * ti.quantity / (1 + COALESCE(p."vatRate", 20) / 100))::numeric(12,2) AS revenue
+        SUM(ti."unitPrice" * ti.quantity / (1 + ti."vat" / 100))::numeric(12,2) AS revenue
       FROM "WeezeventTransaction" t
       INNER JOIN "WeezeventTransactionItem" ti
         ON ti."transactionId" = t.id
       LEFT JOIN "WeezeventMerchant" m
         ON m.id = t."merchantId" AND m."tenantId" = ${tenantId}
-      LEFT JOIN "WeezeventProduct" p
-        ON p.id = ti."productId"
       LEFT JOIN "WeezeventProductMapping" wpm
         ON wpm."weezeventProductId" = ti."productId"
        AND wpm."tenantId" = ${tenantId}
@@ -170,8 +168,7 @@ export class AnalyseService {
       GROUP BY
         DATE_TRUNC('minute', t."transactionDate"),
         t."merchantId", m.name, t."merchantName",
-        ti."productId", wpm."menuItemId", mi.name, ti."productName",
-        p."vatRate"
+        ti."productId", wpm."menuItemId", mi.name, ti."productName"
       ORDER BY minute ASC
       LIMIT ${limit}
     `);

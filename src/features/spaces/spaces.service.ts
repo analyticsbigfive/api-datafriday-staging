@@ -963,7 +963,7 @@ export class SpacesService {
         COUNT(DISTINCT t.id)::integer                                     AS "transactionCount",
         SUM(
           ti."unitPrice" * ti.quantity
-          / (1 + COALESCE(p."vatRate", 20) / 100)
+          / (1 + ti."vat" / 100)
         )::numeric(12,2)                                                  AS "revenueHt"
       FROM "WeezeventTransaction" t
       INNER JOIN "WeezeventTransactionItem" ti
@@ -974,8 +974,6 @@ export class SpacesService {
        AND mem."spaceElementId"   = ANY(${shopIds})
       INNER JOIN "SpaceElement" se
         ON se.id = mem."spaceElementId"
-      LEFT JOIN "WeezeventProduct" p
-        ON p.id = ti."productId"
       LEFT JOIN "WeezeventProductMapping" wpm
         ON wpm."weezeventProductId" = ti."productId"
        AND wpm."tenantId" = ${tenantId}
@@ -993,8 +991,7 @@ export class SpacesService {
       GROUP BY
         DATE_TRUNC('minute', t."transactionDate"),
         mem."spaceElementId", se.name, se.type, se.attributes,
-        ti."productId", wpm."menuItemId", mi.name, pt.name, pc.name,
-        p."vatRate"
+        ti."productId", wpm."menuItemId", mi.name, pt.name, pc.name
       ORDER BY minute ASC
     `);
 

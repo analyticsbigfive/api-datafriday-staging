@@ -605,6 +605,201 @@ export class MenuItemsService {
     }
   }
 
+  // ─── Application du prix Weezevent + historique ──────────────────────────────
+
+  /**
+   * Résout le produit Weezevent source d'un menu item : mapping explicite si `weezeventProductId`
+   * est fourni, sinon l'unique produit mappé. Lève une 400 si rien n'est mappé ou si plusieurs
+   * produits le sont (l'appelant doit alors préciser lequel).
+   */
+  private async resolveMappedProductId(
+    tenantId: string,
+    menuItemId: string,
+    weezeventProductId?: string,
+  ): Promise<string> {
+    if (weezeventProductId) {
+      const m = await this.prisma.weezeventProductMapping.findFirst({
+        where: { tenantId, menuItemId, weezeventProductId },
+        select: { weezeventProductId: true },
+      });
+      if (!m) throw new BadRequestException(`Le produit Weezevent ${weezeventProductId} n'est pas mappé à cet article`);
+      return m.weezeventProductId;
+    }
+    const mappings = await this.prisma.weezeventProductMapping.findMany({
+      where: { tenantId, menuItemId },
+      select: { weezeventProductId: true },
+    });
+    if (mappings.length === 0) throw new BadRequestException(`Aucun produit Weezevent mappé à cet article`);
+    if (mappings.length > 1) {
+      throw new BadRequestException(`Plusieurs produits Weezevent mappés à cet article — précisez weezeventProductId`);
+    }
+    return mappings[0].weezeventProductId;
+  }
+
+  /**
+   * Applique au menu item le prix Weezevent du produit mappé (prix catalogue Weezevent sinon
+   * prix modal des ventes, cf. `resolveWeezeventApplyPrice`) et ARCHIVE le prix appliqué dans
+   * `MenuItemPriceHistory`. `MenuItem.basePrice` reste le prix COURANT (visible côté menu-items).
+   * Idempotent : si le prix courant est déjà celui résolu, ne réécrit ni n'historise rien.
+   */
+  async applyWeezeventPrice(menuItemId: string, tenantId: string, weezeventProductId?: string) {
+    const item = await this.prisma.menuItem.findFirst({
+      where: { id: menuItemId, tenantId, deletedAt: null },
+      select: { id: true, basePrice: true, vatRate: true },
+    });
+    if (!item) throw new NotFoundException(`Menu item ${menuItemId} not found`);
+
+    const productId = await this.resolveMappedProductId(tenantId, menuItemId, weezeventProductId);
+    const product = await this.prisma.weezeventProduct.findFirst({
+      where: { id: productId, tenantId },
+      include: { prices: true },
+    });
+    if (!product) throw new BadRequestException(`Produit Weezevent ${productId} introuvable`);
+
+    const modal = await this.pricing.getModalSalesPrices([productId]);
+    const resolved = this.pricing.resolveWeezeventApplyPrice(product, modal.get(productId));
+    if (!resolved) {
+      throw new BadRequestException(`Aucun prix Weezevent disponible pour ce produit (ni catalogue, ni ventes)`);
+    }
+
+    const previous = {
+      basePrice: this.toNumber(item.basePrice),
+      vatRate: item.vatRate != null ? this.toNumber(item.vatRate) : null,
+    };
+    const unchanged = previous.basePrice === resolved.basePrice && previous.vatRate === (resolved.vatRate ?? null);
+
+    if (!unchanged) {
+      await this.prisma.$transaction([
+        this.prisma.menuItemPriceHistory.create({
+          data: {
+            menuItemId,
+            tenantId,
+            basePrice: resolved.basePrice,
+            vatRate: resolved.vatRate,
+            currency: resolved.currency,
+            source: resolved.source,
+            weezeventProductId: productId,
+            observedAt: new Date(),
+          },
+        }),
+        this.prisma.menuItem.update({
+          where: { id: menuItemId },
+          data: { basePrice: resolved.basePrice, vatRate: resolved.vatRate },
+        }),
+      ]);
+      await this.invalidateCache(tenantId);
+      this.logger.log(`Applied Weezevent price ${resolved.basePrice} (${resolved.source}) to menu item ${menuItemId}`);
+    }
+
+    return {
+      changed: !unchanged,
+      previous,
+      applied: resolved,
+      item: await this.findOne(menuItemId, tenantId),
+    };
+  }
+
+  /**
+   * Applique le prix Weezevent à plusieurs menu items (action de masse étape 3). Le prix modal
+   * et les produits sont requêtés EN UNE FOIS pour tout le lot. Renvoie un résumé par article
+   * (changed / applied / error) ; un article en erreur n'interrompt pas les autres.
+   */
+  async applyWeezeventPricesBulk(
+    items: Array<{ menuItemId: string; weezeventProductId?: string }>,
+    tenantId: string,
+  ) {
+    const results: Array<{ menuItemId: string; changed: boolean; applied?: any; previous?: any; error?: string }> = [];
+    const pairs: Array<{ menuItemId: string; productId: string }> = [];
+
+    for (const it of items) {
+      try {
+        const productId = await this.resolveMappedProductId(tenantId, it.menuItemId, it.weezeventProductId);
+        pairs.push({ menuItemId: it.menuItemId, productId });
+      } catch (e) {
+        results.push({ menuItemId: it.menuItemId, changed: false, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+
+    if (pairs.length === 0) return { total: items.length, changed: 0, results };
+
+    const productIds = [...new Set(pairs.map((p) => p.productId))];
+    const menuItemIds = [...new Set(pairs.map((p) => p.menuItemId))];
+    const [products, modal, menuItems] = await Promise.all([
+      this.prisma.weezeventProduct.findMany({ where: { id: { in: productIds }, tenantId }, include: { prices: true } }),
+      this.pricing.getModalSalesPrices(productIds),
+      this.prisma.menuItem.findMany({
+        where: { tenantId, deletedAt: null, id: { in: menuItemIds } },
+        select: { id: true, basePrice: true, vatRate: true },
+      }),
+    ]);
+    const productById = new Map(products.map((p) => [p.id, p]));
+    const itemById = new Map(menuItems.map((m) => [m.id, m]));
+
+    const writes: any[] = [];
+    let changed = 0;
+    for (const { menuItemId, productId } of pairs) {
+      const product = productById.get(productId);
+      const current = itemById.get(menuItemId);
+      if (!product || !current) {
+        results.push({ menuItemId, changed: false, error: 'Article ou produit introuvable' });
+        continue;
+      }
+      const resolved = this.pricing.resolveWeezeventApplyPrice(product, modal.get(productId));
+      if (!resolved) {
+        results.push({ menuItemId, changed: false, error: 'Aucun prix Weezevent disponible (ni catalogue, ni ventes)' });
+        continue;
+      }
+      const previous = {
+        basePrice: this.toNumber(current.basePrice),
+        vatRate: current.vatRate != null ? this.toNumber(current.vatRate) : null,
+      };
+      if (previous.basePrice === resolved.basePrice && previous.vatRate === (resolved.vatRate ?? null)) {
+        results.push({ menuItemId, changed: false, applied: resolved });
+        continue;
+      }
+      writes.push(
+        this.prisma.menuItemPriceHistory.create({
+          data: {
+            menuItemId,
+            tenantId,
+            basePrice: resolved.basePrice,
+            vatRate: resolved.vatRate,
+            currency: resolved.currency,
+            source: resolved.source,
+            weezeventProductId: productId,
+            observedAt: new Date(),
+          },
+        }),
+        this.prisma.menuItem.update({
+          where: { id: menuItemId },
+          data: { basePrice: resolved.basePrice, vatRate: resolved.vatRate },
+        }),
+      );
+      changed++;
+      results.push({ menuItemId, changed: true, applied: resolved, previous });
+    }
+
+    if (writes.length) {
+      await this.prisma.$transaction(writes);
+      await this.invalidateCache(tenantId);
+      this.logger.log(`Bulk-applied Weezevent price to ${changed} menu item(s) for tenant ${tenantId}`);
+    }
+    return { total: items.length, changed, results };
+  }
+
+  /** Historique des prix d'un menu item (du plus récent au plus ancien) — courbe d'évolution. */
+  async getPriceHistory(menuItemId: string, tenantId: string) {
+    const item = await this.prisma.menuItem.findFirst({
+      where: { id: menuItemId, tenantId },
+      select: { id: true },
+    });
+    if (!item) throw new NotFoundException(`Menu item ${menuItemId} not found`);
+    return this.prisma.menuItemPriceHistory.findMany({
+      where: { menuItemId, tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   async replaceComponents(menuItemId: string, components: CreateMenuItemDto['components'], tenantId: string) {
     this.logger.log(`Replacing components for menu item ${menuItemId} (tenant ${tenantId})`);
     await this.findOne(menuItemId, tenantId);

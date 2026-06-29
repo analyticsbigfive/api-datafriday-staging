@@ -187,6 +187,70 @@ export class MenuItemPricingService {
   }
 
   /**
+   * Prix de vente « modal » par produit Weezevent : un point par couple (unitPrice, vat),
+   * trié par fréquence DÉCROISSANTE (le premier = prix le plus pratiqué). C'est exactement
+   * le prix déjà calculé/affiché à l'étape 3 — on ne parcourt rien de neuf, requête unique
+   * indexée (WeezeventTransactionItem_productId_idx, ~20 ms/100 produits), scopée par
+   * productId (vérifiés côté tenant par l'appelant ; le raw n'est pas CLS). `unitPrice`
+   * Weezevent est TTC → HT = round2(TTC / (1 + vat/100)).
+   */
+  async getModalSalesPrices(
+    productIds: string[],
+  ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
+    const out = new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>();
+    const ids = [...new Set(productIds.filter(Boolean))];
+    if (ids.length === 0) return out;
+    const rows = await this.prisma.$queryRaw<{ productId: string; unitPrice: any; vat: any; n: number }[]>`
+      SELECT ti."productId", ti."unitPrice", ti."vat", count(*)::int AS n
+      FROM "WeezeventTransactionItem" ti
+      WHERE ti."productId" IN (${Prisma.join(ids)}) AND ti."unitPrice" > 0
+      GROUP BY ti."productId", ti."unitPrice", ti."vat"
+      ORDER BY ti."productId", n DESC
+    `;
+    for (const r of rows) {
+      const ttc = Number(r.unitPrice);
+      const vatRate = r.vat != null ? Number(r.vat) : null;
+      const ht = vatRate != null ? this.round2(ttc / (1 + vatRate / 100)) : null;
+      const list = out.get(r.productId) ?? [];
+      list.push({ ttc, ht, vatRate, salesCount: Number(r.n) });
+      out.set(r.productId, list);
+    }
+    return out;
+  }
+
+  /**
+   * Prix « catalogue » à appliquer à un menu item depuis un produit Weezevent : on prend
+   * d'abord le prix catalogue Weezevent s'il existe (`product.basePrice`), sinon le prix
+   * modal dérivé des ventes (cf. `getModalSalesPrices`, identique à l'affichage `getProducts`).
+   * Renvoie `null` si on ne sait rien (pas de catalogue ET aucune vente). `vatRate` suit la
+   * même logique de repli (article → vente → null), `currency` vient des prix configurés.
+   */
+  resolveWeezeventApplyPrice(
+    product: any,
+    modal: Array<{ ttc: number; vatRate: number | null }> | undefined,
+  ): { basePrice: number; vatRate: number | null; currency: string | null; source: 'weezevent_catalog' | 'weezevent_sales' } | null {
+    const currency = this.resolveProductCurrency(product);
+    if (product?.basePrice != null) {
+      return {
+        basePrice: this.round2(Number(product.basePrice)),
+        vatRate: product.vatRate != null ? Number(product.vatRate) : null,
+        currency,
+        source: 'weezevent_catalog',
+      };
+    }
+    const top = modal?.[0];
+    if (top && Number.isFinite(top.ttc)) {
+      return {
+        basePrice: this.round2(top.ttc),
+        vatRate: product?.vatRate != null ? Number(product.vatRate) : top.vatRate,
+        currency,
+        source: 'weezevent_sales',
+      };
+    }
+    return null;
+  }
+
+  /**
    * Enrichit les mappings produit↔menu item de l'étape 3 avec TOUT le prix, le front
    * décide quoi afficher :
    *  - `menuItem.pricing`            → prix catalogue DataFriday (TVA article/tenant)

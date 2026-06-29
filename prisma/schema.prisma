@@ -182,15 +182,16 @@ model Tenant {
   permissions Permission[] // Permissions custom du tenant (scope CUSTOM)
 
   // Menu domain relations (ajoutées pour isolation multi-tenant)
-  menuItems      MenuItem[]
-  menuComponents MenuComponent[]
-  ingredients    Ingredient[]
-  packagings     Packaging[]
-  marketPrices   MarketPrice[]
-  csvMappings    CsvMapping[]
-  menus          Menu[]
-  auditLogs      AuditLog[]
-  webhooks       Webhook[]
+  menuItems            MenuItem[]
+  menuItemPriceHistory MenuItemPriceHistory[]
+  menuComponents       MenuComponent[]
+  ingredients          Ingredient[]
+  packagings           Packaging[]
+  marketPrices         MarketPrice[]
+  csvMappings          CsvMapping[]
+  menus                Menu[]
+  auditLogs            AuditLog[]
+  webhooks             Webhook[]
 
   // Weezevent Relations
   weezeventEvents            WeezeventEvent[]
@@ -274,20 +275,20 @@ model User {
   fullName  String?
   phone     String? // Téléphone de contact (optionnel)
 
-  role      UserRole @default(VIEWER) // Legacy - conservé pour compatibilité, voir roleRef
-  roleId    String? // RBAC dynamique - FK vers Role (nullable pendant la transition)
-  avatar    String?
+  role            UserRole @default(VIEWER) // Legacy - conservé pour compatibilité, voir roleRef
+  roleId          String? // RBAC dynamique - FK vers Role (nullable pendant la transition)
+  avatar          String?
   // Super-admin PLATEFORME (DataFriday), distinct du rôle ADMIN d'une organisation.
   // Donne accès à l'administration cross-tenant (SuperAdminGuard). Écriture réservée
   // à un super-admin existant / bootstrap via script. Voir docs/CONCEPTION_CIBLE_AUTH.md §3.
-  isSuperAdmin Boolean @default(false)
+  isSuperAdmin    Boolean  @default(false)
   // Accès à TOUS les espaces de l'organisation (présents et futurs), INDÉPENDAMMENT du rôle.
   // Choisi par l'owner à la création/édition. L'owner et le super-admin voient toujours tout.
   // Voir docs/CONCEPTION_CIBLE_AUTH.md §5 (accès par espace découplé du rôle).
-  allSpacesAccess Boolean @default(false)
-  tenantId  String // Keep for backward compatibility
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  allSpacesAccess Boolean  @default(false)
+  tenantId        String // Keep for backward compatibility
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   // Relations
   tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -524,17 +525,17 @@ model SpaceElement {
   forecourtId     String? // FK to Forecourt (if element is in forecourt)
   externalMerchId String? // FK to ExternalMerch (if element is in the external merch zone)
   name            String
-  type        ElementType
-  x           Float
-  y           Float
-  depth       Float?
-  width       Float?
-  height      Float?
-  height3d    Float? // Hauteur 3D en mètres
-  rotation    Float?      @default(0)
-  image       String?     @db.Text
-  notes       String?
-  capacity    Int?
+  type            ElementType
+  x               Float
+  y               Float
+  depth           Float?
+  width           Float?
+  height          Float?
+  height3d        Float? // Hauteur 3D en mètres
+  rotation        Float?      @default(0)
+  image           String?     @db.Text
+  notes           String?
+  capacity        Int?
 
   // Corner radius pour forme arrondie
   cornerRadiusTL Float? @default(0)
@@ -555,13 +556,13 @@ model SpaceElement {
   tags       String[]
 
   // Relations
-  floor           Floor?              @relation(fields: [floorId], references: [id], onDelete: Cascade)
-  forecourt       Forecourt?          @relation(fields: [forecourtId], references: [id], onDelete: Cascade)
-  externalMerch   ExternalMerch?      @relation(fields: [externalMerchId], references: [id], onDelete: Cascade)
-  performance     ElementPerformance?
-  staffPositions  ElementStaff[]
-  inventoryItems  ElementInventory[]
-  menuAssignments MenuAssignment[]
+  floor                 Floor?                         @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  forecourt             Forecourt?                     @relation(fields: [forecourtId], references: [id], onDelete: Cascade)
+  externalMerch         ExternalMerch?                 @relation(fields: [externalMerchId], references: [id], onDelete: Cascade)
+  performance           ElementPerformance?
+  staffPositions        ElementStaff[]
+  inventoryItems        ElementInventory[]
+  menuAssignments       MenuAssignment[]
   weezeventShopMappings WeezeventLocationShopMapping[]
 
   @@index([floorId])
@@ -1601,7 +1602,7 @@ model MenuItem {
   componentsData         Json? // Pour stocker les components JSON de Figma
   inventoryPackagingType String? // Type de conditionnement inventaire (ex: Box, Bag)
   inventoryNumberOfUnits Float? // Nombre d'unités par conditionnement
-  spaceIds               String[] @default([])
+  spaceIds               String[]      @default([])
   spacePrices            Json?
   tenantId               String
   createdAt              DateTime      @default(now())
@@ -1618,6 +1619,7 @@ model MenuItem {
   packagings        MenuItemPackaging[]
   menuAssignments   MenuAssignment[]
   weezeventMappings WeezeventProductMapping[]
+  priceHistory      MenuItemPriceHistory[]
 
   @@index([tenantId])
   @@index([name])
@@ -1626,6 +1628,29 @@ model MenuItem {
   @@index([brandId])
   @@index([displayNameId])
   @@index([readyForSale])
+}
+
+/// Historique des prix d'un menu item : chaque application du prix Weezevent (ou édition
+/// manuelle traçée) archive le prix appliqué avec sa provenance. `MenuItem.basePrice` reste
+/// le prix COURANT ; cette table garde la courbe d'évolution dans le temps.
+/// `observedAt` = date métier du prix source (ex. transaction Weezevent) ; `createdAt` = pose.
+model MenuItemPriceHistory {
+  id                 String   @id @default(cuid())
+  menuItemId         String
+  tenantId           String
+  basePrice          Decimal  @db.Decimal(10, 2) // TTC appliqué
+  vatRate            Decimal? @db.Decimal(5, 2)
+  currency           String?
+  source             String // 'weezevent_catalog' | 'weezevent_sales' | 'manual'
+  weezeventProductId String? // produit Weezevent d'où vient le prix (provenance)
+  observedAt         DateTime // date du prix source (transaction) ; défaut = pose
+  createdAt          DateTime @default(now())
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@index([menuItemId, createdAt])
+  @@index([tenantId])
 }
 
 model MenuItemComponent {

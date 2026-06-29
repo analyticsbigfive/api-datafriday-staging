@@ -16,6 +16,7 @@ import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { MenuItemsService } from './menu-items.service';
 import { BulkCreateMenuItemsDto, CreateMenuItemDto, ReplaceMenuItemComponentsDto, ReplaceMenuItemIngredientsDto, ReplaceMenuItemPackagingsDto } from './dto/create-menu-item.dto';
 import { RecipeBatchDto } from './dto/recipe-batch.dto';
+import { ApplyWeezeventPriceDto, ApplyWeezeventPricesBulkDto } from './dto/apply-weezevent-price.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 import { CreateProductCategoryDto } from './dto/create-product-category.dto';
 import { CreateProductTypeDto } from './dto/create-product-type.dto';
@@ -184,6 +185,23 @@ export class MenuItemsController {
   }
 
   @RequirePermissions('menu.fb.menuItems')
+  @Post('apply-weezevent-prices')
+  @ApiOperation({
+    summary: 'Appliquer le prix Weezevent à plusieurs menu items (étape 3 Data Integration)',
+    description:
+      "Pour chaque article, applique le prix du produit Weezevent mappé (prix catalogue Weezevent sinon prix modal des ventes) à MenuItem.basePrice et l'archive dans l'historique des prix. Idempotent par article. Renvoie un résumé par article (changed/applied/error).",
+  })
+  @ApiResponse({ status: 200, description: 'Résumé d’application par article' })
+  applyWeezeventPrices(
+    @Body() dto: ApplyWeezeventPricesBulkDto,
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+  ) {
+    this.logger.log(`POST /menu-items/apply-weezevent-prices - User: ${user?.id}, Tenant: ${tenantId}, Items: ${dto.items?.length || 0}`);
+    return this.menuItemsService.applyWeezeventPricesBulk(dto.items || [], tenantId);
+  }
+
+  @RequirePermissions('menu.fb.menuItems')
   @Post('recipes')
   @ApiOperation({
     summary: 'Recettes de plusieurs menu items (réarmement plats composés)',
@@ -208,6 +226,40 @@ export class MenuItemsController {
   getRecipe(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /menu-items/${id}/recipe - User: ${user?.id}, Tenant: ${tenantId}`);
     return this.menuItemsService.getRecipe(id, tenantId);
+  }
+
+  @RequirePermissions('menu.fb.menuItems')
+  @Post(':id/apply-weezevent-price')
+  @ApiOperation({
+    summary: 'Appliquer le prix Weezevent à un menu item',
+    description:
+      "Applique le prix du produit Weezevent mappé (catalogue Weezevent sinon prix modal des ventes) à MenuItem.basePrice et l'archive dans l'historique. Idempotent. Body optionnel { weezeventProductId } si plusieurs produits sont mappés.",
+  })
+  @ApiParam({ name: 'id', description: 'ID du menu item' })
+  @ApiResponse({ status: 200, description: 'Article retarifé + détail de l’application' })
+  @ApiResponse({ status: 400, description: 'Aucun produit/prix Weezevent disponible' })
+  @ApiResponse({ status: 404, description: 'Article non trouvé' })
+  applyWeezeventPrice(
+    @Param('id') id: string,
+    @Body() dto: ApplyWeezeventPriceDto,
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+  ) {
+    this.logger.log(`POST /menu-items/${id}/apply-weezevent-price - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.menuItemsService.applyWeezeventPrice(id, tenantId, dto?.weezeventProductId);
+  }
+
+  @Get(':id/price-history')
+  @ApiOperation({
+    summary: 'Historique des prix d’un menu item',
+    description: "Liste les prix successivement appliqués (du plus récent au plus ancien) avec leur source et provenance Weezevent — courbe d'évolution du prix de l'article.",
+  })
+  @ApiParam({ name: 'id', description: 'ID du menu item' })
+  @ApiResponse({ status: 200, description: 'Historique des prix' })
+  @ApiResponse({ status: 404, description: 'Article non trouvé' })
+  getPriceHistory(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+    this.logger.log(`GET /menu-items/${id}/price-history - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.menuItemsService.getPriceHistory(id, tenantId);
   }
 
   @Get(':id')

@@ -2,7 +2,6 @@ import { Controller, Get, Post, Delete, Body, Query, Param, UseGuards, Logger, B
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { WeezeventSyncService, SyncResult } from './services/weezevent-sync.service';
 import { WeezeventIncrementalSyncService, IncrementalSyncResult } from './services/weezevent-incremental-sync.service';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SyncWeezeventDto } from './dto/sync-weezevent.dto';
 import { StartSyncJobDto } from './dto/start-sync-job.dto';
@@ -664,28 +663,11 @@ export class WeezeventController {
      * Requête unique indexée (WeezeventTransactionItem_productId_idx, ~20ms/100 produits) ;
      * scopée par productId (déjà vérifiés côté tenant par l'appelant, le raw n'est pas CLS).
      */
-    private async deriveSalesPrices(
+    private deriveSalesPrices(
         productIds: string[],
     ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
-        const out = new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>();
-        const ids = [...new Set(productIds.filter(Boolean))];
-        if (ids.length === 0) return out;
-        const rows = await this.prisma.$queryRaw<{ productId: string; unitPrice: any; vat: any; n: number }[]>`
-            SELECT ti."productId", ti."unitPrice", ti."vat", count(*)::int AS n
-            FROM "WeezeventTransactionItem" ti
-            WHERE ti."productId" IN (${Prisma.join(ids)}) AND ti."unitPrice" > 0
-            GROUP BY ti."productId", ti."unitPrice", ti."vat"
-            ORDER BY ti."productId", n DESC
-        `;
-        for (const r of rows) {
-            const ttc = Number(r.unitPrice);
-            const vatRate = r.vat != null ? Number(r.vat) : null;
-            const ht = vatRate != null ? Math.round((ttc / (1 + vatRate / 100)) * 100) / 100 : null;
-            const list = out.get(r.productId) ?? [];
-            list.push({ ttc, ht, vatRate, salesCount: Number(r.n) });
-            out.set(r.productId, list);
-        }
-        return out;
+        // Source unique : prix modal partagé (réutilisé par l'application du prix aux menu items).
+        return this.pricing.getModalSalesPrices(productIds);
     }
 
     @Get('products')

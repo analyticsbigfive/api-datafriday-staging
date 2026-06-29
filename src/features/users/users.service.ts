@@ -213,6 +213,9 @@ export class UsersService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
+          // Rôle RBAC dynamique : exposé en objet `{ id, name, systemKey }` par
+          // sanitizeUser (colonne "Role" de la liste users côté front).
+          roleRef: { select: { id: true, name: true, systemKey: true } },
           _count: {
             select: {
               pinnedSpaces: true,
@@ -246,6 +249,9 @@ export class UsersService {
     const user = await this.prisma.user.findFirst({
       where: { id, tenantId },
       include: {
+        // Rôle RBAC dynamique (cf. findAll) — fiabilise le préremplissage du
+        // drawer d'édition (roleId) et l'affichage du rôle.
+        roleRef: { select: { id: true, name: true, systemKey: true } },
         tenant: {
           select: {
             id: true,
@@ -907,7 +913,20 @@ export class UsersService {
    */
   private sanitizeUser(user: any) {
     // Remove any sensitive fields if present
-    const { ...sanitized } = user;
+    const { roleRef, ...sanitized } = user;
+
+    // Quand la relation `roleRef` a été chargée (findAll/findOne), on expose le
+    // rôle sous la forme attendue par le front : objet `role: { id, name, systemKey }`
+    // + `roleName` (fallback). Sinon (login/create/findByEmail qui n'incluent pas
+    // roleRef), on ne touche à rien — le champ legacy `role` (enum) reste inchangé.
+    if (roleRef) {
+      return {
+        ...sanitized,
+        role: { id: roleRef.id, name: roleRef.name, systemKey: roleRef.systemKey },
+        roleName: roleRef.name ?? null,
+      };
+    }
+
     return sanitized;
   }
 }

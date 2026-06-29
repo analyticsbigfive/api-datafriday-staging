@@ -915,15 +915,21 @@ export class UsersService {
     // Remove any sensitive fields if present
     const { roleRef, ...sanitized } = user;
 
-    // Quand la relation `roleRef` a été chargée (findAll/findOne), on expose le
-    // rôle sous la forme attendue par le front : objet `role: { id, name, systemKey }`
-    // + `roleName` (fallback). Sinon (login/create/findByEmail qui n'incluent pas
-    // roleRef), on ne touche à rien — le champ legacy `role` (enum) reste inchangé.
-    if (roleRef) {
+    // Quand la relation `roleRef` a été DEMANDÉE (findAll/findOne incluent `roleRef`,
+    // même si la valeur est null car `roleId` est null), on expose le rôle sous la
+    // forme attendue par le front : `role: { id, name, systemKey }` + `roleName`.
+    // Fallback sur l'enum legacy `role` quand il n'y a pas de rôle dynamique
+    // (roleId null) — IDENTIQUE à la résolution de /me (jwt-db-lookup.strategy) :
+    // `roleRef?.name ?? user.role`. Évite la colonne "Role" vide (ex. ADMIN owner
+    // ou users invités sans roleId assigné).
+    // Les autres appelants (login/create/findByEmail) n'incluent PAS `roleRef` →
+    // la clé est absente → on ne touche à rien (champ legacy `role` enum inchangé).
+    if ('roleRef' in user) {
+      const name = roleRef?.name ?? sanitized.role ?? null;
       return {
         ...sanitized,
-        role: { id: roleRef.id, name: roleRef.name, systemKey: roleRef.systemKey },
-        roleName: roleRef.name ?? null,
+        role: { id: roleRef?.id ?? null, name, systemKey: roleRef?.systemKey ?? sanitized.role ?? null },
+        roleName: name,
       };
     }
 

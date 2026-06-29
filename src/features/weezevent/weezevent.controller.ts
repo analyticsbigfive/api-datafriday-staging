@@ -2,6 +2,7 @@ import { Controller, Get, Post, Delete, Body, Query, Param, UseGuards, Logger, B
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { WeezeventSyncService, SyncResult } from './services/weezevent-sync.service';
 import { WeezeventIncrementalSyncService, IncrementalSyncResult } from './services/weezevent-incremental-sync.service';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SyncWeezeventDto } from './dto/sync-weezevent.dto';
 import { StartSyncJobDto } from './dto/start-sync-job.dto';
@@ -653,6 +654,40 @@ export class WeezeventController {
     /**
      * Get products
      */
+    /**
+     * Le catalogue F&B Weezevent ne porte pas de prix (price événementiel/variable) → basePrice
+     * reste null. Le prix réel est dans les ventes : on renvoie ici, PAR PRODUIT, TOUS les prix
+     * de vente observés (un par couple unitPrice+vat), chacun avec TTC, HT, taux de TVA et le
+     * nombre de ventes, triés par fréquence décroissante (le premier = prix modal).
+     * Le `unit_price` Weezevent est TTC (vérifié : payments.amount_vat = TTC − TTC/(1+vat)).
+     * → HT = round2(TTC / (1 + vat/100)). Le front décide quoi afficher/utiliser (ex. HT).
+     * Requête unique indexée (WeezeventTransactionItem_productId_idx, ~20ms/100 produits) ;
+     * scopée par productId (déjà vérifiés côté tenant par l'appelant, le raw n'est pas CLS).
+     */
+    private async deriveSalesPrices(
+        productIds: string[],
+    ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
+        const out = new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>();
+        const ids = [...new Set(productIds.filter(Boolean))];
+        if (ids.length === 0) return out;
+        const rows = await this.prisma.$queryRaw<{ productId: string; unitPrice: any; vat: any; n: number }[]>`
+            SELECT ti."productId", ti."unitPrice", ti."vat", count(*)::int AS n
+            FROM "WeezeventTransactionItem" ti
+            WHERE ti."productId" IN (${Prisma.join(ids)}) AND ti."unitPrice" > 0
+            GROUP BY ti."productId", ti."unitPrice", ti."vat"
+            ORDER BY ti."productId", n DESC
+        `;
+        for (const r of rows) {
+            const ttc = Number(r.unitPrice);
+            const vatRate = r.vat != null ? Number(r.vat) : null;
+            const ht = vatRate != null ? Math.round((ttc / (1 + vatRate / 100)) * 100) / 100 : null;
+            const list = out.get(r.productId) ?? [];
+            list.push({ ttc, ht, vatRate, salesCount: Number(r.n) });
+            out.set(r.productId, list);
+        }
+        return out;
+    }
+
     @Get('products')
     @ApiOperation({ summary: 'Lister les produits Weezevent synchronisés' })
     @ApiQuery({ name: 'integrationId', required: false, description: 'ID de l\'intégration Weezevent' })
@@ -684,8 +719,26 @@ export class WeezeventController {
             this.prisma.weezeventProduct.count({ where }),
         ]);
 
+        // Prix manquant au catalogue (F&B) → dérivé des ventes pour l'affichage / comparaison /
+        // pré-remplissage à la création d'un menu item en étape 3. priceSource='sales' = dérivé.
+        const productsNeedingPrice = products.filter((pr: any) => pr.basePrice == null).map((pr: any) => pr.id);
+        const salesByProduct = await this.deriveSalesPrices(productsNeedingPrice);
+        const data = products.map((pr: any) => {
+            if (pr.basePrice != null) return pr;
+            const sales = salesByProduct.get(pr.id);
+            if (!sales || sales.length === 0) return pr;
+            const top = sales[0]; // prix le plus fréquent (modal)
+            return {
+                ...pr,
+                basePrice: top.ttc,                 // TTC modal (rétro-compat du champ existant)
+                vatRate: pr.vatRate ?? top.vatRate,
+                priceSource: 'sales',
+                salesPrices: sales,                 // TOUS les prix { ttc, ht, vatRate, salesCount } — le front décide
+            };
+        });
+
         return {
-            data: products,
+            data,
             meta: {
                 current_page: p,
                 per_page: pp,
@@ -732,6 +785,21 @@ export class WeezeventController {
                         : null,
             rawData,
         };
+
+        // Prix absent du catalogue (F&B) → on le dérive des ventes. On expose TOUS les prix
+        // (salesPrices : ttc/ht/vat/salesCount) pour que le front décide ; basePrice/vatRate
+        // = prix modal (rétro-compat) pour éviter le pré-remplissage à 0 à la création.
+        if (localData.basePrice == null) {
+            const sales = (await this.deriveSalesPrices([product.id])).get(product.id);
+            if (sales && sales.length > 0) {
+                const top = sales[0];
+                localData.basePrice = top.ttc;
+                if (product.vatRate == null && top.vatRate != null) {
+                    (localData as any).vatRate = top.vatRate;
+                }
+                (localData as any).salesPrices = sales;
+            }
+        }
 
         const hasUsefulLocalData =
             localData.basePrice != null &&

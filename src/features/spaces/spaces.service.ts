@@ -793,7 +793,7 @@ export class SpacesService {
       id: true, name: true, type: true, shopTypes: true, attributes: true, image: true, notes: true,
     };
 
-    const [shopsFromFloors, shopsFromForecourt]: [any[], any[]] = await Promise.all([
+    const [shopsFromFloors, shopsFromForecourt, shopsFromExternalMerch]: [any[], any[], any[]] = await Promise.all([
       (this.prisma.spaceElement.findMany as any)({
         where: { floor: { configId: { in: configIds } }, type: { in: shopTypes } },
         select: { ...commonSelect, floor: { select: { id: true, name: true, level: true, config: { select: { id: true, name: true } } } } },
@@ -802,9 +802,13 @@ export class SpacesService {
         where: { forecourt: { configId: { in: configIds } }, type: { in: shopTypes } },
         select: { ...commonSelect, forecourt: { select: { id: true, name: true, config: { select: { id: true, name: true } } } } },
       }),
+      (this.prisma.spaceElement.findMany as any)({
+        where: { externalMerch: { configId: { in: configIds } }, type: { in: shopTypes } },
+        select: { ...commonSelect, externalMerch: { select: { id: true, name: true, config: { select: { id: true, name: true } } } } },
+      }),
     ]);
 
-    const allShops: any[] = [...shopsFromFloors, ...shopsFromForecourt];
+    const allShops: any[] = [...shopsFromFloors, ...shopsFromForecourt, ...shopsFromExternalMerch];
     const shopIds: string[] = allShops.map((s: any) => s.id);
 
     // Fetch merchant mappings and menu assignments in parallel
@@ -827,7 +831,9 @@ export class SpacesService {
 
     const shops = allShops.map(s => {
       const floor = (s as any).floor;
-      const loc = floor ?? (s as any).forecourt;
+      const forecourt = (s as any).forecourt;
+      const externalMerch = (s as any).externalMerch;
+      const loc = floor ?? forecourt ?? externalMerch;
       const menuItemsEnabledCount = menuAssignmentCountByShop[s.id] ?? 0;
       return {
         id: s.id,
@@ -841,7 +847,7 @@ export class SpacesService {
         configName: loc?.config?.name ?? null,
         locationId: loc?.id ?? null,
         locationName: loc?.name ?? null,
-        floorLevel: floor ? floor.level : (s as any).forecourt ? 'forecourt' : null,
+        floorLevel: floor ? floor.level : forecourt ? 'forecourt' : externalMerch ? 'externalmerch' : null,
         weezeventLocationId: mappingByShop.get(s.id) ?? null,
         isMappedToWeezevent: mappingByShop.has(s.id),
         menuItemsCount: menuItemsEnabledCount,

@@ -1638,6 +1638,7 @@ model MenuItemPriceHistory {
   id                 String   @id @default(cuid())
   menuItemId         String
   tenantId           String
+  spaceId            String? // espace où ce prix a été appliqué (null = prix global/legacy)
   basePrice          Decimal  @db.Decimal(10, 2) // TTC appliqué
   vatRate            Decimal? @db.Decimal(5, 2)
   currency           String?
@@ -1650,6 +1651,7 @@ model MenuItemPriceHistory {
   menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
 
   @@index([menuItemId, createdAt])
+  @@index([menuItemId, spaceId, createdAt])
   @@index([tenantId])
 }
 

@@ -14,6 +14,15 @@ export class ApplyWeezeventPriceDto {
   @IsOptional()
   @IsString()
   weezeventProductId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Espace ciblé : le prix est écrit dans `spacePrices[spaceId]` (prix par espace) et résolu sur les ventes de cet espace. Absent → comportement global historique (basePrice).',
+    example: 'space_terrasse',
+  })
+  @IsOptional()
+  @IsString()
+  spaceId?: string;
 }
 
 export class ApplyWeezeventPriceItemDto {
@@ -38,4 +47,13 @@ export class ApplyWeezeventPricesBulkDto {
   @ValidateNested({ each: true })
   @Type(() => ApplyWeezeventPriceItemDto)
   items: ApplyWeezeventPriceItemDto[];
+
+  @ApiPropertyOptional({
+    description:
+      'Espace ciblé pour tout le lot : chaque prix est écrit dans `spacePrices[spaceId]` et résolu sur les ventes de cet espace. Absent → comportement global (basePrice).',
+    example: 'space_terrasse',
+  })
+  @IsOptional()
+  @IsString()
+  spaceId?: string;
 }

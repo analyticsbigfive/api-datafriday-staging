@@ -102,19 +102,92 @@ export class MenuItemPricingService {
   }
 
   /**
-   * Décompose chaque prix par espace (`spacePrices` = override TTC par spaceId) avec
-   * le même vatRate / remise que l'article. Renvoie `{ [spaceId]: pricing }` ou null.
+   * Normalise une entrée `spacePrices`. Deux formes acceptées (rétro-compatibilité) :
+   *  - legacy  : un nombre = TTC seul (TVA héritée de l'article) ;
+   *  - courante: `{ ttc, vatRate }` = TVA propre à l'espace (spec « TVA pratiquée par espace »).
+   * Renvoie `{ ttc, vatRate }` (`vatRate` null si non fournie) ou `null` si TTC invalide.
+   */
+  normalizeSpacePrice(raw: unknown): { ttc: number; vatRate: number | null } | null {
+    if (raw == null) return null;
+    if (typeof raw === 'object' && !Array.isArray(raw)) {
+      const ttc = Number((raw as any).ttc);
+      if (!Number.isFinite(ttc)) return null;
+      const v = (raw as any).vatRate;
+      return { ttc, vatRate: v != null && Number.isFinite(Number(v)) ? Number(v) : null };
+    }
+    const n = Number(raw);
+    return Number.isFinite(n) ? { ttc: n, vatRate: null } : null;
+  }
+
+  /**
+   * Décompose chaque prix par espace (`spacePrices`). Chaque entrée porte son propre TTC et,
+   * si présente, sa propre TVA (sinon repli sur la TVA de l'article puis `vatFallback`).
+   * Renvoie `{ [spaceId]: pricing }` ou null.
    */
   computeSpacePricing(item: any, vatFallback: number | null, currency: string | null = null) {
     const sp = item?.spacePrices;
     if (!sp || typeof sp !== 'object' || Array.isArray(sp)) return null;
     const out: Record<string, ReturnType<MenuItemPricingService['computePricing']>> = {};
     for (const [spaceId, raw] of Object.entries(sp)) {
-      const price = Number(raw);
-      if (!Number.isFinite(price)) continue;
-      out[spaceId] = this.computePricing({ ...item, basePrice: price }, vatFallback, currency);
+      const entry = this.normalizeSpacePrice(raw);
+      if (!entry) continue;
+      const vatRate = entry.vatRate ?? (item?.vatRate != null ? Number(item.vatRate) : null);
+      out[spaceId] = this.computePricing({ ...item, basePrice: entry.ttc, vatRate }, vatFallback, currency);
     }
     return Object.keys(out).length ? out : null;
+  }
+
+  /**
+   * Locations Weezevent rattachées à un espace (`WeezeventLocationSpaceMapping`). Sert à scoper
+   * les ventes d'un produit À UN ESPACE (`WeezeventTransaction.locationId`).
+   * `weezeventLocationId` du mapping = `WeezeventLocation.id` = `WeezeventTransaction.locationId`.
+   */
+  async resolveSpaceLocationIds(tenantId: string, spaceId: string): Promise<string[]> {
+    const rows = await this.prisma.weezeventLocationSpaceMapping.findMany({
+      where: { tenantId, spaceId },
+      select: { weezeventLocationId: true },
+    });
+    return rows.map((r) => r.weezeventLocationId);
+  }
+
+  /**
+   * Dernier prix de vente NON NUL par produit (le plus récent par `transactionDate`). Spec :
+   * « le dernier prix unitaire TTC (le plus récent) ». La condition `unitPrice > 0` + le tri
+   * décroissant réalisent la règle « si le dernier est 0, on remonte jusqu'au vrai prix » : on
+   * saute les ventes à 0 (gratuités / data) et on retient la 1re vente non nulle. Un produit
+   * sans AUCUNE vente non nulle est ABSENT de la Map → l'appelant retombe sur le catalogue (on ne
+   * conclut jamais un 0 arbitraire). `opts.locationIds` scope à un espace (sinon tous espaces).
+   * `unitPrice` Weezevent est TTC → HT dérivé par l'appelant. Requête unique indexée
+   * (`(tenantId, locationId, transactionDate)` + `productId`).
+   */
+  async getLatestSalesPrices(
+    productIds: string[],
+    opts: { locationIds?: string[] } = {},
+  ): Promise<Map<string, { ttc: number; vatRate: number | null }>> {
+    const out = new Map<string, { ttc: number; vatRate: number | null }>();
+    const ids = [...new Set(productIds.filter(Boolean))];
+    if (ids.length === 0) return out;
+    // Espace explicitement sans location mappée → aucune vente attribuable à cet espace.
+    if (opts.locationIds && opts.locationIds.length === 0) return out;
+    const conds: Prisma.Sql[] = [
+      Prisma.sql`ti."productId" IN (${Prisma.join(ids)})`,
+      Prisma.sql`ti."unitPrice" > 0`,
+    ];
+    if (opts.locationIds && opts.locationIds.length > 0) {
+      conds.push(Prisma.sql`t."locationId" IN (${Prisma.join(opts.locationIds)})`);
+    }
+    const rows = await this.prisma.$queryRaw<{ productId: string; unitPrice: any; vat: any }[]>(Prisma.sql`
+      SELECT DISTINCT ON (ti."productId") ti."productId", ti."unitPrice", ti."vat"
+      FROM "WeezeventTransactionItem" ti
+      JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"
+      WHERE ${Prisma.join(conds, ' AND ')}
+      ORDER BY ti."productId", t."transactionDate" DESC
+    `);
+    for (const r of rows) {
+      const ttc = Number(r.unitPrice);
+      out.set(r.productId, { ttc, vatRate: r.vat != null ? Number(r.vat) : null });
+    }
+    return out;
   }
 
   // ── Weezevent / Data Integration ────────────────────────────────────────────
@@ -219,32 +292,32 @@ export class MenuItemPricingService {
   }
 
   /**
-   * Prix « catalogue » à appliquer à un menu item depuis un produit Weezevent : on prend
-   * d'abord le prix catalogue Weezevent s'il existe (`product.basePrice`), sinon le prix
-   * modal dérivé des ventes (cf. `getModalSalesPrices`, identique à l'affichage `getProducts`).
-   * Renvoie `null` si on ne sait rien (pas de catalogue ET aucune vente). `vatRate` suit la
-   * même logique de repli (article → vente → null), `currency` vient des prix configurés.
+   * Prix à appliquer à un menu item depuis un produit Weezevent. Priorité (décision produit) :
+   * le DERNIER prix de vente non nul (le plus récent, déjà scopé à l'espace par l'appelant via
+   * `getLatestSalesPrices`), sinon le prix catalogue Weezevent (`product.basePrice`) en repli.
+   * Renvoie `null` si on ne sait rien (ni vente, ni catalogue) → on n'applique PAS (on ne conclut
+   * jamais un 0 arbitraire). `vatRate` : article Weezevent (`product.vatRate`) sinon TVA de la
+   * vente. `currency` vient des prix configurés.
    */
   resolveWeezeventApplyPrice(
     product: any,
-    modal: Array<{ ttc: number; vatRate: number | null }> | undefined,
+    latest: { ttc: number; vatRate: number | null } | undefined,
   ): { basePrice: number; vatRate: number | null; currency: string | null; source: 'weezevent_catalog' | 'weezevent_sales' } | null {
     const currency = this.resolveProductCurrency(product);
+    if (latest && Number.isFinite(latest.ttc) && latest.ttc > 0) {
+      return {
+        basePrice: this.round2(latest.ttc),
+        vatRate: product?.vatRate != null ? Number(product.vatRate) : latest.vatRate,
+        currency,
+        source: 'weezevent_sales',
+      };
+    }
     if (product?.basePrice != null) {
       return {
         basePrice: this.round2(Number(product.basePrice)),
         vatRate: product.vatRate != null ? Number(product.vatRate) : null,
         currency,
         source: 'weezevent_catalog',
-      };
-    }
-    const top = modal?.[0];
-    if (top && Number.isFinite(top.ttc)) {
-      return {
-        basePrice: this.round2(top.ttc),
-        vatRate: product?.vatRate != null ? Number(product.vatRate) : top.vatRate,
-        currency,
-        source: 'weezevent_sales',
       };
     }
     return null;

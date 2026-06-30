@@ -642,10 +642,22 @@ export class MenuItemsService {
    * `MenuItemPriceHistory`. `MenuItem.basePrice` reste le prix COURANT (visible côté menu-items).
    * Idempotent : si le prix courant est déjà celui résolu, ne réécrit ni n'historise rien.
    */
-  async applyWeezeventPrice(menuItemId: string, tenantId: string, weezeventProductId?: string) {
+  /** Normalise le JSON `spacePrices` stocké en `{ [spaceId]: { ttc, vatRate } }` (migre le legacy `number`). */
+  private normalizeSpacePricesMap(raw: any): Record<string, { ttc: number; vatRate: number | null }> {
+    const out: Record<string, { ttc: number; vatRate: number | null }> = {};
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      for (const [spaceId, v] of Object.entries(raw)) {
+        const n = this.pricing.normalizeSpacePrice(v);
+        if (n) out[spaceId] = n;
+      }
+    }
+    return out;
+  }
+
+  async applyWeezeventPrice(menuItemId: string, tenantId: string, weezeventProductId?: string, spaceId?: string) {
     const item = await this.prisma.menuItem.findFirst({
       where: { id: menuItemId, tenantId, deletedAt: null },
-      select: { id: true, basePrice: true, vatRate: true },
+      select: { id: true, basePrice: true, vatRate: true, spacePrices: true },
     });
     if (!item) throw new NotFoundException(`Menu item ${menuItemId} not found`);
 
@@ -656,12 +668,45 @@ export class MenuItemsService {
     });
     if (!product) throw new BadRequestException(`Produit Weezevent ${productId} introuvable`);
 
-    const modal = await this.pricing.getModalSalesPrices([productId]);
-    const resolved = this.pricing.resolveWeezeventApplyPrice(product, modal.get(productId));
+    // Prix le plus récent NON NUL, scopé à l'espace si fourni (ventes des locations de l'espace).
+    const locationIds = spaceId ? await this.pricing.resolveSpaceLocationIds(tenantId, spaceId) : undefined;
+    const latest = (await this.pricing.getLatestSalesPrices([productId], locationIds ? { locationIds } : {})).get(productId);
+    const resolved = this.pricing.resolveWeezeventApplyPrice(product, latest);
     if (!resolved) {
-      throw new BadRequestException(`Aucun prix Weezevent disponible pour ce produit (ni catalogue, ni ventes)`);
+      throw new BadRequestException(`Aucun prix Weezevent disponible pour ce produit (ni ventes, ni catalogue)`);
     }
 
+    if (spaceId) {
+      // PRIX PAR ESPACE : on écrit dans spacePrices[spaceId] (on ne touche plus basePrice = défaut/fallback).
+      const prices = this.normalizeSpacePricesMap(item.spacePrices);
+      const previous = prices[spaceId] ?? null;
+      const next = { ttc: resolved.basePrice, vatRate: resolved.vatRate ?? null };
+      const unchanged = previous != null && previous.ttc === next.ttc && (previous.vatRate ?? null) === next.vatRate;
+      if (!unchanged) {
+        prices[spaceId] = next;
+        await this.prisma.$transaction([
+          this.prisma.menuItemPriceHistory.create({
+            data: {
+              menuItemId,
+              tenantId,
+              spaceId,
+              basePrice: resolved.basePrice,
+              vatRate: resolved.vatRate,
+              currency: resolved.currency,
+              source: resolved.source,
+              weezeventProductId: productId,
+              observedAt: new Date(),
+            },
+          }),
+          this.prisma.menuItem.update({ where: { id: menuItemId }, data: { spacePrices: prices as any } }),
+        ]);
+        await this.invalidateCache(tenantId);
+        this.logger.log(`Applied Weezevent price ${resolved.basePrice} (${resolved.source}) to menu item ${menuItemId} for space ${spaceId}`);
+      }
+      return { changed: !unchanged, previous, applied: resolved, item: await this.findOne(menuItemId, tenantId) };
+    }
+
+    // Sans espace → comportement global historique (prix courant = basePrice).
     const previous = {
       basePrice: this.toNumber(item.basePrice),
       vatRate: item.vatRate != null ? this.toNumber(item.vatRate) : null,
@@ -674,6 +719,7 @@ export class MenuItemsService {
           data: {
             menuItemId,
             tenantId,
+            spaceId: null,
             basePrice: resolved.basePrice,
             vatRate: resolved.vatRate,
             currency: resolved.currency,
@@ -707,6 +753,7 @@ export class MenuItemsService {
   async applyWeezeventPricesBulk(
     items: Array<{ menuItemId: string; weezeventProductId?: string }>,
     tenantId: string,
+    spaceId?: string,
   ) {
     const results: Array<{ menuItemId: string; changed: boolean; applied?: any; previous?: any; error?: string }> = [];
     const pairs: Array<{ menuItemId: string; productId: string }> = [];
@@ -724,16 +771,20 @@ export class MenuItemsService {
 
     const productIds = [...new Set(pairs.map((p) => p.productId))];
     const menuItemIds = [...new Set(pairs.map((p) => p.menuItemId))];
-    const [products, modal, menuItems] = await Promise.all([
+    // Prix le plus récent NON NUL, scopé à l'espace si fourni (locations de l'espace, résolues 1×).
+    const locationIds = spaceId ? await this.pricing.resolveSpaceLocationIds(tenantId, spaceId) : undefined;
+    const [products, latest, menuItems] = await Promise.all([
       this.prisma.weezeventProduct.findMany({ where: { id: { in: productIds }, tenantId }, include: { prices: true } }),
-      this.pricing.getModalSalesPrices(productIds),
+      this.pricing.getLatestSalesPrices(productIds, locationIds ? { locationIds } : {}),
       this.prisma.menuItem.findMany({
         where: { tenantId, deletedAt: null, id: { in: menuItemIds } },
-        select: { id: true, basePrice: true, vatRate: true },
+        select: { id: true, basePrice: true, vatRate: true, spacePrices: true },
       }),
     ]);
     const productById = new Map(products.map((p) => [p.id, p]));
     const itemById = new Map(menuItems.map((m) => [m.id, m]));
+    // Accumulateur de spacePrices par article (gère plusieurs pairs sur le même item).
+    const workingSpacePrices = new Map<string, Record<string, { ttc: number; vatRate: number | null }>>();
 
     const writes: any[] = [];
     let changed = 0;
@@ -744,11 +795,48 @@ export class MenuItemsService {
         results.push({ menuItemId, changed: false, error: 'Article ou produit introuvable' });
         continue;
       }
-      const resolved = this.pricing.resolveWeezeventApplyPrice(product, modal.get(productId));
+      const resolved = this.pricing.resolveWeezeventApplyPrice(product, latest.get(productId));
       if (!resolved) {
-        results.push({ menuItemId, changed: false, error: 'Aucun prix Weezevent disponible (ni catalogue, ni ventes)' });
+        results.push({ menuItemId, changed: false, error: 'Aucun prix Weezevent disponible (ni ventes, ni catalogue)' });
         continue;
       }
+
+      if (spaceId) {
+        // PRIX PAR ESPACE : merge dans spacePrices[spaceId] (basePrice intouché = défaut/fallback).
+        let prices = workingSpacePrices.get(menuItemId);
+        if (!prices) {
+          prices = this.normalizeSpacePricesMap(current.spacePrices);
+          workingSpacePrices.set(menuItemId, prices);
+        }
+        const previous = prices[spaceId] ?? null;
+        const next = { ttc: resolved.basePrice, vatRate: resolved.vatRate ?? null };
+        if (previous != null && previous.ttc === next.ttc && (previous.vatRate ?? null) === next.vatRate) {
+          results.push({ menuItemId, changed: false, applied: resolved });
+          continue;
+        }
+        prices[spaceId] = next;
+        writes.push(
+          this.prisma.menuItemPriceHistory.create({
+            data: {
+              menuItemId,
+              tenantId,
+              spaceId,
+              basePrice: resolved.basePrice,
+              vatRate: resolved.vatRate,
+              currency: resolved.currency,
+              source: resolved.source,
+              weezeventProductId: productId,
+              observedAt: new Date(),
+            },
+          }),
+          this.prisma.menuItem.update({ where: { id: menuItemId }, data: { spacePrices: { ...prices } as any } }),
+        );
+        changed++;
+        results.push({ menuItemId, changed: true, applied: resolved, previous });
+        continue;
+      }
+
+      // Sans espace → comportement global (basePrice courant).
       const previous = {
         basePrice: this.toNumber(current.basePrice),
         vatRate: current.vatRate != null ? this.toNumber(current.vatRate) : null,
@@ -762,6 +850,7 @@ export class MenuItemsService {
           data: {
             menuItemId,
             tenantId,
+            spaceId: null,
             basePrice: resolved.basePrice,
             vatRate: resolved.vatRate,
             currency: resolved.currency,
@@ -782,7 +871,7 @@ export class MenuItemsService {
     if (writes.length) {
       await this.prisma.$transaction(writes);
       await this.invalidateCache(tenantId);
-      this.logger.log(`Bulk-applied Weezevent price to ${changed} menu item(s) for tenant ${tenantId}`);
+      this.logger.log(`Bulk-applied Weezevent price to ${changed} menu item(s) for tenant ${tenantId}${spaceId ? ` (space ${spaceId})` : ''}`);
     }
     return { total: items.length, changed, results };
   }

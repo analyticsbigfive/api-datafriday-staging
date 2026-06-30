@@ -196,9 +196,12 @@ export class CreateMenuItemDto {
   @IsString({ each: true })
   spaceIds?: string[];
 
-  @ApiPropertyOptional({ description: 'Prix par espace { [spaceId]: price }' })
+  @ApiPropertyOptional({
+    description:
+      'Prix de vente par espace. Forme courante : { [spaceId]: { ttc, vatRate } } (TVA propre à l’espace). Forme legacy tolérée : { [spaceId]: number } (TTC seul).',
+  })
   @IsOptional()
-  spacePrices?: Record<string, number>;
+  spacePrices?: Record<string, { ttc: number; vatRate?: number | null } | number>;
 
   @ApiPropertyOptional({ description: 'Composants (source de vérité)', type: [MenuItemComponentLineDto] })
   @IsOptional()

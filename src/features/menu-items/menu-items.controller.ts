@@ -197,8 +197,8 @@ export class MenuItemsController {
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
   ) {
-    this.logger.log(`POST /menu-items/apply-weezevent-prices - User: ${user?.id}, Tenant: ${tenantId}, Items: ${dto.items?.length || 0}`);
-    return this.menuItemsService.applyWeezeventPricesBulk(dto.items || [], tenantId);
+    this.logger.log(`POST /menu-items/apply-weezevent-prices - User: ${user?.id}, Tenant: ${tenantId}, Items: ${dto.items?.length || 0}, Space: ${dto.spaceId ?? 'global'}`);
+    return this.menuItemsService.applyWeezeventPricesBulk(dto.items || [], tenantId, dto.spaceId);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -245,8 +245,8 @@ export class MenuItemsController {
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
   ) {
-    this.logger.log(`POST /menu-items/${id}/apply-weezevent-price - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.applyWeezeventPrice(id, tenantId, dto?.weezeventProductId);
+    this.logger.log(`POST /menu-items/${id}/apply-weezevent-price - User: ${user?.id}, Tenant: ${tenantId}, Space: ${dto?.spaceId ?? 'global'}`);
+    return this.menuItemsService.applyWeezeventPrice(id, tenantId, dto?.weezeventProductId, dto?.spaceId);
   }
 
   @Get(':id/price-history')

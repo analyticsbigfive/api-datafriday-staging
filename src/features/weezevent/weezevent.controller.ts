@@ -676,6 +676,7 @@ export class WeezeventController {
     @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
     @ApiQuery({ name: 'perPage', required: false, type: Number, example: 50 })
     @ApiQuery({ name: 'category', required: false, description: 'Filtrer par catégorie de produit' })
+    @ApiQuery({ name: 'spaceId', required: false, description: 'Scoper le prix de vente affiché à un espace (dernier prix non nul des ventes de cet espace)' })
     @ApiResponse({ status: 200, description: 'Liste paginée des produits Weezevent' })
     async getProducts(
         @CurrentUser() user: any,
@@ -683,6 +684,7 @@ export class WeezeventController {
         @Query('perPage') perPage: number = 50,
         @Query('integrationId') integrationId?: string,
         @Query('category') category?: string,
+        @Query('spaceId') spaceId?: string,
     ) {
         const tenantId = user.tenantId;
         const p = Math.max(1, parseInt(String(page), 10) || 1);
@@ -701,23 +703,42 @@ export class WeezeventController {
             this.prisma.weezeventProduct.count({ where }),
         ]);
 
-        // Prix manquant au catalogue (F&B) → dérivé des ventes pour l'affichage / comparaison /
-        // pré-remplissage à la création d'un menu item en étape 3. priceSource='sales' = dérivé.
-        const productsNeedingPrice = products.filter((pr: any) => pr.basePrice == null).map((pr: any) => pr.id);
-        const salesByProduct = await this.deriveSalesPrices(productsNeedingPrice);
-        const data = products.map((pr: any) => {
-            if (pr.basePrice != null) return pr;
-            const sales = salesByProduct.get(pr.id);
-            if (!sales || sales.length === 0) return pr;
-            const top = sales[0]; // prix le plus fréquent (modal)
-            return {
-                ...pr,
-                basePrice: top.ttc,                 // TTC modal (rétro-compat du champ existant)
-                vatRate: pr.vatRate ?? top.vatRate,
-                priceSource: 'sales',
-                salesPrices: sales,                 // TOUS les prix { ttc, ht, vatRate, salesCount } — le front décide
-            };
-        });
+        let data: any[];
+        if (spaceId) {
+            // PRIX PAR ESPACE : on affiche le DERNIER prix de vente non nul de l'espace courant
+            // (cohérent avec l'application du prix à l'étape 3). Pas de vente dans l'espace →
+            // on garde le prix catalogue (souvent null pour le F&B).
+            const locationIds = await this.pricing.resolveSpaceLocationIds(tenantId, spaceId);
+            const latestByProduct = await this.pricing.getLatestSalesPrices(
+                products.map((pr: any) => pr.id),
+                { locationIds },
+            );
+            data = products.map((pr: any) => {
+                const latest = latestByProduct.get(pr.id);
+                if (latest && latest.ttc > 0) {
+                    return { ...pr, basePrice: latest.ttc, vatRate: pr.vatRate ?? latest.vatRate, priceSource: 'sales_space' };
+                }
+                return pr;
+            });
+        } else {
+            // Prix manquant au catalogue (F&B) → dérivé des ventes pour l'affichage / comparaison /
+            // pré-remplissage à la création d'un menu item en étape 3. priceSource='sales' = dérivé.
+            const productsNeedingPrice = products.filter((pr: any) => pr.basePrice == null).map((pr: any) => pr.id);
+            const salesByProduct = await this.deriveSalesPrices(productsNeedingPrice);
+            data = products.map((pr: any) => {
+                if (pr.basePrice != null) return pr;
+                const sales = salesByProduct.get(pr.id);
+                if (!sales || sales.length === 0) return pr;
+                const top = sales[0]; // prix le plus fréquent (modal)
+                return {
+                    ...pr,
+                    basePrice: top.ttc,                 // TTC modal (rétro-compat du champ existant)
+                    vatRate: pr.vatRate ?? top.vatRate,
+                    priceSource: 'sales',
+                    salesPrices: sales,                 // TOUS les prix { ttc, ht, vatRate, salesCount } — le front décide
+                };
+            });
+        }
 
         return {
             data,

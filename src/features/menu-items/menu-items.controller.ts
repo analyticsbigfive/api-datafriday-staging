@@ -246,7 +246,10 @@ export class MenuItemsController {
     @CurrentTenant() tenantId: string,
   ) {
     this.logger.log(`POST /menu-items/${id}/apply-weezevent-price - User: ${user?.id}, Tenant: ${tenantId}, Space: ${dto?.spaceId ?? 'global'}`);
-    return this.menuItemsService.applyWeezeventPrice(id, tenantId, dto?.weezeventProductId, dto?.spaceId);
+    return this.menuItemsService.applyWeezeventPrice(id, tenantId, dto?.weezeventProductId, dto?.spaceId, {
+      basePrice: dto?.basePrice,
+      vatRate: dto?.vatRate,
+    });
   }
 
   @Get(':id/price-history')

@@ -654,7 +654,37 @@ export class MenuItemsService {
     return out;
   }
 
-  async applyWeezeventPrice(menuItemId: string, tenantId: string, weezeventProductId?: string, spaceId?: string) {
+  /**
+   * Résout le prix à hériter depuis un produit Weezevent. `override` = le prix DU PRODUIT TEL
+   * QU'AFFICHÉ côté front : s'il est fourni, le menu item en hérite EXACTEMENT (pas de re-calcul
+   * serveur qui divergerait de l'affichage). Sinon, repli : prix dérivé GLOBALEMENT (dernier prix
+   * non nul des ventes, sinon catalogue) — JAMAIS scopé à l'espace (l'espace = destination, pas
+   * filtre sur la source).
+   */
+  private async resolveInheritedPrice(
+    product: any,
+    productId: string,
+    override?: { basePrice?: number | null; vatRate?: number | null },
+  ) {
+    if (override?.basePrice != null && Number.isFinite(Number(override.basePrice))) {
+      return {
+        basePrice: this.toNumber(override.basePrice),
+        vatRate: override.vatRate != null ? this.toNumber(override.vatRate) : null,
+        currency: null as string | null,
+        source: 'weezevent_catalog' as 'weezevent_catalog' | 'weezevent_sales',
+      };
+    }
+    const latest = (await this.pricing.getLatestSalesPrices([productId], {})).get(productId);
+    return this.pricing.resolveWeezeventApplyPrice(product, latest);
+  }
+
+  async applyWeezeventPrice(
+    menuItemId: string,
+    tenantId: string,
+    weezeventProductId?: string,
+    spaceId?: string,
+    override?: { basePrice?: number | null; vatRate?: number | null },
+  ) {
     const item = await this.prisma.menuItem.findFirst({
       where: { id: menuItemId, tenantId, deletedAt: null },
       select: { id: true, basePrice: true, vatRate: true, spacePrices: true },
@@ -668,10 +698,7 @@ export class MenuItemsService {
     });
     if (!product) throw new BadRequestException(`Produit Weezevent ${productId} introuvable`);
 
-    // Prix le plus récent NON NUL, scopé à l'espace si fourni (ventes des locations de l'espace).
-    const locationIds = spaceId ? await this.pricing.resolveSpaceLocationIds(tenantId, spaceId) : undefined;
-    const latest = (await this.pricing.getLatestSalesPrices([productId], locationIds ? { locationIds } : {})).get(productId);
-    const resolved = this.pricing.resolveWeezeventApplyPrice(product, latest);
+    const resolved = await this.resolveInheritedPrice(product, productId, override);
     if (!resolved) {
       throw new BadRequestException(`Aucun prix Weezevent disponible pour ce produit (ni ventes, ni catalogue)`);
     }
@@ -751,17 +778,17 @@ export class MenuItemsService {
    * (changed / applied / error) ; un article en erreur n'interrompt pas les autres.
    */
   async applyWeezeventPricesBulk(
-    items: Array<{ menuItemId: string; weezeventProductId?: string }>,
+    items: Array<{ menuItemId: string; weezeventProductId?: string; basePrice?: number | null; vatRate?: number | null }>,
     tenantId: string,
     spaceId?: string,
   ) {
     const results: Array<{ menuItemId: string; changed: boolean; applied?: any; previous?: any; error?: string }> = [];
-    const pairs: Array<{ menuItemId: string; productId: string }> = [];
+    const pairs: Array<{ menuItemId: string; productId: string; override?: { basePrice?: number | null; vatRate?: number | null } }> = [];
 
     for (const it of items) {
       try {
         const productId = await this.resolveMappedProductId(tenantId, it.menuItemId, it.weezeventProductId);
-        pairs.push({ menuItemId: it.menuItemId, productId });
+        pairs.push({ menuItemId: it.menuItemId, productId, override: { basePrice: it.basePrice, vatRate: it.vatRate } });
       } catch (e) {
         results.push({ menuItemId: it.menuItemId, changed: false, error: e instanceof Error ? e.message : String(e) });
       }
@@ -771,11 +798,10 @@ export class MenuItemsService {
 
     const productIds = [...new Set(pairs.map((p) => p.productId))];
     const menuItemIds = [...new Set(pairs.map((p) => p.menuItemId))];
-    // Prix le plus récent NON NUL, scopé à l'espace si fourni (locations de l'espace, résolues 1×).
-    const locationIds = spaceId ? await this.pricing.resolveSpaceLocationIds(tenantId, spaceId) : undefined;
+    // Repli (si le front n'envoie pas le prix affiché) : dernier prix non nul GLOBAL par produit.
     const [products, latest, menuItems] = await Promise.all([
       this.prisma.weezeventProduct.findMany({ where: { id: { in: productIds }, tenantId }, include: { prices: true } }),
-      this.pricing.getLatestSalesPrices(productIds, locationIds ? { locationIds } : {}),
+      this.pricing.getLatestSalesPrices(productIds, {}),
       this.prisma.menuItem.findMany({
         where: { tenantId, deletedAt: null, id: { in: menuItemIds } },
         select: { id: true, basePrice: true, vatRate: true, spacePrices: true },
@@ -788,14 +814,22 @@ export class MenuItemsService {
 
     const writes: any[] = [];
     let changed = 0;
-    for (const { menuItemId, productId } of pairs) {
+    for (const { menuItemId, productId, override } of pairs) {
       const product = productById.get(productId);
       const current = itemById.get(menuItemId);
       if (!product || !current) {
         results.push({ menuItemId, changed: false, error: 'Article ou produit introuvable' });
         continue;
       }
-      const resolved = this.pricing.resolveWeezeventApplyPrice(product, latest.get(productId));
+      // Prix hérité = prix affiché envoyé par le front (override) sinon repli global.
+      const resolved = override?.basePrice != null && Number.isFinite(Number(override.basePrice))
+        ? {
+            basePrice: this.toNumber(override.basePrice),
+            vatRate: override.vatRate != null ? this.toNumber(override.vatRate) : null,
+            currency: null as string | null,
+            source: 'weezevent_catalog' as 'weezevent_catalog' | 'weezevent_sales',
+          }
+        : this.pricing.resolveWeezeventApplyPrice(product, latest.get(productId));
       if (!resolved) {
         results.push({ menuItemId, changed: false, error: 'Aucun prix Weezevent disponible (ni ventes, ni catalogue)' });
         continue;

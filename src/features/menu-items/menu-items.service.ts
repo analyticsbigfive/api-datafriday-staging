@@ -677,15 +677,14 @@ export class MenuItemsService {
         source: 'weezevent_catalog' as 'weezevent_catalog' | 'weezevent_sales',
       };
     }
-    // Sans override : dernier prix non nul, SCOPÉ à l'espace du menu item (jamais un prix d'un
-    // autre espace) — event en priorité si fourni (repli sur l'espace, tous events). Sans espace
-    // → dernier prix non nul global (repli historique).
+    // Sans override : dernier prix non nul SCOPÉ à l'espace (priorité aux ventes de l'espace, sinon
+    // ventes non attribuées à un autre espace — jamais un prix d'un autre espace). Sans espace →
+    // dernier prix non nul global (repli historique).
     let latest: { ttc: number; vatRate: number | null } | undefined;
     if (spaceId) {
-      const locationIds = await this.pricing.resolveSpaceLocationIds(tenantId, spaceId);
-      latest = (await this.pricing.getLatestSalesPrices([productId], { locationIds, eventIds })).get(productId);
+      latest = (await this.pricing.getSpaceScopedLatestPrices(tenantId, spaceId, [productId], { eventIds })).get(productId);
       if (!latest && eventIds && eventIds.length > 0) {
-        latest = (await this.pricing.getLatestSalesPrices([productId], { locationIds })).get(productId);
+        latest = (await this.pricing.getSpaceScopedLatestPrices(tenantId, spaceId, [productId])).get(productId);
       }
     } else {
       latest = (await this.pricing.getLatestSalesPrices([productId], {})).get(productId);
@@ -814,11 +813,13 @@ export class MenuItemsService {
     const productIds = [...new Set(pairs.map((p) => p.productId))];
     const menuItemIds = [...new Set(pairs.map((p) => p.menuItemId))];
     // Repli (si le front n'envoie pas le prix affiché) : dernier prix non nul par produit, SCOPÉ à
-    // l'espace ciblé quand il y en a un (jamais un prix d'un autre espace), sinon global.
-    const bulkLocationIds = spaceId ? await this.pricing.resolveSpaceLocationIds(tenantId, spaceId) : undefined;
+    // l'espace ciblé quand il y en a un (priorité espace, sinon ventes non attribuées à un autre
+    // espace — jamais un prix d'un autre espace), sinon global.
     const [products, latest, menuItems] = await Promise.all([
       this.prisma.weezeventProduct.findMany({ where: { id: { in: productIds }, tenantId }, include: { prices: true } }),
-      this.pricing.getLatestSalesPrices(productIds, bulkLocationIds ? { locationIds: bulkLocationIds } : {}),
+      spaceId
+        ? this.pricing.getSpaceScopedLatestPrices(tenantId, spaceId, productIds)
+        : this.pricing.getLatestSalesPrices(productIds, {}),
       this.prisma.menuItem.findMany({
         where: { tenantId, deletedAt: null, id: { in: menuItemIds } },
         select: { id: true, basePrice: true, vatRate: true, spacePrices: true },
@@ -1004,14 +1005,13 @@ export class MenuItemsService {
     const touched = new Set<string>();
     for (const [sid, pairs] of workBySpace) {
       const productIds = [...new Set(pairs.map((p) => p.productId))];
-      const locationIds = await this.pricing.resolveSpaceLocationIds(tenantId, sid);
-      // Espace sans location mappée → getLatestSalesPrices renvoie vide → tout est skippedNoSales.
-      const latest = await this.pricing.getLatestSalesPrices(productIds, { locationIds, eventIds });
+      // Prix de l'espace (priorité) + repli ventes non attribuées à un autre espace (jamais cross-espace).
+      const latest = await this.pricing.getSpaceScopedLatestPrices(tenantId, sid, productIds, { eventIds });
       if (eventIds) {
-        // Event prioritaire : repli sur l'espace (tous events) pour les produits sans vente sur l'event.
+        // Event prioritaire : repli sans contrainte d'event pour les produits sans vente sur l'event.
         const missing = productIds.filter((pid) => !latest.has(pid));
         if (missing.length) {
-          const fb = await this.pricing.getLatestSalesPrices(missing, { locationIds });
+          const fb = await this.pricing.getSpaceScopedLatestPrices(tenantId, sid, missing);
           for (const [k, v] of fb) latest.set(k, v);
         }
       }

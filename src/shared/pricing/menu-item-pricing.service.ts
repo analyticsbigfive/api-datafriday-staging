@@ -151,6 +151,68 @@ export class MenuItemPricingService {
   }
 
   /**
+   * Découpe les locations mappées : celles de CET espace vs celles d'AUTRES espaces. Sert au repli
+   * « jamais un prix d'un autre espace » : on privilégie les ventes de l'espace, sinon on autorise
+   * les ventes NON attribuées à un autre espace (locations non mappées / nulles), mais jamais celles
+   * d'un autre espace. Si aucune location n'est mappée nulle part → aucun cloisonnement (tout permis).
+   */
+  async resolveSpaceLocationScope(
+    tenantId: string,
+    spaceId: string,
+  ): Promise<{ spaceLocationIds: string[]; otherSpaceLocationIds: string[] }> {
+    const rows = await this.prisma.weezeventLocationSpaceMapping.findMany({
+      where: { tenantId },
+      select: { weezeventLocationId: true, spaceId: true },
+    });
+    const spaceLocationIds: string[] = [];
+    const otherSpaceLocationIds: string[] = [];
+    for (const r of rows) {
+      if (r.spaceId === spaceId) spaceLocationIds.push(r.weezeventLocationId);
+      else otherSpaceLocationIds.push(r.weezeventLocationId);
+    }
+    return { spaceLocationIds, otherSpaceLocationIds };
+  }
+
+  /**
+   * Prix « de l'espace » avec repli correct (deux niveaux) :
+   *  1. dernier prix non nul des ventes DE CET ESPACE (locations mappées) — priorité ;
+   *  2. pour les produits sans vente dans l'espace : dernier prix non nul des ventes NON attribuées
+   *     à un AUTRE espace (locations non mappées / nulles) — jamais un prix d'un autre espace.
+   * Aucune location mappée nulle part → tout est « non attribué » → équivaut au prix global.
+   */
+  async getSpaceScopedLatestPrices(
+    tenantId: string,
+    spaceId: string,
+    productIds: string[],
+    opts: { eventIds?: string[] } = {},
+  ): Promise<Map<string, { ttc: number; vatRate: number | null }>> {
+    const out = new Map<string, { ttc: number; vatRate: number | null }>();
+    const ids = [...new Set(productIds.filter(Boolean))];
+    if (!ids.length) return out;
+    const { spaceLocationIds, otherSpaceLocationIds } = await this.resolveSpaceLocationScope(tenantId, spaceId);
+    if (spaceLocationIds.length) {
+      const t1 = await this.getLatestSalesPrices(ids, { locationIds: spaceLocationIds, eventIds: opts.eventIds });
+      for (const [k, v] of t1) out.set(k, v);
+    }
+    const missing = ids.filter((id) => !out.has(id));
+    if (missing.length) {
+      const t2 = await this.getLatestSalesPrices(missing, { excludeLocationIds: otherSpaceLocationIds, eventIds: opts.eventIds });
+      for (const [k, v] of t2) out.set(k, v);
+    }
+    return out;
+  }
+
+  /** Distribution des prix « de l'espace » (pour affichage) : exclut les ventes d'autres espaces. */
+  async getSpaceScopedModalPrices(
+    tenantId: string,
+    spaceId: string,
+    productIds: string[],
+  ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
+    const { otherSpaceLocationIds } = await this.resolveSpaceLocationScope(tenantId, spaceId);
+    return this.getModalSalesPrices(productIds, { excludeLocationIds: otherSpaceLocationIds });
+  }
+
+  /**
    * Dernier prix de vente NON NUL par produit (le plus récent par `transactionDate`). Spec :
    * « le dernier prix unitaire TTC (le plus récent) ». La condition `unitPrice > 0` + le tri
    * décroissant réalisent la règle « si le dernier est 0, on remonte jusqu'au vrai prix » : on
@@ -163,7 +225,7 @@ export class MenuItemPricingService {
    */
   async getLatestSalesPrices(
     productIds: string[],
-    opts: { locationIds?: string[]; eventIds?: string[] } = {},
+    opts: { locationIds?: string[]; excludeLocationIds?: string[]; eventIds?: string[] } = {},
   ): Promise<Map<string, { ttc: number; vatRate: number | null }>> {
     const out = new Map<string, { ttc: number; vatRate: number | null }>();
     const ids = [...new Set(productIds.filter(Boolean))];
@@ -176,6 +238,11 @@ export class MenuItemPricingService {
     ];
     if (opts.locationIds && opts.locationIds.length > 0) {
       conds.push(Prisma.sql`t."locationId" IN (${Prisma.join(opts.locationIds)})`);
+    }
+    // Exclusion (repli « pas un autre espace ») : ventes NON attribuées aux locations d'autres
+    // espaces — inclut les ventes sans location (null) ou sur des locations non mappées.
+    if (opts.excludeLocationIds && opts.excludeLocationIds.length > 0) {
+      conds.push(Prisma.sql`(t."locationId" IS NULL OR t."locationId" NOT IN (${Prisma.join(opts.excludeLocationIds)}))`);
     }
     // Filtre event optionnel (priorité event) : ne s'applique que si des ids sont fournis, sinon
     // « tous events » (le tri transactionDate DESC prend alors naturellement l'event le plus récent).
@@ -277,23 +344,26 @@ export class MenuItemPricingService {
    */
   async getModalSalesPrices(
     productIds: string[],
-    opts: { locationIds?: string[] } = {},
+    opts: { locationIds?: string[]; excludeLocationIds?: string[] } = {},
   ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
     const out = new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>();
     const ids = [...new Set(productIds.filter(Boolean))];
     if (ids.length === 0) return out;
     // Espace explicitement sans location mappée → aucune vente attribuable à cet espace.
     if (opts.locationIds && opts.locationIds.length === 0) return out;
-    const scoped = !!(opts.locationIds && opts.locationIds.length > 0);
+    const hasLoc = !!(opts.locationIds && opts.locationIds.length > 0);
+    const hasExcl = !!(opts.excludeLocationIds && opts.excludeLocationIds.length > 0);
+    const needsJoin = hasLoc || hasExcl;
     const conds: Prisma.Sql[] = [
       Prisma.sql`ti."productId" IN (${Prisma.join(ids)})`,
       Prisma.sql`ti."unitPrice" > 0`,
     ];
-    if (scoped) conds.push(Prisma.sql`t."locationId" IN (${Prisma.join(opts.locationIds!)})`);
+    if (hasLoc) conds.push(Prisma.sql`t."locationId" IN (${Prisma.join(opts.locationIds!)})`);
+    if (hasExcl) conds.push(Prisma.sql`(t."locationId" IS NULL OR t."locationId" NOT IN (${Prisma.join(opts.excludeLocationIds!)}))`);
     const rows = await this.prisma.$queryRaw<{ productId: string; unitPrice: any; vat: any; n: number }[]>(Prisma.sql`
       SELECT ti."productId", ti."unitPrice", ti."vat", count(*)::int AS n
       FROM "WeezeventTransactionItem" ti
-      ${scoped ? Prisma.sql`JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"` : Prisma.empty}
+      ${needsJoin ? Prisma.sql`JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"` : Prisma.empty}
       WHERE ${Prisma.join(conds, ' AND ')}
       GROUP BY ti."productId", ti."unitPrice", ti."vat"
       ORDER BY ti."productId", n DESC

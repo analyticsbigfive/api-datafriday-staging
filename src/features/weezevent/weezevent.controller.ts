@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Delete, Body, Query, Param, UseGuards, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Prisma } from '@prisma/client';
 import { WeezeventSyncService, SyncResult } from './services/weezevent-sync.service';
 import { WeezeventIncrementalSyncService, IncrementalSyncResult } from './services/weezevent-incremental-sync.service';
 import { PrismaService } from '../../core/database/prisma.service';
@@ -710,11 +711,10 @@ export class WeezeventController {
             // est déduite de la nature Weezevent. basePrice = dernier prix non nul de l'espace (même
             // règle que l'apply) ; salesPrices = distribution des prix de l'espace. Aucune vente dans
             // l'espace → on ne prend JAMAIS un prix d'un autre espace (repli sur le catalogue propre).
-            const locationIds = await this.pricing.resolveSpaceLocationIds(tenantId, spaceId);
             const allIds = products.map((pr: any) => pr.id);
             const [latest, dist] = await Promise.all([
-                this.pricing.getLatestSalesPrices(allIds, { locationIds }),
-                this.pricing.getModalSalesPrices(allIds, { locationIds }),
+                this.pricing.getSpaceScopedLatestPrices(tenantId, spaceId, allIds),
+                this.pricing.getSpaceScopedModalPrices(tenantId, spaceId, allIds),
             ]);
             data = products.map((pr: any) => {
                 const px = latest.get(pr.id);
@@ -727,7 +727,7 @@ export class WeezeventController {
                         salesPrices: dist.get(pr.id) ?? [],
                     };
                 }
-                // Pas de vente dans cet espace : on garde le prix propre du produit (jamais cross-espace).
+                // Aucune vente attribuable (ni espace, ni non-attribuée) : on garde le prix propre.
                 return { ...pr, priceSource: 'catalog' };
             });
         } else {
@@ -771,10 +771,12 @@ export class WeezeventController {
     @Get('products/:productId/refresh')
     @ApiOperation({ summary: 'Rafraîchir les détails d’un produit Weezevent local-first' })
     @ApiParam({ name: 'productId', description: 'ID interne du produit Weezevent' })
+    @ApiQuery({ name: 'spaceId', required: false, description: 'Espace : le prix dérivé est celui pratiqué DANS cet espace (jamais un autre espace)' })
     @ApiResponse({ status: 200, description: 'Produit enrichi depuis la DB locale ou Weezevent' })
     async refreshProduct(
         @CurrentUser() user: any,
         @Param('productId') productId: string,
+        @Query('spaceId') spaceId?: string,
     ) {
         const tenantId = user.tenantId;
         const product = await this.prisma.weezeventProduct.findFirst({
@@ -806,14 +808,26 @@ export class WeezeventController {
         // les prix (salesPrices : ttc/ht/vat/salesCount) pour que le front décide ; basePrice/vatRate
         // = prix modal (rétro-compat) pour éviter le pré-remplissage à 0 à la création.
         if (localData.basePrice == null || Number(localData.basePrice) === 0) {
-            const sales = (await this.deriveSalesPrices([product.id])).get(product.id);
-            if (sales && sales.length > 0) {
-                const top = sales[0];
-                localData.basePrice = top.ttc;
-                if ((product.vatRate == null || Number(product.vatRate) === 0) && top.vatRate != null) {
-                    (localData as any).vatRate = top.vatRate;
+            if (spaceId) {
+                // Prix DE L'ESPACE (avec repli « jamais un autre espace ») ; salesPrices = distribution.
+                const px = (await this.pricing.getSpaceScopedLatestPrices(tenantId, spaceId, [product.id])).get(product.id);
+                if (px && px.ttc > 0) {
+                    localData.basePrice = px.ttc;
+                    if ((product.vatRate == null || Number(product.vatRate) === 0) && px.vatRate != null) {
+                        (localData as any).vatRate = px.vatRate;
+                    }
+                    (localData as any).salesPrices = (await this.pricing.getSpaceScopedModalPrices(tenantId, spaceId, [product.id])).get(product.id) ?? [];
                 }
-                (localData as any).salesPrices = sales;
+            } else {
+                const sales = (await this.deriveSalesPrices([product.id])).get(product.id);
+                if (sales && sales.length > 0) {
+                    const top = sales[0];
+                    localData.basePrice = top.ttc;
+                    if ((product.vatRate == null || Number(product.vatRate) === 0) && top.vatRate != null) {
+                        (localData as any).vatRate = top.vatRate;
+                    }
+                    (localData as any).salesPrices = sales;
+                }
             }
         }
 
@@ -881,6 +895,121 @@ export class WeezeventController {
             this.logger.warn(`Weezevent product refresh failed for ${productId}: ${error.message}`);
             return { ...product, ...localData, source: 'local', warning: 'Weezevent refresh failed' };
         }
+    }
+
+    /**
+     * BACKFILL : relie les ventes orphelines à leur produit — et CRÉE le produit s'il manque.
+     *
+     * Problème : `WeezeventTransactionItem.productId` peut être null (le sync n'a pas résolu le
+     * produit au moment d'insérer la ligne). Ces ventes sont alors INVISIBLES à toute dérivation de
+     * prix (qui filtre par productId) → prix à 0 même quand des ventes existent. Et si le produit
+     * n'a jamais été créé, il n'apparaît même pas à l'étape 3 pour être mappé.
+     *
+     * Ce backfill : pour chaque ligne orpheline, résout le produit par `rawData.item_id` →
+     * `WeezeventProduct.weezeventId` (scopé à l'intégration de la transaction). S'il n'existe pas,
+     * il le CRÉE (basePrice laissé null → le prix se dérive des ventes au read-time). Puis relie
+     * toutes les lignes. `dryRun=true` → aperçu (compteurs) sans écriture.
+     */
+    @RequirePermissions('menu.integration.fb')
+    @Post('backfill-transaction-item-products')
+    @ApiOperation({
+        summary: 'Backfill : relier les ventes orphelines (productId null) à leur produit (créé si absent)',
+        description:
+            "Relie les WeezeventTransactionItem sans productId à leur WeezeventProduct (via rawData.item_id), en créant le produit manquant pour que la vente apparaisse au mapping de l'étape 3. dryRun=true = aperçu sans écriture.",
+    })
+    @ApiQuery({ name: 'integrationId', required: false, description: 'Limiter à une intégration Weezevent' })
+    @ApiQuery({ name: 'dryRun', required: false, description: 'Aperçu sans écriture (true/false)' })
+    @ApiResponse({ status: 200, description: 'Résumé du backfill' })
+    async backfillTransactionItemProducts(
+        @CurrentUser() user: any,
+        @Query('integrationId') integrationId?: string,
+        @Query('dryRun') dryRun?: string,
+    ) {
+        const tenantId = user.tenantId;
+        const preview = dryRun === 'true' || (dryRun as any) === true;
+        const summary = {
+            dryRun: preview,
+            orphanItems: 0,
+            distinctProducts: 0,
+            productsCreated: 0,
+            productsExisting: 0,
+            itemsLinked: 0,
+            skippedNoItemId: 0,
+        };
+
+        // 1. Lignes orphelines (productId null) + intégration de la transaction + item_id du produit.
+        const orphans = await this.prisma.$queryRaw<Array<{ id: string; integrationId: string | null; itemWid: string | null; productName: string | null }>>(Prisma.sql`
+            SELECT ti."id" AS "id", t."integrationId" AS "integrationId",
+                   (ti."rawData"->>'item_id') AS "itemWid", ti."productName" AS "productName"
+            FROM "WeezeventTransactionItem" ti
+            JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"
+            WHERE ti."productId" IS NULL AND t."tenantId" = ${tenantId}
+              ${integrationId ? Prisma.sql`AND t."integrationId" = ${integrationId}` : Prisma.empty}
+        `);
+        summary.orphanItems = orphans.length;
+        if (orphans.length === 0) return summary;
+
+        // 2. Regrouper par (intégration, item_id).
+        const byKey = new Map<string, { integrationId: string; itemWid: string; name: string | null; itemIds: string[] }>();
+        for (const o of orphans) {
+            if (!o.itemWid || !o.integrationId) { summary.skippedNoItemId++; continue; }
+            const key = `${o.integrationId}::${o.itemWid}`;
+            const g = byKey.get(key) ?? { integrationId: o.integrationId, itemWid: o.itemWid, name: null, itemIds: [] };
+            if (!g.name && o.productName) g.name = o.productName;
+            g.itemIds.push(o.id);
+            byKey.set(key, g);
+        }
+        summary.distinctProducts = byKey.size;
+
+        // 3. Produits existants pour ces (intégration, item_id).
+        const wids = [...new Set([...byKey.values()].map((g) => g.itemWid))];
+        const existing = await this.prisma.weezeventProduct.findMany({
+            where: { tenantId, weezeventId: { in: wids }, ...(integrationId ? { integrationId } : {}) },
+            select: { id: true, integrationId: true, weezeventId: true },
+        });
+        const prodByKey = new Map(existing.map((p) => [`${p.integrationId}::${p.weezeventId}`, p.id]));
+
+        // 4. Créer les produits manquants + relier les lignes.
+        for (const [key, g] of byKey) {
+            let productId = prodByKey.get(key);
+            if (productId) {
+                summary.productsExisting++;
+            } else {
+                summary.productsCreated++;
+                if (!preview) {
+                    const created = await this.prisma.weezeventProduct.upsert({
+                        where: { tenantId_integrationId_weezeventId: { tenantId, integrationId: g.integrationId, weezeventId: g.itemWid } },
+                        create: { weezeventId: g.itemWid, tenantId, integrationId: g.integrationId, name: g.name || `Item ${g.itemWid}`, rawData: {}, syncedAt: new Date() },
+                        update: {},
+                        select: { id: true },
+                    });
+                    productId = created.id;
+                    prodByKey.set(key, productId);
+                }
+            }
+
+            if (preview) {
+                summary.itemsLinked += g.itemIds.length;
+                continue;
+            }
+            if (!productId) continue;
+            const CHUNK = 500;
+            for (let i = 0; i < g.itemIds.length; i += CHUNK) {
+                const slice = g.itemIds.slice(i, i + CHUNK);
+                const r = await this.prisma.weezeventTransactionItem.updateMany({
+                    where: { id: { in: slice } },
+                    data: { productId },
+                });
+                summary.itemsLinked += r.count;
+            }
+        }
+
+        this.logger.log(
+            `Backfill transaction-item products${preview ? ' [DRY-RUN]' : ''} (tenant ${tenantId}${integrationId ? `, integration ${integrationId}` : ''}): ` +
+                `${summary.itemsLinked} lignes reliées, ${summary.productsCreated} produits créés, ${summary.productsExisting} existants ` +
+                `(orphelines=${summary.orphanItems}, skippedNoItemId=${summary.skippedNoItemId})`,
+        );
+        return summary;
     }
 
     /**

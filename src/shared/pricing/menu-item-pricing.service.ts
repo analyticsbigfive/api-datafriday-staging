@@ -156,13 +156,14 @@ export class MenuItemPricingService {
    * décroissant réalisent la règle « si le dernier est 0, on remonte jusqu'au vrai prix » : on
    * saute les ventes à 0 (gratuités / data) et on retient la 1re vente non nulle. Un produit
    * sans AUCUNE vente non nulle est ABSENT de la Map → l'appelant retombe sur le catalogue (on ne
-   * conclut jamais un 0 arbitraire). `opts.locationIds` scope à un espace (sinon tous espaces).
-   * `unitPrice` Weezevent est TTC → HT dérivé par l'appelant. Requête unique indexée
+   * conclut jamais un 0 arbitraire). `opts.locationIds` scope à un espace (sinon tous espaces) ;
+   * `opts.eventIds` scope à un/des event(s) (priorité event — l'appelant gère le repli). `unitPrice`
+   * Weezevent est TTC → HT dérivé par l'appelant. Requête unique indexée
    * (`(tenantId, locationId, transactionDate)` + `productId`).
    */
   async getLatestSalesPrices(
     productIds: string[],
-    opts: { locationIds?: string[] } = {},
+    opts: { locationIds?: string[]; eventIds?: string[] } = {},
   ): Promise<Map<string, { ttc: number; vatRate: number | null }>> {
     const out = new Map<string, { ttc: number; vatRate: number | null }>();
     const ids = [...new Set(productIds.filter(Boolean))];
@@ -175,6 +176,11 @@ export class MenuItemPricingService {
     ];
     if (opts.locationIds && opts.locationIds.length > 0) {
       conds.push(Prisma.sql`t."locationId" IN (${Prisma.join(opts.locationIds)})`);
+    }
+    // Filtre event optionnel (priorité event) : ne s'applique que si des ids sont fournis, sinon
+    // « tous events » (le tri transactionDate DESC prend alors naturellement l'event le plus récent).
+    if (opts.eventIds && opts.eventIds.length > 0) {
+      conds.push(Prisma.sql`t."eventId" IN (${Prisma.join(opts.eventIds)})`);
     }
     const rows = await this.prisma.$queryRaw<{ productId: string; unitPrice: any; vat: any }[]>(Prisma.sql`
       SELECT DISTINCT ON (ti."productId") ti."productId", ti."unitPrice", ti."vat"
@@ -266,20 +272,32 @@ export class MenuItemPricingService {
    * indexée (WeezeventTransactionItem_productId_idx, ~20 ms/100 produits), scopée par
    * productId (vérifiés côté tenant par l'appelant ; le raw n'est pas CLS). `unitPrice`
    * Weezevent est TTC → HT = round2(TTC / (1 + vat/100)).
+   * `opts.locationIds` scope la distribution à un espace (join `WeezeventTransaction.locationId`) ;
+   * `[]` = espace sans location mappée → aucune vente attribuable (Map vide).
    */
   async getModalSalesPrices(
     productIds: string[],
+    opts: { locationIds?: string[] } = {},
   ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
     const out = new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>();
     const ids = [...new Set(productIds.filter(Boolean))];
     if (ids.length === 0) return out;
-    const rows = await this.prisma.$queryRaw<{ productId: string; unitPrice: any; vat: any; n: number }[]>`
+    // Espace explicitement sans location mappée → aucune vente attribuable à cet espace.
+    if (opts.locationIds && opts.locationIds.length === 0) return out;
+    const scoped = !!(opts.locationIds && opts.locationIds.length > 0);
+    const conds: Prisma.Sql[] = [
+      Prisma.sql`ti."productId" IN (${Prisma.join(ids)})`,
+      Prisma.sql`ti."unitPrice" > 0`,
+    ];
+    if (scoped) conds.push(Prisma.sql`t."locationId" IN (${Prisma.join(opts.locationIds!)})`);
+    const rows = await this.prisma.$queryRaw<{ productId: string; unitPrice: any; vat: any; n: number }[]>(Prisma.sql`
       SELECT ti."productId", ti."unitPrice", ti."vat", count(*)::int AS n
       FROM "WeezeventTransactionItem" ti
-      WHERE ti."productId" IN (${Prisma.join(ids)}) AND ti."unitPrice" > 0
+      ${scoped ? Prisma.sql`JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"` : Prisma.empty}
+      WHERE ${Prisma.join(conds, ' AND ')}
       GROUP BY ti."productId", ti."unitPrice", ti."vat"
       ORDER BY ti."productId", n DESC
-    `;
+    `);
     for (const r of rows) {
       const ttc = Number(r.unitPrice);
       const vatRate = r.vat != null ? Number(r.vat) : null;

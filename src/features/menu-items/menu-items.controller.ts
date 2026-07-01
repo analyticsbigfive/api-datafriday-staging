@@ -16,7 +16,7 @@ import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { MenuItemsService } from './menu-items.service';
 import { BulkCreateMenuItemsDto, CreateMenuItemDto, ReplaceMenuItemComponentsDto, ReplaceMenuItemIngredientsDto, ReplaceMenuItemPackagingsDto } from './dto/create-menu-item.dto';
 import { RecipeBatchDto } from './dto/recipe-batch.dto';
-import { ApplyWeezeventPriceDto, ApplyWeezeventPricesBulkDto } from './dto/apply-weezevent-price.dto';
+import { ApplyWeezeventPriceDto, ApplyWeezeventPricesBulkDto, BackfillWeezeventPricesDto } from './dto/apply-weezevent-price.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 import { CreateProductCategoryDto } from './dto/create-product-category.dto';
 import { CreateProductTypeDto } from './dto/create-product-type.dto';
@@ -199,6 +199,28 @@ export class MenuItemsController {
   ) {
     this.logger.log(`POST /menu-items/apply-weezevent-prices - User: ${user?.id}, Tenant: ${tenantId}, Items: ${dto.items?.length || 0}, Space: ${dto.spaceId ?? 'global'}`);
     return this.menuItemsService.applyWeezeventPricesBulk(dto.items || [], tenantId, dto.spaceId);
+  }
+
+  @RequirePermissions('menu.fb.menuItems')
+  @Post('backfill-weezevent-prices')
+  @ApiOperation({
+    summary: 'Backfill de masse : corriger tous les menu items mappés à 0 (prix par espace)',
+    description:
+      "Pour chaque menu item mappé (mapping unique) et chaque espace assigné, écrit dans spacePrices[espace] le DERNIER prix de vente non nul observé DANS CET ESPACE (event prioritaire via eventId, repli espace) et l'archive dans l'historique. Jamais un prix d'un autre espace. Idempotent (overwrite=false). Renvoie un résumé (pairsApplied, itemsTouched, skippedNoSpace/NoSales/AlreadyPriced/AmbiguousMapping).",
+  })
+  @ApiResponse({ status: 200, description: 'Résumé du backfill' })
+  backfillWeezeventPrices(
+    @Body() dto: BackfillWeezeventPricesDto,
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+  ) {
+    this.logger.log(`POST /menu-items/backfill-weezevent-prices - User: ${user?.id}, Tenant: ${tenantId}, Space: ${dto?.spaceId ?? 'all'}, Event: ${dto?.eventId ?? 'latest'}, Overwrite: ${!!dto?.overwrite}, DryRun: ${!!dto?.dryRun}`);
+    return this.menuItemsService.backfillWeezeventPrices(tenantId, {
+      spaceId: dto?.spaceId,
+      eventId: dto?.eventId,
+      overwrite: dto?.overwrite,
+      dryRun: dto?.dryRun,
+    });
   }
 
   @RequirePermissions('menu.fb.menuItems')

@@ -676,6 +676,7 @@ export class WeezeventController {
     @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
     @ApiQuery({ name: 'perPage', required: false, type: Number, example: 50 })
     @ApiQuery({ name: 'category', required: false, description: 'Filtrer par catégorie de produit' })
+    @ApiQuery({ name: 'spaceId', required: false, description: 'Espace : le prix renvoyé est celui pratiqué DANS cet espace (ventes des locations mappées), pas le basePrice figé du produit' })
     @ApiResponse({ status: 200, description: 'Liste paginée des produits Weezevent' })
     async getProducts(
         @CurrentUser() user: any,
@@ -683,6 +684,7 @@ export class WeezeventController {
         @Query('perPage') perPage: number = 50,
         @Query('integrationId') integrationId?: string,
         @Query('category') category?: string,
+        @Query('spaceId') spaceId?: string,
     ) {
         const tenantId = user.tenantId;
         const p = Math.max(1, parseInt(String(page), 10) || 1);
@@ -701,25 +703,54 @@ export class WeezeventController {
             this.prisma.weezeventProduct.count({ where }),
         ]);
 
-        // Le prix AFFICHÉ d'un produit Weezevent = SON prix (catalogue sinon dérivé de ses ventes).
-        // C'est ce prix-là qui sera hérité par le menu item mappé (le front l'envoie à l'apply).
-        // Pas de scope-espace ici : l'espace ne décide que de la DESTINATION (spacePrices[espace]),
-        // pas de la source du prix produit.
-        const productsNeedingPrice = products.filter((pr: any) => pr.basePrice == null).map((pr: any) => pr.id);
-        const salesByProduct = await this.deriveSalesPrices(productsNeedingPrice);
-        const data = products.map((pr: any) => {
-            if (pr.basePrice != null) return pr;
-            const sales = salesByProduct.get(pr.id);
-            if (!sales || sales.length === 0) return pr;
-            const top = sales[0];
-            return {
-                ...pr,
-                basePrice: top.ttc,
-                vatRate: pr.vatRate ?? top.vatRate,
-                priceSource: 'sales',
-                salesPrices: sales,
-            };
-        });
+        let data: any[];
+        if (spaceId) {
+            // PRIX DE L'ESPACE : on IGNORE le basePrice figé du produit (non fiable : gelé par un sync)
+            // et on lit les ventes DE CET ESPACE (locations mappées) — exactement comme la catégorie
+            // est déduite de la nature Weezevent. basePrice = dernier prix non nul de l'espace (même
+            // règle que l'apply) ; salesPrices = distribution des prix de l'espace. Aucune vente dans
+            // l'espace → on ne prend JAMAIS un prix d'un autre espace (repli sur le catalogue propre).
+            const locationIds = await this.pricing.resolveSpaceLocationIds(tenantId, spaceId);
+            const allIds = products.map((pr: any) => pr.id);
+            const [latest, dist] = await Promise.all([
+                this.pricing.getLatestSalesPrices(allIds, { locationIds }),
+                this.pricing.getModalSalesPrices(allIds, { locationIds }),
+            ]);
+            data = products.map((pr: any) => {
+                const px = latest.get(pr.id);
+                if (px && px.ttc > 0) {
+                    return {
+                        ...pr,
+                        basePrice: px.ttc,
+                        vatRate: pr.vatRate != null && Number(pr.vatRate) !== 0 ? pr.vatRate : px.vatRate,
+                        priceSource: 'sales_space',
+                        salesPrices: dist.get(pr.id) ?? [],
+                    };
+                }
+                // Pas de vente dans cet espace : on garde le prix propre du produit (jamais cross-espace).
+                return { ...pr, priceSource: 'catalog' };
+            });
+        } else {
+            // Sans espace : prix « produit » global. Un produit F&B a basePrice null ; un produit créé
+            // par un sync dont la 1re vente vue était à 0 (gratuité/staff, fréquent "HAPPY HOUR") a
+            // basePrice FIGÉ à 0 → il faut aussi le dériver des ventes (sinon il reste à 0 à vie).
+            const needsPrice = (v: any) => v == null || Number(v) === 0;
+            const productsNeedingPrice = products.filter((pr: any) => needsPrice(pr.basePrice)).map((pr: any) => pr.id);
+            const salesByProduct = await this.deriveSalesPrices(productsNeedingPrice);
+            data = products.map((pr: any) => {
+                if (!needsPrice(pr.basePrice)) return pr;
+                const sales = salesByProduct.get(pr.id);
+                if (!sales || sales.length === 0) return pr;
+                const top = sales[0];
+                return {
+                    ...pr,
+                    basePrice: top.ttc,
+                    vatRate: pr.vatRate ?? top.vatRate,
+                    priceSource: 'sales',
+                    salesPrices: sales,
+                };
+            });
+        }
 
         return {
             data,
@@ -770,15 +801,16 @@ export class WeezeventController {
             rawData,
         };
 
-        // Prix absent du catalogue (F&B) → on le dérive des ventes. On expose TOUS les prix
-        // (salesPrices : ttc/ht/vat/salesCount) pour que le front décide ; basePrice/vatRate
+        // Prix absent du catalogue (F&B, basePrice null) OU figé à 0 par un sync (1re vente à 0,
+        // gratuité/staff, fréquent sur les "HAPPY HOUR") → on le dérive des ventes. On expose TOUS
+        // les prix (salesPrices : ttc/ht/vat/salesCount) pour que le front décide ; basePrice/vatRate
         // = prix modal (rétro-compat) pour éviter le pré-remplissage à 0 à la création.
-        if (localData.basePrice == null) {
+        if (localData.basePrice == null || Number(localData.basePrice) === 0) {
             const sales = (await this.deriveSalesPrices([product.id])).get(product.id);
             if (sales && sales.length > 0) {
                 const top = sales[0];
                 localData.basePrice = top.ttc;
-                if (product.vatRate == null && top.vatRate != null) {
+                if ((product.vatRate == null || Number(product.vatRate) === 0) && top.vatRate != null) {
                     (localData as any).vatRate = top.vatRate;
                 }
                 (localData as any).salesPrices = sales;
@@ -787,6 +819,7 @@ export class WeezeventController {
 
         const hasUsefulLocalData =
             localData.basePrice != null &&
+            Number(localData.basePrice) !== 0 &&
             (!!localData.nature || !!localData.subnature || !!localData.productType);
 
         if (hasUsefulLocalData) {
@@ -832,7 +865,18 @@ export class WeezeventController {
                 data: updateData,
             });
 
-            return { ...refreshed, basePrice: refreshed.basePrice != null ? Number(refreshed.basePrice) : null, source: 'weezevent' };
+            // Le catalogue Weezevent F&B n'a pas de prix : ne JAMAIS écraser un prix déjà dérivé des
+            // ventes (localData) par un null/0 catalogue. On repli sur le prix dérivé + salesPrices.
+            const refreshedBase = refreshed.basePrice != null && Number(refreshed.basePrice) !== 0
+                ? Number(refreshed.basePrice)
+                : (localData.basePrice != null ? Number(localData.basePrice) : null);
+            return {
+                ...refreshed,
+                basePrice: refreshedBase,
+                vatRate: refreshed.vatRate != null ? Number(refreshed.vatRate) : ((localData as any).vatRate ?? null),
+                ...((localData as any).salesPrices ? { salesPrices: (localData as any).salesPrices } : {}),
+                source: refreshed.basePrice != null && Number(refreshed.basePrice) !== 0 ? 'weezevent' : 'sales',
+            };
         } catch (error) {
             this.logger.warn(`Weezevent product refresh failed for ${productId}: ${error.message}`);
             return { ...product, ...localData, source: 'local', warning: 'Weezevent refresh failed' };

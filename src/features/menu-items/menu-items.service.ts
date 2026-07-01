@@ -664,7 +664,10 @@ export class MenuItemsService {
   private async resolveInheritedPrice(
     product: any,
     productId: string,
+    tenantId: string,
     override?: { basePrice?: number | null; vatRate?: number | null },
+    spaceId?: string,
+    eventIds?: string[],
   ) {
     if (override?.basePrice != null && Number.isFinite(Number(override.basePrice))) {
       return {
@@ -674,7 +677,19 @@ export class MenuItemsService {
         source: 'weezevent_catalog' as 'weezevent_catalog' | 'weezevent_sales',
       };
     }
-    const latest = (await this.pricing.getLatestSalesPrices([productId], {})).get(productId);
+    // Sans override : dernier prix non nul, SCOPÉ à l'espace du menu item (jamais un prix d'un
+    // autre espace) — event en priorité si fourni (repli sur l'espace, tous events). Sans espace
+    // → dernier prix non nul global (repli historique).
+    let latest: { ttc: number; vatRate: number | null } | undefined;
+    if (spaceId) {
+      const locationIds = await this.pricing.resolveSpaceLocationIds(tenantId, spaceId);
+      latest = (await this.pricing.getLatestSalesPrices([productId], { locationIds, eventIds })).get(productId);
+      if (!latest && eventIds && eventIds.length > 0) {
+        latest = (await this.pricing.getLatestSalesPrices([productId], { locationIds })).get(productId);
+      }
+    } else {
+      latest = (await this.pricing.getLatestSalesPrices([productId], {})).get(productId);
+    }
     return this.pricing.resolveWeezeventApplyPrice(product, latest);
   }
 
@@ -698,7 +713,7 @@ export class MenuItemsService {
     });
     if (!product) throw new BadRequestException(`Produit Weezevent ${productId} introuvable`);
 
-    const resolved = await this.resolveInheritedPrice(product, productId, override);
+    const resolved = await this.resolveInheritedPrice(product, productId, tenantId, override, spaceId);
     if (!resolved) {
       throw new BadRequestException(`Aucun prix Weezevent disponible pour ce produit (ni ventes, ni catalogue)`);
     }
@@ -798,10 +813,12 @@ export class MenuItemsService {
 
     const productIds = [...new Set(pairs.map((p) => p.productId))];
     const menuItemIds = [...new Set(pairs.map((p) => p.menuItemId))];
-    // Repli (si le front n'envoie pas le prix affiché) : dernier prix non nul GLOBAL par produit.
+    // Repli (si le front n'envoie pas le prix affiché) : dernier prix non nul par produit, SCOPÉ à
+    // l'espace ciblé quand il y en a un (jamais un prix d'un autre espace), sinon global.
+    const bulkLocationIds = spaceId ? await this.pricing.resolveSpaceLocationIds(tenantId, spaceId) : undefined;
     const [products, latest, menuItems] = await Promise.all([
       this.prisma.weezeventProduct.findMany({ where: { id: { in: productIds }, tenantId }, include: { prices: true } }),
-      this.pricing.getLatestSalesPrices(productIds, {}),
+      this.pricing.getLatestSalesPrices(productIds, bulkLocationIds ? { locationIds: bulkLocationIds } : {}),
       this.prisma.menuItem.findMany({
         where: { tenantId, deletedAt: null, id: { in: menuItemIds } },
         select: { id: true, basePrice: true, vatRate: true, spacePrices: true },
@@ -908,6 +925,147 @@ export class MenuItemsService {
       this.logger.log(`Bulk-applied Weezevent price to ${changed} menu item(s) for tenant ${tenantId}${spaceId ? ` (space ${spaceId})` : ''}`);
     }
     return { total: items.length, changed, results };
+  }
+
+  /**
+   * BACKFILL de masse : corrige tous les menu items mappés dont le prix par espace est absent/0.
+   * Pour chaque couple (item × espace assigné), écrit le DERNIER prix de vente non nul observé
+   * DANS CET ESPACE (locations mappées) — event prioritaire si fourni, repli sur l'espace (tous
+   * events). Règle stricte : jamais un prix venu d'un autre espace. Un espace sans vente non nulle
+   * (ou sans location mappée) est ignoré (`skippedNoSales`). Un item sans espace assigné ne peut
+   * pas être tarifé par espace (`skippedNoSpace`) — il faut d'abord lui assigner un espace.
+   *
+   * `opts.spaceId`   → limiter le backfill à un seul espace.
+   * `opts.eventId`   → event prioritaire (WeezeventEvent.id interne) ; repli sur l'espace si vide.
+   * `opts.overwrite` → réécrire même les couples déjà tarifés (> 0). Défaut : false (idempotent).
+   *
+   * Écritures groupées par lots (transactions courtes) pour rester compatible pooler transaction.
+   */
+  async backfillWeezeventPrices(
+    tenantId: string,
+    opts: { spaceId?: string; eventId?: string; overwrite?: boolean; dryRun?: boolean } = {},
+  ) {
+    const { spaceId: onlySpaceId, eventId, overwrite = false, dryRun = false } = opts;
+    const eventIds = eventId ? [eventId] : undefined;
+    const summary = {
+      dryRun,
+      itemsScanned: 0,
+      itemsTouched: 0,
+      pairsApplied: 0,
+      skippedNoSpace: 0,
+      skippedNoSales: 0,
+      skippedAlreadyPriced: 0,
+      skippedAmbiguousMapping: 0,
+    };
+
+    // 1. Produits mappés par item (on ne tarifie que les items à mapping unique — sinon ambigu).
+    const mappings = await this.prisma.weezeventProductMapping.findMany({
+      where: { tenantId },
+      select: { menuItemId: true, weezeventProductId: true },
+    });
+    const productsByItem = new Map<string, Set<string>>();
+    for (const m of mappings) {
+      const s = productsByItem.get(m.menuItemId) ?? new Set<string>();
+      s.add(m.weezeventProductId);
+      productsByItem.set(m.menuItemId, s);
+    }
+    const menuItemIds = [...productsByItem.keys()];
+    if (menuItemIds.length === 0) return summary;
+
+    const items = await this.prisma.menuItem.findMany({
+      where: { tenantId, deletedAt: null, id: { in: menuItemIds } },
+      select: { id: true, spaceIds: true, spacePrices: true },
+    });
+
+    // 2. Plan de travail : espace → [{ itemId, productId }] + état spacePrices courant par item.
+    const workBySpace = new Map<string, Array<{ itemId: string; productId: string }>>();
+    const currentPrices = new Map<string, Record<string, { ttc: number; vatRate: number | null }>>();
+    for (const item of items) {
+      summary.itemsScanned++;
+      const products = productsByItem.get(item.id)!;
+      if (products.size !== 1) { summary.skippedAmbiguousMapping++; continue; }
+      const productId = [...products][0];
+      const spaceIds = (Array.isArray(item.spaceIds) ? item.spaceIds : [])
+        .filter((sid) => !onlySpaceId || sid === onlySpaceId);
+      if (spaceIds.length === 0) { summary.skippedNoSpace++; continue; }
+      const prices = this.normalizeSpacePricesMap(item.spacePrices);
+      currentPrices.set(item.id, prices);
+      for (const sid of spaceIds) {
+        const existing = prices[sid];
+        if (!overwrite && existing && existing.ttc > 0) { summary.skippedAlreadyPriced++; continue; }
+        const arr = workBySpace.get(sid) ?? [];
+        arr.push({ itemId: item.id, productId });
+        workBySpace.set(sid, arr);
+      }
+    }
+
+    // 3. Résolution du prix par espace (scopé locations) + collecte des écritures.
+    const writes: any[] = [];
+    const touched = new Set<string>();
+    for (const [sid, pairs] of workBySpace) {
+      const productIds = [...new Set(pairs.map((p) => p.productId))];
+      const locationIds = await this.pricing.resolveSpaceLocationIds(tenantId, sid);
+      // Espace sans location mappée → getLatestSalesPrices renvoie vide → tout est skippedNoSales.
+      const latest = await this.pricing.getLatestSalesPrices(productIds, { locationIds, eventIds });
+      if (eventIds) {
+        // Event prioritaire : repli sur l'espace (tous events) pour les produits sans vente sur l'event.
+        const missing = productIds.filter((pid) => !latest.has(pid));
+        if (missing.length) {
+          const fb = await this.pricing.getLatestSalesPrices(missing, { locationIds });
+          for (const [k, v] of fb) latest.set(k, v);
+        }
+      }
+      for (const { itemId, productId } of pairs) {
+        const px = latest.get(productId);
+        if (!px || !(px.ttc > 0)) { summary.skippedNoSales++; continue; }
+        const prices = currentPrices.get(itemId)!;
+        prices[sid] = { ttc: this.toNumber(px.ttc), vatRate: px.vatRate ?? null };
+        touched.add(itemId);
+        writes.push(
+          this.prisma.menuItemPriceHistory.create({
+            data: {
+              menuItemId: itemId,
+              tenantId,
+              spaceId: sid,
+              basePrice: px.ttc,
+              vatRate: px.vatRate ?? null,
+              currency: null,
+              source: 'weezevent_sales',
+              weezeventProductId: productId,
+              observedAt: new Date(),
+            },
+          }),
+        );
+        summary.pairsApplied++;
+      }
+    }
+
+    // 4. Un update spacePrices par item modifié.
+    for (const itemId of touched) {
+      writes.push(
+        this.prisma.menuItem.update({
+          where: { id: itemId },
+          data: { spacePrices: { ...currentPrices.get(itemId)! } as any },
+        }),
+      );
+    }
+    summary.itemsTouched = touched.size;
+
+    // 5. Écritures par lots courts (compat pooler transaction) — sauf en aperçu (dryRun).
+    if (!dryRun) {
+      const CHUNK = 25;
+      for (let i = 0; i < writes.length; i += CHUNK) {
+        await this.prisma.$transaction(writes.slice(i, i + CHUNK));
+      }
+      if (writes.length) await this.invalidateCache(tenantId);
+    }
+    this.logger.log(
+      `Backfill Weezevent prices${dryRun ? ' [DRY-RUN]' : ''} (tenant ${tenantId}${onlySpaceId ? `, space ${onlySpaceId}` : ''}): ` +
+        `${summary.pairsApplied} prix appliqués sur ${summary.itemsTouched} items ` +
+        `(noSpace=${summary.skippedNoSpace}, noSales=${summary.skippedNoSales}, ` +
+        `already=${summary.skippedAlreadyPriced}, ambiguous=${summary.skippedAmbiguousMapping})`,
+    );
+    return summary;
   }
 
   /** Historique des prix d'un menu item (du plus récent au plus ancien) — courbe d'évolution. */

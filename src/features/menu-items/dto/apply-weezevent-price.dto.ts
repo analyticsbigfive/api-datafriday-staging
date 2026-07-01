@@ -1,5 +1,5 @@
 import { ApiPropertyOptional, ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsOptional, IsString, IsNumber, ValidateNested, ArrayNotEmpty } from 'class-validator';
+import { IsArray, IsOptional, IsString, IsNumber, IsBoolean, ValidateNested, ArrayNotEmpty } from 'class-validator';
 import { Type } from 'class-transformer';
 
 /**
@@ -84,4 +84,46 @@ export class ApplyWeezeventPricesBulkDto {
   @IsOptional()
   @IsString()
   spaceId?: string;
+}
+
+/**
+ * Backfill de masse : (re)tarifie tous les menu items mappés dont le prix par espace est absent/0,
+ * en écrivant pour chaque (item × espace) le dernier prix de vente non nul observé DANS CET ESPACE
+ * (jamais un prix d'un autre espace). Aucun body requis — tout est optionnel.
+ */
+export class BackfillWeezeventPricesDto {
+  @ApiPropertyOptional({
+    description: 'Limiter le backfill à un seul espace (sinon tous les espaces assignés aux items).',
+    example: 'space_terrasse',
+  })
+  @IsOptional()
+  @IsString()
+  spaceId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      "Event prioritaire (WeezeventEvent.id interne). Si un produit n'a pas de vente sur cet event dans l'espace, repli sur l'espace (tous events).",
+    example: 'evt_summer_2026',
+  })
+  @IsOptional()
+  @IsString()
+  eventId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Réécrire même les couples déjà tarifés (> 0). Défaut : false (idempotent).',
+    example: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  @Type(() => Boolean)
+  overwrite?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Aperçu sans écriture : calcule le résumé (compteurs) sans modifier la base. Défaut : false.',
+    example: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  @Type(() => Boolean)
+  dryRun?: boolean;
 }

@@ -174,11 +174,11 @@ export class MenuItemPricingService {
   }
 
   /**
-   * Prix « de l'espace » avec repli correct (deux niveaux) :
+   * Prix « de l'espace » avec repli en trois niveaux (priorité, jamais 0 si une vente existe) :
    *  1. dernier prix non nul des ventes DE CET ESPACE (locations mappées) — priorité ;
-   *  2. pour les produits sans vente dans l'espace : dernier prix non nul des ventes NON attribuées
-   *     à un AUTRE espace (locations non mappées / nulles) — jamais un prix d'un autre espace.
-   * Aucune location mappée nulle part → tout est « non attribué » → équivaut au prix global.
+   *  2. sinon, ventes NON attribuées à un AUTRE espace (locations non mappées / nulles) ;
+   *  3. dernier recours : ventes GLOBALES (n'importe quelle location) — pour ne jamais renvoyer 0
+   *     quand une vente existe (mapping location→espace incomplet). L'espace reste PRIORITAIRE.
    */
   async getSpaceScopedLatestPrices(
     tenantId: string,
@@ -190,26 +190,290 @@ export class MenuItemPricingService {
     const ids = [...new Set(productIds.filter(Boolean))];
     if (!ids.length) return out;
     const { spaceLocationIds, otherSpaceLocationIds } = await this.resolveSpaceLocationScope(tenantId, spaceId);
+    const merge = (m: Map<string, { ttc: number; vatRate: number | null }>) => {
+      for (const [k, v] of m) if (!out.has(k)) out.set(k, v);
+    };
     if (spaceLocationIds.length) {
-      const t1 = await this.getLatestSalesPrices(ids, { locationIds: spaceLocationIds, eventIds: opts.eventIds });
-      for (const [k, v] of t1) out.set(k, v);
+      merge(await this.getLatestSalesPrices(ids, { locationIds: spaceLocationIds, eventIds: opts.eventIds }));
     }
-    const missing = ids.filter((id) => !out.has(id));
+    let missing = ids.filter((id) => !out.has(id));
+    if (missing.length && otherSpaceLocationIds.length) {
+      merge(await this.getLatestSalesPrices(missing, { excludeLocationIds: otherSpaceLocationIds, eventIds: opts.eventIds }));
+    }
+    missing = ids.filter((id) => !out.has(id));
     if (missing.length) {
-      const t2 = await this.getLatestSalesPrices(missing, { excludeLocationIds: otherSpaceLocationIds, eventIds: opts.eventIds });
-      for (const [k, v] of t2) out.set(k, v);
+      merge(await this.getLatestSalesPrices(missing, { eventIds: opts.eventIds }));
     }
     return out;
   }
 
-  /** Distribution des prix « de l'espace » (pour affichage) : exclut les ventes d'autres espaces. */
+  /** Distribution des prix « de l'espace » (affichage) : espace prioritaire, repli global (jamais vide). */
   async getSpaceScopedModalPrices(
     tenantId: string,
     spaceId: string,
     productIds: string[],
   ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
-    const { otherSpaceLocationIds } = await this.resolveSpaceLocationScope(tenantId, spaceId);
-    return this.getModalSalesPrices(productIds, { excludeLocationIds: otherSpaceLocationIds });
+    const out = new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>();
+    const ids = [...new Set(productIds.filter(Boolean))];
+    if (!ids.length) return out;
+    const { spaceLocationIds, otherSpaceLocationIds } = await this.resolveSpaceLocationScope(tenantId, spaceId);
+    const merge = (m: Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>) => {
+      for (const [k, v] of m) if (!out.has(k)) out.set(k, v);
+    };
+    if (spaceLocationIds.length) merge(await this.getModalSalesPrices(ids, { locationIds: spaceLocationIds }));
+    let missing = ids.filter((id) => !out.has(id));
+    if (missing.length && otherSpaceLocationIds.length) merge(await this.getModalSalesPrices(missing, { excludeLocationIds: otherSpaceLocationIds }));
+    missing = ids.filter((id) => !out.has(id));
+    if (missing.length) merge(await this.getModalSalesPrices(missing, {}));
+    return out;
+  }
+
+  // ── Repli par NOM de produit ──────────────────────────────────────────────
+  // Un même produit peut exister sous plusieurs `WeezeventProduct` (Weezevent recrée l'item avec un
+  // nouvel id chaque saison/event) : la ligne affichée (dernière saison) n'a pas de vente, mais
+  // l'historique existe sous le MÊME NOM. On cherche alors le prix par `productName` (scopé tenant/
+  // intégration + espace), jamais un prix d'un autre espace. `t."tenantId"` OBLIGATOIRE (les items
+  // n'ont pas de tenantId ; le nom n'est pas unique).
+
+  /** Dernier prix non nul par NOM de produit (normalisé casse/espaces). Cf. getLatestSalesPrices. */
+  async getLatestSalesPricesByName(
+    tenantId: string,
+    names: string[],
+    opts: { integrationId?: string; locationIds?: string[]; excludeLocationIds?: string[] } = {},
+  ): Promise<Map<string, { ttc: number; vatRate: number | null }>> {
+    const out = new Map<string, { ttc: number; vatRate: number | null }>();
+    if (opts.locationIds && opts.locationIds.length === 0) return out;
+    const normToOrig = new Map<string, string>();
+    for (const n of names) if (n) normToOrig.set(n.trim().toLowerCase(), n);
+    if (!normToOrig.size) return out;
+    const normNames = [...normToOrig.keys()];
+    const conds: Prisma.Sql[] = [
+      Prisma.sql`t."tenantId" = ${tenantId}`,
+      Prisma.sql`LOWER(TRIM(ti."productName")) IN (${Prisma.join(normNames)})`,
+      Prisma.sql`ti."unitPrice" > 0`,
+    ];
+    if (opts.integrationId) conds.push(Prisma.sql`t."integrationId" = ${opts.integrationId}`);
+    if (opts.locationIds && opts.locationIds.length > 0) conds.push(Prisma.sql`t."locationId" IN (${Prisma.join(opts.locationIds)})`);
+    if (opts.excludeLocationIds && opts.excludeLocationIds.length > 0) conds.push(Prisma.sql`(t."locationId" IS NULL OR t."locationId" NOT IN (${Prisma.join(opts.excludeLocationIds)}))`);
+    const rows = await this.prisma.$queryRaw<{ nname: string; unitPrice: any; vat: any }[]>(Prisma.sql`
+      SELECT DISTINCT ON (LOWER(TRIM(ti."productName"))) LOWER(TRIM(ti."productName")) AS nname, ti."unitPrice", ti."vat"
+      FROM "WeezeventTransactionItem" ti
+      JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"
+      WHERE ${Prisma.join(conds, ' AND ')}
+      ORDER BY LOWER(TRIM(ti."productName")), t."transactionDate" DESC
+    `);
+    for (const r of rows) {
+      const orig = normToOrig.get(r.nname);
+      if (orig) out.set(orig, { ttc: Number(r.unitPrice), vatRate: r.vat != null ? Number(r.vat) : null });
+    }
+    return out;
+  }
+
+  /** Distribution des prix par NOM de produit (normalisé casse/espaces). Cf. getModalSalesPrices. */
+  async getModalSalesPricesByName(
+    tenantId: string,
+    names: string[],
+    opts: { integrationId?: string; locationIds?: string[]; excludeLocationIds?: string[] } = {},
+  ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
+    const out = new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>();
+    if (opts.locationIds && opts.locationIds.length === 0) return out;
+    const normToOrig = new Map<string, string>();
+    for (const n of names) if (n) normToOrig.set(n.trim().toLowerCase(), n);
+    if (!normToOrig.size) return out;
+    const normNames = [...normToOrig.keys()];
+    const conds: Prisma.Sql[] = [
+      Prisma.sql`t."tenantId" = ${tenantId}`,
+      Prisma.sql`LOWER(TRIM(ti."productName")) IN (${Prisma.join(normNames)})`,
+      Prisma.sql`ti."unitPrice" > 0`,
+    ];
+    if (opts.integrationId) conds.push(Prisma.sql`t."integrationId" = ${opts.integrationId}`);
+    if (opts.locationIds && opts.locationIds.length > 0) conds.push(Prisma.sql`t."locationId" IN (${Prisma.join(opts.locationIds)})`);
+    if (opts.excludeLocationIds && opts.excludeLocationIds.length > 0) conds.push(Prisma.sql`(t."locationId" IS NULL OR t."locationId" NOT IN (${Prisma.join(opts.excludeLocationIds)}))`);
+    const rows = await this.prisma.$queryRaw<{ nname: string; unitPrice: any; vat: any; n: number }[]>(Prisma.sql`
+      SELECT LOWER(TRIM(ti."productName")) AS nname, ti."unitPrice", ti."vat", count(*)::int AS n
+      FROM "WeezeventTransactionItem" ti
+      JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"
+      WHERE ${Prisma.join(conds, ' AND ')}
+      GROUP BY LOWER(TRIM(ti."productName")), ti."unitPrice", ti."vat"
+      ORDER BY LOWER(TRIM(ti."productName")), n DESC
+    `);
+    for (const r of rows) {
+      const orig = normToOrig.get(r.nname);
+      if (!orig) continue;
+      const ttc = Number(r.unitPrice);
+      const vatRate = r.vat != null ? Number(r.vat) : null;
+      const ht = vatRate != null ? this.round2(ttc / (1 + vatRate / 100)) : null;
+      const list = out.get(orig) ?? [];
+      list.push({ ttc, ht, vatRate, salesCount: Number(r.n) });
+      out.set(orig, list);
+    }
+    return out;
+  }
+
+  /** Prix « de l'espace » par NOM (3 niveaux : espace → non-attribué → global). Espace prioritaire. */
+  async getSpaceScopedLatestPricesByName(
+    tenantId: string,
+    spaceId: string,
+    names: string[],
+    opts: { integrationId?: string } = {},
+  ): Promise<Map<string, { ttc: number; vatRate: number | null }>> {
+    const out = new Map<string, { ttc: number; vatRate: number | null }>();
+    const uniq = [...new Set(names.filter(Boolean))];
+    if (!uniq.length) return out;
+    const { spaceLocationIds, otherSpaceLocationIds } = await this.resolveSpaceLocationScope(tenantId, spaceId);
+    const merge = (m: Map<string, { ttc: number; vatRate: number | null }>) => {
+      for (const [k, v] of m) if (!out.has(k)) out.set(k, v);
+    };
+    if (spaceLocationIds.length) {
+      merge(await this.getLatestSalesPricesByName(tenantId, uniq, { integrationId: opts.integrationId, locationIds: spaceLocationIds }));
+    }
+    let missing = uniq.filter((n) => !out.has(n));
+    if (missing.length && otherSpaceLocationIds.length) {
+      merge(await this.getLatestSalesPricesByName(tenantId, missing, { integrationId: opts.integrationId, excludeLocationIds: otherSpaceLocationIds }));
+    }
+    missing = uniq.filter((n) => !out.has(n));
+    if (missing.length) {
+      merge(await this.getLatestSalesPricesByName(tenantId, missing, { integrationId: opts.integrationId }));
+    }
+    return out;
+  }
+
+  /** Distribution des prix « de l'espace » par NOM (espace prioritaire, repli global). */
+  async getSpaceScopedModalPricesByName(
+    tenantId: string,
+    spaceId: string,
+    names: string[],
+    opts: { integrationId?: string } = {},
+  ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
+    const out = new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>();
+    const uniq = [...new Set(names.filter(Boolean))];
+    if (!uniq.length) return out;
+    const { spaceLocationIds, otherSpaceLocationIds } = await this.resolveSpaceLocationScope(tenantId, spaceId);
+    const merge = (m: Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>) => {
+      for (const [k, v] of m) if (!out.has(k)) out.set(k, v);
+    };
+    if (spaceLocationIds.length) merge(await this.getModalSalesPricesByName(tenantId, uniq, { integrationId: opts.integrationId, locationIds: spaceLocationIds }));
+    let missing = uniq.filter((n) => !out.has(n));
+    if (missing.length && otherSpaceLocationIds.length) merge(await this.getModalSalesPricesByName(tenantId, missing, { integrationId: opts.integrationId, excludeLocationIds: otherSpaceLocationIds }));
+    missing = uniq.filter((n) => !out.has(n));
+    if (missing.length) merge(await this.getModalSalesPricesByName(tenantId, missing, { integrationId: opts.integrationId }));
+    return out;
+  }
+
+  // ── Repli par item_id WEEZEVENT (lien le plus fiable) ─────────────────────
+  // Le lien le plus sûr vente↔produit = l'id Weezevent de l'item, TOUJOURS présent dans
+  // `ti."rawData"->>'item_id'` (indépendant du FK productId et du productName). Résout le cas où
+  // le FK est absent/pointe ailleurs ET où le nom diffère.
+
+  /** Dernier prix non nul par item_id Weezevent (rawData.item_id). Cf. getLatestSalesPrices. */
+  async getLatestSalesPricesByWeezeventId(
+    tenantId: string,
+    weezeventIds: string[],
+    opts: { integrationId?: string; locationIds?: string[]; excludeLocationIds?: string[] } = {},
+  ): Promise<Map<string, { ttc: number; vatRate: number | null }>> {
+    const out = new Map<string, { ttc: number; vatRate: number | null }>();
+    if (opts.locationIds && opts.locationIds.length === 0) return out;
+    const uniq = [...new Set(weezeventIds.filter(Boolean).map(String))];
+    if (!uniq.length) return out;
+    const conds: Prisma.Sql[] = [
+      Prisma.sql`t."tenantId" = ${tenantId}`,
+      Prisma.sql`(ti."rawData"->>'item_id') IN (${Prisma.join(uniq)})`,
+      Prisma.sql`ti."unitPrice" > 0`,
+    ];
+    if (opts.integrationId) conds.push(Prisma.sql`t."integrationId" = ${opts.integrationId}`);
+    if (opts.locationIds && opts.locationIds.length > 0) conds.push(Prisma.sql`t."locationId" IN (${Prisma.join(opts.locationIds)})`);
+    if (opts.excludeLocationIds && opts.excludeLocationIds.length > 0) conds.push(Prisma.sql`(t."locationId" IS NULL OR t."locationId" NOT IN (${Prisma.join(opts.excludeLocationIds)}))`);
+    const rows = await this.prisma.$queryRaw<{ wid: string; unitPrice: any; vat: any }[]>(Prisma.sql`
+      SELECT DISTINCT ON ((ti."rawData"->>'item_id')) (ti."rawData"->>'item_id') AS wid, ti."unitPrice", ti."vat"
+      FROM "WeezeventTransactionItem" ti
+      JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"
+      WHERE ${Prisma.join(conds, ' AND ')}
+      ORDER BY (ti."rawData"->>'item_id'), t."transactionDate" DESC
+    `);
+    for (const r of rows) if (r.wid) out.set(r.wid, { ttc: Number(r.unitPrice), vatRate: r.vat != null ? Number(r.vat) : null });
+    return out;
+  }
+
+  /** Distribution des prix par item_id Weezevent. Cf. getModalSalesPrices. */
+  async getModalSalesPricesByWeezeventId(
+    tenantId: string,
+    weezeventIds: string[],
+    opts: { integrationId?: string; locationIds?: string[]; excludeLocationIds?: string[] } = {},
+  ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
+    const out = new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>();
+    if (opts.locationIds && opts.locationIds.length === 0) return out;
+    const uniq = [...new Set(weezeventIds.filter(Boolean).map(String))];
+    if (!uniq.length) return out;
+    const conds: Prisma.Sql[] = [
+      Prisma.sql`t."tenantId" = ${tenantId}`,
+      Prisma.sql`(ti."rawData"->>'item_id') IN (${Prisma.join(uniq)})`,
+      Prisma.sql`ti."unitPrice" > 0`,
+    ];
+    if (opts.integrationId) conds.push(Prisma.sql`t."integrationId" = ${opts.integrationId}`);
+    if (opts.locationIds && opts.locationIds.length > 0) conds.push(Prisma.sql`t."locationId" IN (${Prisma.join(opts.locationIds)})`);
+    if (opts.excludeLocationIds && opts.excludeLocationIds.length > 0) conds.push(Prisma.sql`(t."locationId" IS NULL OR t."locationId" NOT IN (${Prisma.join(opts.excludeLocationIds)}))`);
+    const rows = await this.prisma.$queryRaw<{ wid: string; unitPrice: any; vat: any; n: number }[]>(Prisma.sql`
+      SELECT (ti."rawData"->>'item_id') AS wid, ti."unitPrice", ti."vat", count(*)::int AS n
+      FROM "WeezeventTransactionItem" ti
+      JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"
+      WHERE ${Prisma.join(conds, ' AND ')}
+      GROUP BY (ti."rawData"->>'item_id'), ti."unitPrice", ti."vat"
+      ORDER BY (ti."rawData"->>'item_id'), n DESC
+    `);
+    for (const r of rows) {
+      if (!r.wid) continue;
+      const ttc = Number(r.unitPrice);
+      const vatRate = r.vat != null ? Number(r.vat) : null;
+      const ht = vatRate != null ? this.round2(ttc / (1 + vatRate / 100)) : null;
+      const list = out.get(r.wid) ?? [];
+      list.push({ ttc, ht, vatRate, salesCount: Number(r.n) });
+      out.set(r.wid, list);
+    }
+    return out;
+  }
+
+  /** Prix « de l'espace » par item_id Weezevent (3 niveaux : espace → non-attribué → global). */
+  async getSpaceScopedLatestPricesByWeezeventId(
+    tenantId: string,
+    spaceId: string,
+    weezeventIds: string[],
+    opts: { integrationId?: string } = {},
+  ): Promise<Map<string, { ttc: number; vatRate: number | null }>> {
+    const out = new Map<string, { ttc: number; vatRate: number | null }>();
+    const uniq = [...new Set(weezeventIds.filter(Boolean).map(String))];
+    if (!uniq.length) return out;
+    const { spaceLocationIds, otherSpaceLocationIds } = await this.resolveSpaceLocationScope(tenantId, spaceId);
+    const merge = (m: Map<string, { ttc: number; vatRate: number | null }>) => {
+      for (const [k, v] of m) if (!out.has(k)) out.set(k, v);
+    };
+    if (spaceLocationIds.length) merge(await this.getLatestSalesPricesByWeezeventId(tenantId, uniq, { integrationId: opts.integrationId, locationIds: spaceLocationIds }));
+    let missing = uniq.filter((w) => !out.has(w));
+    if (missing.length && otherSpaceLocationIds.length) merge(await this.getLatestSalesPricesByWeezeventId(tenantId, missing, { integrationId: opts.integrationId, excludeLocationIds: otherSpaceLocationIds }));
+    missing = uniq.filter((w) => !out.has(w));
+    if (missing.length) merge(await this.getLatestSalesPricesByWeezeventId(tenantId, missing, { integrationId: opts.integrationId }));
+    return out;
+  }
+
+  /** Distribution des prix « de l'espace » par item_id Weezevent (espace prioritaire, repli global). */
+  async getSpaceScopedModalPricesByWeezeventId(
+    tenantId: string,
+    spaceId: string,
+    weezeventIds: string[],
+    opts: { integrationId?: string } = {},
+  ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
+    const out = new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>();
+    const uniq = [...new Set(weezeventIds.filter(Boolean).map(String))];
+    if (!uniq.length) return out;
+    const { spaceLocationIds, otherSpaceLocationIds } = await this.resolveSpaceLocationScope(tenantId, spaceId);
+    const merge = (m: Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>) => {
+      for (const [k, v] of m) if (!out.has(k)) out.set(k, v);
+    };
+    if (spaceLocationIds.length) merge(await this.getModalSalesPricesByWeezeventId(tenantId, uniq, { integrationId: opts.integrationId, locationIds: spaceLocationIds }));
+    let missing = uniq.filter((w) => !out.has(w));
+    if (missing.length && otherSpaceLocationIds.length) merge(await this.getModalSalesPricesByWeezeventId(tenantId, missing, { integrationId: opts.integrationId, excludeLocationIds: otherSpaceLocationIds }));
+    missing = uniq.filter((w) => !out.has(w));
+    if (missing.length) merge(await this.getModalSalesPricesByWeezeventId(tenantId, missing, { integrationId: opts.integrationId }));
+    return out;
   }
 
   /**

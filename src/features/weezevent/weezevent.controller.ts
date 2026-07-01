@@ -678,6 +678,7 @@ export class WeezeventController {
     @ApiQuery({ name: 'perPage', required: false, type: Number, example: 50 })
     @ApiQuery({ name: 'category', required: false, description: 'Filtrer par catégorie de produit' })
     @ApiQuery({ name: 'spaceId', required: false, description: 'Espace : le prix renvoyé est celui pratiqué DANS cet espace (ventes des locations mappées), pas le basePrice figé du produit' })
+    @ApiQuery({ name: 'onlySold', required: false, description: 'true → ne renvoie que les produits ayant un prix (donc réellement vendus) ; masque le bruit du catalogue jamais vendu' })
     @ApiResponse({ status: 200, description: 'Liste paginée des produits Weezevent' })
     async getProducts(
         @CurrentUser() user: any,
@@ -686,6 +687,7 @@ export class WeezeventController {
         @Query('integrationId') integrationId?: string,
         @Query('category') category?: string,
         @Query('spaceId') spaceId?: string,
+        @Query('onlySold') onlySold?: string,
     ) {
         const tenantId = user.tenantId;
         const p = Math.max(1, parseInt(String(page), 10) || 1);
@@ -730,6 +732,55 @@ export class WeezeventController {
                 // Aucune vente attribuable (ni espace, ni non-attribuée) : on garde le prix propre.
                 return { ...pr, priceSource: 'catalog' };
             });
+
+            // Repli par item_id Weezevent (lien le plus fiable) : produits sans vente sous leur id FK.
+            const missingForWid = data.filter((pr: any) => pr.priceSource === 'catalog' && (pr.basePrice == null || Number(pr.basePrice) === 0) && pr.weezeventId);
+            if (missingForWid.length) {
+                const wids = [...new Set(missingForWid.map((pr: any) => pr.weezeventId))];
+                const [latestByWid, distByWid] = await Promise.all([
+                    this.pricing.getSpaceScopedLatestPricesByWeezeventId(tenantId, spaceId, wids, { integrationId }),
+                    this.pricing.getSpaceScopedModalPricesByWeezeventId(tenantId, spaceId, wids, { integrationId }),
+                ]);
+                data = data.map((pr: any) => {
+                    if (!(pr.priceSource === 'catalog' && (pr.basePrice == null || Number(pr.basePrice) === 0) && pr.weezeventId)) return pr;
+                    const px = latestByWid.get(pr.weezeventId);
+                    if (px && px.ttc > 0) {
+                        return {
+                            ...pr,
+                            basePrice: px.ttc,
+                            vatRate: pr.vatRate != null && Number(pr.vatRate) !== 0 ? pr.vatRate : px.vatRate,
+                            priceSource: 'sales_item',
+                            salesPrices: distByWid.get(pr.weezeventId) ?? [],
+                        };
+                    }
+                    return pr;
+                });
+            }
+
+            // Repli par NOM : produits sans vente sous leur propre id (ex. item recréé chaque saison
+            // avec un nouvel id) → on cherche le prix des ventes du même NOM (scopé espace/intégration).
+            const stillMissing = data.filter((pr: any) => pr.priceSource === 'catalog' && (pr.basePrice == null || Number(pr.basePrice) === 0) && pr.name);
+            if (stillMissing.length) {
+                const names = [...new Set(stillMissing.map((pr: any) => pr.name))];
+                const [latestByName, distByName] = await Promise.all([
+                    this.pricing.getSpaceScopedLatestPricesByName(tenantId, spaceId, names, { integrationId }),
+                    this.pricing.getSpaceScopedModalPricesByName(tenantId, spaceId, names, { integrationId }),
+                ]);
+                data = data.map((pr: any) => {
+                    if (!(pr.priceSource === 'catalog' && (pr.basePrice == null || Number(pr.basePrice) === 0) && pr.name)) return pr;
+                    const px = latestByName.get(pr.name);
+                    if (px && px.ttc > 0) {
+                        return {
+                            ...pr,
+                            basePrice: px.ttc,
+                            vatRate: pr.vatRate != null && Number(pr.vatRate) !== 0 ? pr.vatRate : px.vatRate,
+                            priceSource: 'sales_name',
+                            salesPrices: distByName.get(pr.name) ?? [],
+                        };
+                    }
+                    return pr;
+                });
+            }
         } else {
             // Sans espace : prix « produit » global. Un produit F&B a basePrice null ; un produit créé
             // par un sync dont la 1re vente vue était à 0 (gratuité/staff, fréquent "HAPPY HOUR") a
@@ -750,6 +801,14 @@ export class WeezeventController {
                     salesPrices: sales,
                 };
             });
+        }
+
+        // onlySold : ne renvoie que les produits ayant un prix (= réellement vendus) → on retire le
+        // bruit du catalogue jamais vendu. `total`/`total_pages` restent le décompte NON filtré :
+        // le front boucle sur toutes les pages (il concatène les data filtrées) et déduit le nombre
+        // masqué = total − nb renvoyés.
+        if (onlySold === 'true') {
+            data = data.filter((pr: any) => pr.basePrice != null && Number(pr.basePrice) > 0);
         }
 
         return {
@@ -817,6 +876,29 @@ export class WeezeventController {
                         (localData as any).vatRate = px.vatRate;
                     }
                     (localData as any).salesPrices = (await this.pricing.getSpaceScopedModalPrices(tenantId, spaceId, [product.id])).get(product.id) ?? [];
+                }
+                // Repli par item_id Weezevent (lien le plus fiable, indépendant du FK et du nom).
+                if ((localData.basePrice == null || Number(localData.basePrice) === 0) && product.weezeventId) {
+                    const byWid = (await this.pricing.getSpaceScopedLatestPricesByWeezeventId(tenantId, spaceId, [product.weezeventId], { integrationId: product.integrationId })).get(product.weezeventId);
+                    if (byWid && byWid.ttc > 0) {
+                        localData.basePrice = byWid.ttc;
+                        if ((product.vatRate == null || Number(product.vatRate) === 0) && byWid.vatRate != null) {
+                            (localData as any).vatRate = byWid.vatRate;
+                        }
+                        (localData as any).salesPrices = (await this.pricing.getSpaceScopedModalPricesByWeezeventId(tenantId, spaceId, [product.weezeventId], { integrationId: product.integrationId })).get(product.weezeventId) ?? [];
+                    }
+                }
+                // Repli par NOM : ce produit n'a pas de vente sous son id (item recréé chaque saison)
+                // → on cherche le prix des ventes du même nom (scopé espace/intégration).
+                if ((localData.basePrice == null || Number(localData.basePrice) === 0) && product.name) {
+                    const byName = (await this.pricing.getSpaceScopedLatestPricesByName(tenantId, spaceId, [product.name], { integrationId: product.integrationId })).get(product.name);
+                    if (byName && byName.ttc > 0) {
+                        localData.basePrice = byName.ttc;
+                        if ((product.vatRate == null || Number(product.vatRate) === 0) && byName.vatRate != null) {
+                            (localData as any).vatRate = byName.vatRate;
+                        }
+                        (localData as any).salesPrices = (await this.pricing.getSpaceScopedModalPricesByName(tenantId, spaceId, [product.name], { integrationId: product.integrationId })).get(product.name) ?? [];
+                    }
                 }
             } else {
                 const sales = (await this.deriveSalesPrices([product.id])).get(product.id);

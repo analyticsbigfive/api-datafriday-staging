@@ -37,15 +37,15 @@ export class CreateMarketPriceDto {
   @IsOptional()
   category?: string;
 
-  @ApiProperty({ required: false, description: 'ID du type de produit dynamique (ProductType)' })
+  @ApiProperty({ required: false, description: 'ID du Market Price Type (MarketPriceType)' })
   @IsString()
   @IsOptional()
-  typeId?: string;
+  marketPriceTypeId?: string;
 
-  @ApiProperty({ required: false, description: 'ID de la catégorie de produit dynamique (ProductCategory)' })
+  @ApiProperty({ required: false, description: 'ID de la Market Price Category (MarketPriceCategory)' })
   @IsString()
   @IsOptional()
-  categoryId?: string;
+  marketPriceCategoryId?: string;
 
   @ApiProperty({ required: false, description: 'Image URL' })
   @IsString()

@@ -699,10 +699,11 @@ model MarketPrice {
   packingLength          Float?
   purchasePackaging      String? // Emballage d'achat ("Item is purchased in", ex: Box)
   inventoryPackaging     String? // Emballage de stockage ("Item is stored in", ex: Bag)
-  // Taxonomie dynamique (additive). `goodType` (enum) reste le discriminateur
-  // fonctionnel qui pilote l'auto-création Ingredient/Packaging.
-  typeId                 String? // FK -> ProductType
-  categoryId             String? // FK -> ProductCategory
+  // Taxonomie dynamique propre à Market Price (séparée de Menu Item).
+  // `goodType` (enum) reste le discriminateur fonctionnel qui pilote
+  // l'auto-création Ingredient/Packaging.
+  marketPriceTypeId      String? // FK -> MarketPriceType
+  marketPriceCategoryId  String? // FK -> MarketPriceCategory
   tenantId               String
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
@@ -710,8 +711,8 @@ model MarketPrice {
 
   tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   supplierRel     Supplier?        @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  productType     ProductType?     @relation(fields: [typeId], references: [id], onDelete: SetNull)
-  productCategory ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  marketPriceType     MarketPriceType?     @relation(fields: [marketPriceTypeId], references: [id], onDelete: SetNull)
+  marketPriceCategory MarketPriceCategory? @relation(fields: [marketPriceCategoryId], references: [id], onDelete: SetNull)
   ingredients     Ingredient[]
   packagings      Packaging[]
 
@@ -720,8 +721,8 @@ model MarketPrice {
   @@index([goodType])
   @@index([itemName])
   @@index([category])
-  @@index([typeId])
-  @@index([categoryId])
+  @@index([marketPriceTypeId])
+  @@index([marketPriceCategoryId])
 }
 
 // ==================== WEEZEVENT SYNC ====================
@@ -1524,7 +1525,6 @@ model ProductType {
 
   categories   ProductCategory[]
   menuItems    MenuItem[]
-  marketPrices MarketPrice[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -1542,6 +1542,41 @@ model ProductCategory {
 
   type         ProductType   @relation(fields: [typeId], references: [id], onDelete: Cascade)
   menuItems    MenuItem[]
+
+  @@unique([tenantId, typeId, name])
+  @@index([tenantId])
+  @@index([typeId])
+  @@index([name])
+}
+
+// ==================== MARKET PRICE TAXONOMY ====================
+// Taxonomie propre à Market Price List (Good Type / Good Category côté UI),
+// séparée de la taxonomie Menu Item (ProductType / ProductCategory).
+
+model MarketPriceType {
+  id        String   @id @default(cuid())
+  name      String
+  tenantId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  categories   MarketPriceCategory[]
+  marketPrices MarketPrice[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([name])
+}
+
+model MarketPriceCategory {
+  id        String   @id @default(cuid())
+  name      String
+  typeId    String
+  tenantId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  type         MarketPriceType @relation(fields: [typeId], references: [id], onDelete: Cascade)
   marketPrices MarketPrice[]
 
   @@unique([tenantId, typeId, name])

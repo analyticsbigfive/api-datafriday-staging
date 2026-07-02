@@ -50,8 +50,8 @@ export class MarketPricesService {
           price: dto.price,
           goodType: dto.goodType,
           category: dto.category,
-          typeId: dto.typeId,
-          categoryId: dto.categoryId,
+          marketPriceTypeId: dto.marketPriceTypeId,
+          marketPriceCategoryId: dto.marketPriceCategoryId,
           image: dto.image,
           supplier: dto.supplier,
           supplierId: dto.supplierId,
@@ -274,8 +274,8 @@ export class MarketPricesService {
     if (dto.price !== undefined) updateData.price = dto.price;
     if (dto.goodType !== undefined) updateData.goodType = dto.goodType;
     if (dto.category !== undefined) updateData.category = dto.category;
-    if (dto.typeId !== undefined) updateData.typeId = dto.typeId;
-    if (dto.categoryId !== undefined) updateData.categoryId = dto.categoryId;
+    if (dto.marketPriceTypeId !== undefined) updateData.marketPriceTypeId = dto.marketPriceTypeId;
+    if (dto.marketPriceCategoryId !== undefined) updateData.marketPriceCategoryId = dto.marketPriceCategoryId;
     if (dto.image !== undefined) updateData.image = dto.image;
     if (dto.supplier !== undefined) updateData.supplier = dto.supplier;
     if (dto.supplierId !== undefined) updateData.supplierId = dto.supplierId;
@@ -356,8 +356,8 @@ export class MarketPricesService {
             price: dto.price,
             goodType: dto.goodType,
             category: dto.category,
-            typeId: dto.typeId,
-            categoryId: dto.categoryId,
+            marketPriceTypeId: dto.marketPriceTypeId,
+            marketPriceCategoryId: dto.marketPriceCategoryId,
             image: dto.image,
             supplier: dto.supplier,
             supplierId: dto.supplierId,
